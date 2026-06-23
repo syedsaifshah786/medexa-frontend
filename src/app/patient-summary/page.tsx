@@ -1,119 +1,676 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
-function Header() {
-  return (
-    <header className="flex h-16 items-center gap-4 border-b border-slate-100 bg-white px-8">
-      <button className="rounded-lg bg-slate-100 px-3 py-2 text-slate-500">☰</button>
-      <Link href="/" className="text-xl font-bold text-blue-700">Medexa</Link>
-      <div className="flex-1 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-400">
-        Search patients or sessions...
-      </div>
-      <span className="text-blue-700">🔔</span>
-      <button className="rounded-md border px-3 py-1 text-sm">Eng</button>
-      <div className="flex items-center gap-2">
-        <div className="h-9 w-9 rounded-full bg-slate-300" />
-        <div>
-          <p className="text-sm font-bold">Dr. Sarah Miller</p>
-          <p className="text-xs text-slate-500">Clinician</p>
-        </div>
-      </div>
-    </header>
-  );
-}
+/* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
+
+const summaryText =
+  "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
 
 export default function PatientSummaryPage() {
-  return (
-    <main className="min-h-screen bg-[#eef1f6] text-slate-950">
-      <div className="mx-auto min-h-screen max-w-[1180px] bg-white">
-        <Header />
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [summaryNote, setSummaryNote] = useState(summaryText);
+  const [draftNote, setDraftNote] = useState(summaryText);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+  const [actionStatus, setActionStatus] = useState("");
 
-        <section className="border-b border-slate-100 px-8 py-5">
-          <div className="flex items-center gap-3">
-            <Link href="/ambient-listening" className="text-2xl text-slate-600">
+  const startEditing = () => {
+    setDraftNote(summaryNote);
+    setIsEditing(true);
+    setShowSendConfirm(false);
+    setActionStatus("");
+  };
+
+  const saveSummary = () => {
+    setSummaryNote(draftNote.trim() || summaryNote);
+    setIsEditing(false);
+    setActionStatus("Summary note updated.");
+  };
+
+  const cancelEditing = () => {
+    setDraftNote(summaryNote);
+    setIsEditing(false);
+  };
+
+  const requestSend = () => {
+    setShowSendConfirm(true);
+    setIsEditing(false);
+    setActionStatus("");
+  };
+
+  const confirmSend = () => {
+    setShowSendConfirm(false);
+    setActionStatus("Summary sent to patient successfully.");
+  };
+
+  const summaryMatches = useMemo(() => {
+    const query = headerSearch.trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    return [
+      summaryNote,
+      "Therapeutic Therapy Session",
+      "Medexa Summarized",
+      "July 05, 12:00 PM",
+      "Patient ID #99283",
+      "Duration 52:22",
+      "Units 3",
+      "Samuel Thompson",
+      "Dr. Sarah Miller",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  }, [headerSearch, summaryNote]);
+
+  return (
+    <main className="ambient-page">
+      <header className="topbar">
+        <button className="menu-button" aria-label="Open menu">
+          <span />
+          <span />
+          <span />
+        </button>
+
+        <Link href="/" className="brand">
+          Medexa
+        </Link>
+
+        <label className="global-search">
+          <span className="search-dot">⌕</span>
+          <input
+            aria-label="Search patients or sessions"
+            placeholder="Search patients or sessions..."
+            type="search"
+            value={headerSearch}
+            onChange={(event) => setHeaderSearch(event.target.value)}
+          />
+        </label>
+
+        <button className="icon-button bell" aria-label="Notifications" />
+
+        <button className="translate-button" aria-label="Translate">
+          <span>✣</span>
+        </button>
+
+        <button className="language-button">Eng</button>
+
+        <div className="profile">
+          <img src="https://i.pravatar.cc/80?img=47" alt="" />
+          <div>
+            <strong>Dr. Sarah Miller</strong>
+            <span>Clinician</span>
+          </div>
+          <span className="chevron">⌄</span>
+        </div>
+      </header>
+
+      <section className="summary-content">
+        <section className="session-summary">
+          <div className="title-row">
+            <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
               ‹
             </Link>
-            <h1 className="text-2xl font-semibold">Therapeutic Therapy Session</h1>
-            <span className="text-sm font-semibold text-blue-700">
-              • Medexa Summarized
-            </span>
+            <h1>Therapeutic Therapy Session</h1>
+            <span>• Medexa Summarized</span>
           </div>
 
-          <div className="mt-5 grid grid-cols-4 gap-8 text-sm text-slate-600">
+          <div className="meta-row">
             <p>
-              <b className="text-slate-950">July 05, 12:00 PM</b>
+              <strong>July 05, 12:00 PM</strong>
             </p>
             <p>
-              Patient ID: <b className="text-slate-950">#99283</b>
+              Patient ID: <strong>#99283</strong>
             </p>
             <p>
-              Duration: <b className="text-slate-950">52:22</b>
+              Duration: <strong>52:22</strong>
             </p>
             <p>
-              Unit(s): <b className="text-slate-950">3</b>
+              Unit(s): <strong>3</strong>
             </p>
           </div>
         </section>
 
-        <nav
-          className="border-b border-slate-100 px-8 py-4 text-sm"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            width: "100%",
-          }}
-        >
-          <Link href="/soap-notes" className="text-slate-700">
-            SOAP Notes
-          </Link>
-
-          <Link
-            href="/billing-intelligence"
-            className="text-slate-700"
-            style={{ marginLeft: "42px" }}
-          >
-            Billing Intelligence
-          </Link>
-
-          <button
-            className="rounded-full border border-blue-200 bg-blue-50 px-5 py-2 font-medium text-blue-700"
-            style={{ marginLeft: "42px" }}
-          >
+        <nav className="tabs" aria-label="Session views">
+          <Link href="/soap-notes">SOAP Notes</Link>
+          <Link href="/billing-intelligence">Billing Intelligence</Link>
+          <Link href="/patient-summary" className="tab-active">
             Patient Summary
-          </button>
-
-          <Link href="/claim-document" className="font-bold text-blue-700" style={{ marginLeft: "auto" }}>
-  ✓ Create Claim-Document
-</Link>
+          </Link>
+          <Link href="/claim-document" className="claim-link">
+            ✓ Create Claim-Document
+          </Link>
         </nav>
 
-        <section className="px-8 py-6">
-          <div className="min-h-[620px] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Session Summary Note</h2>
+        <section className="summary-card">
+          <div className="summary-card-header">
+            <h2>Session Summary Note</h2>
+            <div className="summary-actions">
+              {!isEditing && (
+                <button type="button" onClick={startEditing}>
+                  ✎ Edit
+                </button>
+              )}
+              <button type="button" onClick={requestSend}>
+                ✈ Send to Patient
+              </button>
+            </div>
+          </div>
 
-              <div className="flex items-center gap-6 text-sm">
-                <button className="text-slate-700">✎ Edit</button>
-                <button className="font-semibold text-blue-700">
-                  ✈ Send to Patient
+          {actionStatus && <div className="action-status">{actionStatus}</div>}
+
+          {showSendConfirm && (
+            <div className="send-confirm">
+              <span>Send this summary to the patient?</span>
+              <div>
+                <button type="button" onClick={confirmSend}>
+                  Confirm Send
+                </button>
+                <button type="button" onClick={() => setShowSendConfirm(false)}>
+                  Cancel
                 </button>
               </div>
             </div>
+          )}
 
-            <p className="max-w-[850px] text-lg leading-8 text-slate-700">
-              On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah
-              Miller, focusing on gait training and therapeutic exercises to
-              support lower back pain, reduce fatigue, and improve strength and
-              balance. He performed well and needed some movement assistance,
-              which is normal at this stage of care. His knee flexibility
-              improved by 15° compared with the baseline session. Next steps
-              include a lipid panel follow-up with the primary care physician due
-              in December 2026, continuing therapy sessions on Monday, Wednesday,
-              and Friday, tracking pain daily in the pain diary, and completing
-              home exercises including seated marches and heel raises.
-            </p>
-          </div>
+          {summaryMatches ? (
+            isEditing ? (
+              <div className="summary-editor">
+                <textarea
+                  aria-label="Edit session summary note"
+                  value={draftNote}
+                  onChange={(event) => setDraftNote(event.target.value)}
+                />
+                <div className="editor-actions">
+                  <button type="button" onClick={cancelEditing}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={saveSummary}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p>{summaryNote}</p>
+            )
+          ) : (
+            <div className="empty-state">No matching summary content found.</div>
+          )}
         </section>
-      </div>
+      </section>
+
+      <style>{`
+        .ambient-page {
+          min-height: 100vh;
+          overflow-x: hidden;
+          background: #eef1f6;
+          color: #151820;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .topbar {
+          width: 100%;
+          box-sizing: border-box;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          padding: 0 32px;
+          background: #ffffff;
+          border-bottom: 1px solid #eef1f6;
+          box-shadow: 0 1px 8px rgba(15, 23, 42, 0.03);
+        }
+
+        button {
+          font-family: inherit;
+        }
+
+        .menu-button,
+        .icon-button,
+        .translate-button {
+          border: 0;
+          flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .menu-button {
+          width: 34px;
+          height: 34px;
+          flex-direction: column;
+          gap: 4px;
+          border-radius: 8px;
+          background: #eef2ff;
+        }
+
+        .menu-button span {
+          width: 12px;
+          height: 2px;
+          border-radius: 99px;
+          background: #626b80;
+        }
+
+        .brand {
+          margin-right: 12px;
+          color: #001eff;
+          font-size: 20px;
+          font-weight: 800;
+          text-decoration: none;
+        }
+
+        .global-search {
+          flex: 1 1 auto;
+          max-width: 520px;
+          height: 34px;
+          box-sizing: border-box;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 18px;
+          border: 1px solid #e4e9f2;
+          border-radius: 999px;
+          color: #9aa6ba;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+
+        .global-search input {
+          width: 100%;
+          min-width: 0;
+          border: 0;
+          outline: 0;
+          background: transparent;
+          color: #172033;
+          font: inherit;
+        }
+
+        .global-search input::placeholder {
+          color: #9aa6ba;
+        }
+
+        .search-dot {
+          color: #001eff;
+          font-size: 12px;
+        }
+
+        .bell {
+          position: relative;
+          width: 30px;
+          height: 30px;
+          margin-left: auto;
+          background: transparent;
+        }
+
+        .bell::before {
+          content: "";
+          width: 11px;
+          height: 14px;
+          border: 2px solid #001eff;
+          border-bottom: 0;
+          border-radius: 8px 8px 2px 2px;
+        }
+
+        .bell::after {
+          content: "";
+          position: absolute;
+          bottom: 7px;
+          width: 16px;
+          height: 2px;
+          border-radius: 999px;
+          background: #001eff;
+        }
+
+        .translate-button {
+          width: 30px;
+          height: 30px;
+          border-radius: 6px;
+          background: #eef2f7;
+          color: #4c5668;
+          font-size: 13px;
+        }
+
+        .language-button {
+          height: 30px;
+          padding: 0 12px;
+          border: 1px solid #d9e0eb;
+          border-radius: 6px;
+          background: #fff;
+          color: #111827;
+          font-size: 12px;
+        }
+
+        .profile {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .profile img {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          object-fit: cover;
+        }
+
+        .profile strong,
+        .profile span {
+          display: block;
+          line-height: 1.1;
+        }
+
+        .profile strong {
+          max-width: 150px;
+          overflow: hidden;
+          color: #172033;
+          font-size: 12px;
+          font-weight: 800;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+
+        .profile span {
+          color: #7a879b;
+          font-size: 10px;
+        }
+
+        .profile .chevron {
+          color: #172033;
+          font-size: 11px;
+        }
+
+        .summary-content {
+          box-sizing: border-box;
+          width: 100%;
+          min-height: calc(100vh - 64px);
+          padding: 20px 32px 36px;
+          background: #fbfbfc;
+        }
+
+        .session-summary {
+          border-bottom: 1px solid #edf1f6;
+          padding-bottom: 18px;
+        }
+
+        .title-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .back-link {
+          width: 24px;
+          color: #172033;
+          font-size: 28px;
+          line-height: 1;
+          text-decoration: none;
+        }
+
+        .title-row h1 {
+          margin: 0;
+          color: #172033;
+          font-size: 25px;
+          font-weight: 600;
+          line-height: 1.2;
+        }
+
+        .title-row span {
+          color: #001eff;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .meta-row {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(140px, 1fr));
+          gap: 44px;
+          max-width: 780px;
+          margin: 20px 0 0 46px;
+        }
+
+        .meta-row p {
+          margin: 0;
+          color: #667085;
+          font-size: 12px;
+          line-height: 1.3;
+        }
+
+        .meta-row strong {
+          color: #172033;
+          font-weight: 800;
+        }
+
+        .tabs {
+          min-height: 58px;
+          display: flex;
+          align-items: center;
+          gap: 42px;
+          border-bottom: 1px solid #edf1f6;
+        }
+
+        .tabs a {
+          color: #172033;
+          font-size: 13px;
+          text-decoration: none;
+        }
+
+        .tabs .tab-active {
+          border: 1px solid #b9c8ff;
+          border-radius: 999px;
+          background: #eef3ff;
+          color: #001eff;
+          padding: 10px 18px;
+        }
+
+        .tabs .claim-link {
+          margin-left: auto;
+          color: #001eff;
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        .summary-card {
+          min-height: 600px;
+          margin-top: 20px;
+          border: 1px solid #dbe7ff;
+          border-radius: 16px;
+          background: #fff;
+          padding: 24px 26px;
+          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        }
+
+        .summary-card-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
+          margin-bottom: 28px;
+        }
+
+        .summary-card h2 {
+          margin: 0;
+          color: #172033;
+          font-size: 18px;
+          font-weight: 600;
+        }
+
+        .summary-actions {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+          flex: 0 0 auto;
+        }
+
+        .summary-actions button {
+          border: 0;
+          background: transparent;
+          color: #344054;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .summary-actions button:last-child {
+          color: #001eff;
+          font-weight: 800;
+        }
+
+        .summary-card p {
+          max-width: 1040px;
+          margin: 0;
+          color: #172033;
+          font-size: 18px;
+          line-height: 1.55;
+        }
+
+        .summary-editor {
+          max-width: 1040px;
+        }
+
+        .summary-editor textarea {
+          width: 100%;
+          min-height: 260px;
+          box-sizing: border-box;
+          resize: vertical;
+          border: 1px solid #dbe7ff;
+          border-radius: 14px;
+          background: #fff;
+          color: #172033;
+          font: inherit;
+          font-size: 16px;
+          line-height: 1.55;
+          padding: 16px;
+          outline: 0;
+        }
+
+        .summary-editor textarea:focus {
+          border-color: #8da2ff;
+          box-shadow: 0 0 0 3px rgba(0, 30, 255, 0.08);
+        }
+
+        .editor-actions,
+        .send-confirm div {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 14px;
+        }
+
+        .editor-actions button,
+        .send-confirm button {
+          border: 0;
+          border-radius: 999px;
+          background: #eef3ff;
+          color: #001eff;
+          padding: 8px 14px;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .editor-actions button:first-child,
+        .send-confirm button:last-child {
+          background: #f3f5f8;
+          color: #667085;
+        }
+
+        .send-confirm,
+        .action-status {
+          max-width: 1040px;
+          box-sizing: border-box;
+          border-radius: 14px;
+          margin-bottom: 18px;
+          padding: 14px 16px;
+          font-size: 13px;
+        }
+
+        .send-confirm {
+          border: 1px solid #dbe7ff;
+          background: #f8faff;
+          color: #172033;
+        }
+
+        .send-confirm span {
+          font-weight: 700;
+        }
+
+        .action-status {
+          border: 1px solid #bdebd4;
+          background: #fbfffd;
+          color: #09875a;
+          font-weight: 800;
+        }
+
+        .empty-state {
+          border: 1px dashed #d8deea;
+          border-radius: 14px;
+          background: #fff;
+          color: #667085;
+          padding: 24px;
+          text-align: center;
+          font-size: 13px;
+        }
+
+        @media (max-width: 760px) {
+          .topbar {
+            gap: 10px;
+            padding: 0 16px;
+          }
+
+          .global-search,
+          .profile div,
+          .profile .chevron {
+            display: none;
+          }
+
+          .summary-content {
+            padding: 18px 16px 28px;
+          }
+
+          .title-row,
+          .summary-card-header {
+            align-items: flex-start;
+            flex-wrap: wrap;
+          }
+
+          .meta-row {
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-left: 36px;
+          }
+
+          .tabs {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 14px;
+            padding: 16px 0;
+          }
+
+          .tabs .claim-link {
+            margin-left: 0;
+          }
+
+          .summary-card {
+            min-height: 460px;
+            padding: 20px;
+          }
+
+          .summary-card p {
+            font-size: 15px;
+          }
+
+          .summary-actions,
+          .editor-actions,
+          .send-confirm div {
+            flex-wrap: wrap;
+            justify-content: flex-start;
+          }
+        }
+      `}</style>
     </main>
   );
 }
