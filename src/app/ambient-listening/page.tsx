@@ -80,10 +80,17 @@ const initialTranscripts: Transcript[] = [
 ];
 
 const transcriptsPerPage = 2;
+const sessionDragThreshold = 6;
 
 export default function AmbientListeningPage() {
   const router = useRouter();
   const sessionsRowRef = useRef<HTMLDivElement>(null);
+  const sessionDragRef = useRef({
+    isDragging: false,
+    startX: 0,
+    scrollLeft: 0,
+    moved: false,
+  });
   const [headerSearch, setHeaderSearch] = useState("");
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [transcriptItems, setTranscriptItems] = useState<Transcript[]>(initialTranscripts);
@@ -94,6 +101,7 @@ export default function AmbientListeningPage() {
   const [isSessionsModalOpen, setIsSessionsModalOpen] = useState(false);
   const [sessionMessage, setSessionMessage] = useState("");
   const [sessionStatusDetail, setSessionStatusDetail] = useState("");
+  const [isDraggingSessions, setIsDraggingSessions] = useState(false);
   const { selectedDoctor } = useSelectedDoctor();
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
@@ -120,6 +128,10 @@ export default function AmbientListeningPage() {
   }, [normalizedHeaderSearch]);
 
   const openSession = (session: UpcomingSession) => {
+    if (sessionDragRef.current.moved) {
+      return;
+    }
+
     setSessionMessage(`Opening ${session.name} session...`);
     router.push(`/ambient-listening/session?id=${session.id}`);
   };
@@ -131,7 +143,61 @@ export default function AmbientListeningPage() {
   };
 
   const scrollSessions = () => {
-    sessionsRowRef.current?.scrollBy({ left: 320, behavior: "smooth" });
+    const row = sessionsRowRef.current;
+
+    if (!row) {
+      return;
+    }
+
+    const maxScrollLeft = row.scrollWidth - row.clientWidth;
+    const nextScrollLeft = row.scrollLeft + Math.max(row.clientWidth * 0.8, 320);
+    const isNearEnd = row.scrollLeft >= maxScrollLeft - 16 || nextScrollLeft >= maxScrollLeft;
+
+    row.scrollTo({
+      left: isNearEnd ? 0 : nextScrollLeft,
+      behavior: "smooth",
+    });
+  };
+
+  const startSessionDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    const row = sessionsRowRef.current;
+
+    if (!row) {
+      return;
+    }
+
+    sessionDragRef.current = {
+      isDragging: true,
+      startX: event.clientX,
+      scrollLeft: row.scrollLeft,
+      moved: false,
+    };
+    setIsDraggingSessions(true);
+  };
+
+  const moveSessionDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    const row = sessionsRowRef.current;
+    const dragState = sessionDragRef.current;
+
+    if (!row || !dragState.isDragging) {
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    if (Math.abs(deltaX) > sessionDragThreshold) {
+      dragState.moved = true;
+    }
+
+    row.scrollLeft = dragState.scrollLeft - deltaX;
+  };
+
+  const endSessionDrag = () => {
+    sessionDragRef.current.isDragging = false;
+    setIsDraggingSessions(false);
+
+    window.setTimeout(() => {
+      sessionDragRef.current.moved = false;
+    }, 0);
   };
 
   const filteredTranscripts = useMemo(() => {
@@ -216,7 +282,7 @@ export default function AmbientListeningPage() {
             Dr. {doctorFirstName}
           </h1>
 
-          <Link href="/start-session" className="start-session">
+          <Link href="/ambient-listening/session" className="start-session">
             <span className="mic-icon">◉</span>
             <span>
               <strong>Start a new session?</strong>
@@ -248,7 +314,15 @@ export default function AmbientListeningPage() {
             </div>
           )}
 
-          <div className="sessions-row" ref={sessionsRowRef}>
+          <div
+            className={`sessions-row ${isDraggingSessions ? "is-dragging" : ""}`}
+            ref={sessionsRowRef}
+            onMouseDown={startSessionDrag}
+            onMouseMove={moveSessionDrag}
+            onMouseUp={endSessionDrag}
+            onMouseLeave={endSessionDrag}
+            onDragStart={(event) => event.preventDefault()}
+          >
             {filteredSessions.map((session) => (
               <article
                 key={session.id}
@@ -271,6 +345,9 @@ export default function AmbientListeningPage() {
                     aria-label={`Open ${session.name} session`}
                     onClick={(event) => {
                       event.stopPropagation();
+                      if (sessionDragRef.current.moved) {
+                        return;
+                      }
                       openSession(session);
                     }}
                   >
@@ -282,6 +359,9 @@ export default function AmbientListeningPage() {
                     className="session-status"
                     onClick={(event) => {
                       event.stopPropagation();
+                      if (sessionDragRef.current.moved) {
+                        return;
+                      }
                       showSessionStatus(session);
                     }}
                   >
@@ -696,7 +776,7 @@ export default function AmbientListeningPage() {
           width: 100%;
           min-height: calc(100vh - 64px);
           margin: 0 auto;
-          padding: 20px 32px 36px;
+          padding: 20px clamp(16px, 3vw, 32px) 36px;
           background: #fbfbfc;
         }
 
@@ -779,6 +859,7 @@ export default function AmbientListeningPage() {
 
         .sessions-section {
           margin-top: 26px;
+          min-width: 0;
         }
 
         .section-heading {
@@ -832,13 +913,28 @@ export default function AmbientListeningPage() {
 
         .sessions-row {
           width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
           display: flex;
+          flex-wrap: nowrap;
           gap: 16px;
           margin-top: 18px;
-          padding: 2px 2px 12px;
+          padding: 2px 2px 14px;
           overflow-x: auto;
           overflow-y: hidden;
-          scrollbar-width: thin;
+          overscroll-behavior-x: contain;
+          scroll-behavior: smooth;
+          scrollbar-width: none;
+          cursor: grab;
+          user-select: none;
+        }
+
+        .sessions-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .sessions-row.is-dragging {
+          cursor: grabbing;
         }
 
         .session-feedback {
@@ -865,9 +961,9 @@ export default function AmbientListeningPage() {
 
         .session-card {
           position: relative;
-          width: clamp(190px, 22vw, 270px);
+          width: clamp(210px, 22vw, 270px);
           height: 166px;
-          flex: 0 0 clamp(190px, 22vw, 270px);
+          flex: 0 0 clamp(210px, 22vw, 270px);
           box-sizing: border-box;
           display: flex;
           flex-direction: column;
@@ -879,7 +975,7 @@ export default function AmbientListeningPage() {
           text-decoration: none;
           box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
           border: 0;
-          cursor: pointer;
+          cursor: inherit;
           transition: transform 0.16s ease, box-shadow 0.16s ease;
         }
 
@@ -1097,7 +1193,9 @@ export default function AmbientListeningPage() {
 
         .transcripts-section {
           margin-top: 30px;
-          width: min(100%, 1288px);
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .transcripts-heading {
@@ -1141,6 +1239,8 @@ export default function AmbientListeningPage() {
 
         .transcripts-card {
           overflow: hidden;
+          width: 100%;
+          box-sizing: border-box;
           border-radius: 12px;
           background: #ffffff;
           box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07);

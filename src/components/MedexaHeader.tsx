@@ -30,7 +30,7 @@ const notifications = [
 const languages = [
   { label: "English", short: "Eng", value: "en" },
   { label: "Arabic", short: "Ar", value: "ar" },
-  { label: "Spanish", short: "Esp", value: "es" },
+  { label: "Hebrew", short: "Heb", value: "he" },
 ] as const;
 
 export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHeaderProps) {
@@ -146,23 +146,14 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
         <div className="medexa-action-wrap">
           <button
-            className="medexa-translate-button"
-            aria-label="Choose language"
-            aria-expanded={isLanguageOpen}
-            type="button"
-            onClick={toggleLanguage}
-          >
-            <span aria-hidden="true">A</span>
-          </button>
-
-          <button
             className="medexa-language-button"
             aria-label="Choose language"
             aria-expanded={isLanguageOpen}
             type="button"
             onClick={toggleLanguage}
           >
-            {selectedLanguage.short}
+            <span aria-hidden="true">A</span>
+            <b>{selectedLanguage.short}</b>
           </button>
 
           {isLanguageOpen && (
@@ -267,8 +258,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         }
 
         .medexa-menu-button,
-        .medexa-icon-button,
-        .medexa-translate-button {
+        .medexa-icon-button {
           border: 0;
           flex: 0 0 auto;
           display: inline-flex;
@@ -384,37 +374,44 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           background: #001eff;
         }
 
-        .medexa-translate-button {
-          position: relative;
-          width: 30px;
-          height: 30px;
-          border-radius: 6px;
-          background: #eef2f7;
-          color: #4c5668;
-          font-size: 14px;
-          line-height: 1;
-        }
-
-        .medexa-translate-button::after {
-          content: "T";
-          position: absolute;
-          right: 6px;
-          bottom: 5px;
-          color: #001eff;
-          font-size: 9px;
-          font-weight: 800;
-        }
-
         .medexa-language-button {
           height: 30px;
-          margin-left: 8px;
-          padding: 0 12px;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          padding: 0 11px;
           border: 1px solid #d9e0eb;
           border-radius: 6px;
           background: #fff;
           color: #111827;
           font-size: 12px;
           cursor: pointer;
+        }
+
+        .medexa-language-button span {
+          position: relative;
+          width: 14px;
+          height: 14px;
+          display: inline-flex;
+          align-items: center;
+          color: #4c5668;
+          font-size: 13px;
+          font-weight: 800;
+          line-height: 1;
+        }
+
+        .medexa-language-button span::after {
+          content: "T";
+          position: absolute;
+          right: -3px;
+          bottom: -2px;
+          color: #001eff;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        .medexa-language-button b {
+          font-size: 12px;
         }
 
         .medexa-profile {
