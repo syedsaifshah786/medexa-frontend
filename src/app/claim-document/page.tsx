@@ -492,18 +492,32 @@ export default function ClaimDocumentPage() {
           </div>
         </section>
 
-        <div className="bottom-bar">
-          <button type="button" onClick={saveDraft}>
-            ▣ Save as Draft
-          </button>
-          <button type="button" onClick={startMetaEdit}>
-            ✎ Edit Session Data
-          </button>
-          <button type="button" className="verify-button" onClick={verifyClaim}>
-            → Verify Claim Document ⓘ
-          </button>
-        </div>
       </section>
+
+      <div className="bottom-bar" aria-label="Claim document actions">
+          <button type="button" className="bar-action" onClick={saveDraft}>
+            <span className="bar-icon save-icon" aria-hidden="true">
+              ▣
+            </span>
+            <span>Save as Draft</span>
+          </button>
+          <button type="button" className="bar-action" onClick={startMetaEdit}>
+            <span className="bar-icon edit-icon" aria-hidden="true">
+              ✎
+            </span>
+            <span>Edit Session Data</span>
+          </button>
+          <span className="bar-divider" aria-hidden="true" />
+          <button type="button" className="verify-button" onClick={verifyClaim}>
+            <span className="verify-icon" aria-hidden="true">
+              →
+            </span>
+            <span>Verify Claim Document</span>
+            <span className="info-icon" aria-hidden="true">
+              i
+            </span>
+          </button>
+      </div>
 
       <style>{`
         .ambient-page {
@@ -696,7 +710,7 @@ export default function ClaimDocumentPage() {
           box-sizing: border-box;
           width: 100%;
           min-height: calc(100vh - 64px);
-          padding: 22px 32px 120px;
+          padding: 22px 32px 150px;
           background: #fbfbfc;
         }
 
@@ -1039,32 +1053,93 @@ export default function ClaimDocumentPage() {
         .bottom-bar {
           position: fixed;
           left: 50%;
-          bottom: 30px;
-          z-index: 20;
+          bottom: 24px;
+          z-index: 1000;
           display: flex;
           align-items: center;
-          gap: 24px;
+          gap: 14px;
           transform: translateX(-50%);
+          max-width: calc(100vw - 32px);
+          box-sizing: border-box;
           border-radius: 999px;
           background: #fff;
-          padding: 14px 18px;
-          box-shadow: 0 16px 38px rgba(15, 23, 42, 0.18);
+          padding: 10px 12px;
+          box-shadow: 0 18px 44px rgba(15, 23, 42, 0.2);
         }
 
         .bottom-bar button {
           border: 0;
           background: transparent;
           color: #001eff;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 800;
           white-space: nowrap;
         }
 
+        .bar-action,
+        .verify-button {
+          min-height: 38px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 0 10px;
+        }
+
+        .bar-icon {
+          width: 24px;
+          height: 24px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: #eef2ff;
+          color: #001eff;
+          font-size: 12px;
+          line-height: 1;
+        }
+
+        .bar-divider {
+          width: 1px;
+          height: 30px;
+          background: #e4e9f2;
+          margin: 0 2px;
+        }
+
         .bottom-bar .verify-button {
+          gap: 9px;
           border-radius: 999px;
+          background: transparent;
+          color: #fff;
+          padding: 0 4px 0 0;
+        }
+
+        .verify-icon {
+          width: 38px;
+          height: 38px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
           background: #001eff;
           color: #fff;
-          padding: 10px 14px;
+          font-size: 15px;
+        }
+
+        .verify-button span:nth-child(2) {
+          color: #001eff;
+        }
+
+        .info-icon {
+          width: 16px;
+          height: 16px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #9fb4ff;
+          border-radius: 50%;
+          color: #001eff;
+          font-size: 10px;
+          font-weight: 800;
         }
 
         @media (max-width: 900px) {
@@ -1099,7 +1174,7 @@ export default function ClaimDocumentPage() {
           }
 
           .claim-content {
-            padding: 18px 16px 130px;
+            padding: 18px 16px 170px;
           }
 
           .claim-title-row,
@@ -1128,6 +1203,7 @@ export default function ClaimDocumentPage() {
             gap: 12px;
             flex-wrap: wrap;
             border-radius: 22px;
+            bottom: 16px;
           }
         }
       `}</style>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
@@ -66,6 +66,15 @@ type InsightState = {
 
 type RecordingStatus = "active" | "paused" | "stopped";
 
+const INITIAL_RECORDING_SECONDS = 0;
+
+const formatDuration = (totalSeconds: number) => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+};
+
 export default function AmbientSessionPage() {
   return (
     <Suspense fallback={null}>
@@ -79,9 +88,10 @@ function AmbientSessionContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
-  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("active");
+  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("paused");
+  const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("Recording Active");
+  const [statusMessage, setStatusMessage] = useState("Recording Paused");
   const selectedSession = useMemo(
     () => getSessionById(searchParams.get("id") ?? searchParams.get("session")),
     [searchParams],
@@ -100,6 +110,20 @@ function AmbientSessionContent() {
         .includes(query),
     );
   }, [query]);
+
+  useEffect(() => {
+    if (recordingStatus !== "active" || showStopConfirm) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setRecordingSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [recordingStatus, showStopConfirm]);
   const filteredSuggestions = useMemo(() => {
     if (!query) {
       return suggestions;
@@ -159,6 +183,17 @@ function AmbientSessionContent() {
       : recordingStatus === "paused"
         ? "Recording Paused"
         : "Recording Active";
+  const recordingCardText =
+    recordingStatus === "stopped"
+      ? "Recording Stopped"
+      : recordingStatus === "paused"
+        ? "Recording Paused"
+        : (
+            <>
+              Say <b>Stop</b> Recording...
+            </>
+          );
+  const formattedRecordingDuration = formatDuration(recordingSeconds);
 
   return (
     <main className="session-page">
@@ -218,12 +253,10 @@ function AmbientSessionContent() {
             </span>
             <div>
               <div className="timer-line">
-                <strong>12:22</strong>
+                <strong>{formattedRecordingDuration}</strong>
                 <span>/ 1 Unit</span>
               </div>
-              <p>
-                Say <b>Stop</b> Recording...
-              </p>
+              <p>{recordingCardText}</p>
             </div>
           </div>
           <div className="recording-right">
