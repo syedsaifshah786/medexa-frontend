@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
+import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getSessionById } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
@@ -64,9 +65,10 @@ type InsightState = {
   selected?: boolean;
 };
 
-type RecordingStatus = "active" | "paused" | "stopped";
+type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 
 const INITIAL_RECORDING_SECONDS = 0;
+const BILLABLE_UNIT_SECONDS = 8 * 60;
 
 const formatDuration = (totalSeconds: number) => {
   const minutes = Math.floor(totalSeconds / 60);
@@ -88,10 +90,11 @@ function AmbientSessionContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
-  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("paused");
+  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("Recording Paused");
+  const [statusMessage, setStatusMessage] = useState("");
+  const { updateSoapData } = useSessionDocumentation();
   const selectedSession = useMemo(
     () => getSessionById(searchParams.get("id") ?? searchParams.get("session")),
     [searchParams],
@@ -112,7 +115,7 @@ function AmbientSessionContent() {
   }, [query]);
 
   useEffect(() => {
-    if (recordingStatus !== "active" || showStopConfirm) {
+    if (recordingStatus !== "recording") {
       return;
     }
 
@@ -123,7 +126,7 @@ function AmbientSessionContent() {
     return () => {
       window.clearInterval(timerId);
     };
-  }, [recordingStatus, showStopConfirm]);
+  }, [recordingStatus]);
   const filteredSuggestions = useMemo(() => {
     if (!query) {
       return suggestions;
@@ -134,39 +137,108 @@ function AmbientSessionContent() {
     );
   }, [query]);
 
+  const saveSoapDocumentation = (
+    nextInsightStates = insightStates,
+    nextAppliedSuggestions = appliedSuggestions,
+  ) => {
+    const activeInsights = insights.filter(
+      (item) =>
+        (nextInsightStates[item.id]?.approved || nextInsightStates[item.id]?.selected) &&
+        !nextInsightStates[item.id]?.ignored,
+    );
+    const protocolInsights = activeInsights.filter((item) => item.tone === "protocol");
+    const billingInsights = activeInsights.filter(
+      (item) => item.tone === "billing" || item.label === "Billing",
+    );
+    const appliedSuggestionNotes = suggestions
+      .filter((item) => nextAppliedSuggestions[item.id])
+      .map((item) => item.text);
+    const protocolSummary = protocolInsights.map((item) => item.note).join(" ");
+    const billingSummary = [...billingInsights.map((item) => item.text), ...appliedSuggestionNotes]
+      .filter(Boolean)
+      .join(" ");
+    const sessionDuration = recordingSeconds > 0 ? formatDuration(recordingSeconds) : selectedSession.time;
+    const generatedSoapData: SoapData = {
+      subjective: {
+        chiefComplaint:
+          protocolSummary ||
+          `${selectedSession.name} reports persistent fatigue with lower back discomfort during the current ${selectedSession.careType.toLowerCase()} encounter.`,
+        painScale: selectedSession.icd.startsWith("M") ? "6" : "4",
+        duration: protocolSummary ? "3 weeks" : "Current session",
+      },
+      objective: {
+        observationNotes:
+          `Live session documentation for ${selectedSession.name}: therapeutic activity and clinical prompts were reviewed over ${sessionDuration}. ` +
+          (protocolSummary || "Patient participation and symptom tolerance were monitored during the session."),
+        rangeOfMotion: selectedSession.icd.startsWith("M") ? "Lumbar mobility guarded" : "Functional mobility monitored",
+        affect: "Alert, cooperative",
+        vitalSigns: "Vital signs within normal limits",
+      },
+      assessment: {
+        diagnosisSummary:
+          `${selectedSession.careType} encounter associated with ${selectedSession.icd}. ` +
+          (billingSummary || "Clinical findings support continued monitoring and skilled intervention."),
+        primaryDiagnosisCode: selectedSession.icd,
+        severity: selectedSession.icd.startsWith("M") ? "Moderate" : "Stable",
+      },
+      plan: {
+        followUpPlan:
+          "Continue skilled session documentation, address protocol prompts, and reassess functional tolerance at the next visit. " +
+          (appliedSuggestionNotes.length > 0
+            ? `Applied recommendations: ${appliedSuggestionNotes.join(" ")}`
+            : "Review billing and diagnosis suggestions before claim creation."),
+      },
+    };
+
+    updateSoapData(generatedSoapData);
+    setStatusMessage("SOAP notes saved");
+  };
+
   const updateInsight = (id: string, nextState: InsightState, message: string) => {
-    setInsightStates((current) => ({
-      ...current,
+    const nextInsightStates = {
+      ...insightStates,
       [id]: {
-        ...current[id],
+        ...insightStates[id],
         ...nextState,
       },
-    }));
-    setStatusMessage(message);
+    };
+
+    setInsightStates(nextInsightStates);
+
+    if (nextState.approved) {
+      saveSoapDocumentation(nextInsightStates, appliedSuggestions);
+    } else {
+      setStatusMessage(message);
+    }
   };
 
   const handleSuggestionApply = (id: string) => {
-    setAppliedSuggestions((current) => ({
-      ...current,
+    const nextAppliedSuggestions = {
+      ...appliedSuggestions,
       [id]: true,
-    }));
-    setStatusMessage("Suggestion applied");
+    };
+
+    setAppliedSuggestions(nextAppliedSuggestions);
+    saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
-  const togglePause = () => {
-    if (recordingStatus === "stopped") {
+  const handlePrimaryRecordingControl = () => {
+    setStatusMessage("");
+
+    if (recordingStatus === "recording") {
+      setRecordingStatus("paused");
       return;
     }
 
-    setRecordingStatus((current) => {
-      const nextStatus = current === "paused" ? "active" : "paused";
-      setStatusMessage(nextStatus === "paused" ? "Recording paused" : "Recording active");
-      return nextStatus;
-    });
+    if (recordingStatus === "stopped") {
+      setRecordingSeconds(INITIAL_RECORDING_SECONDS);
+    }
+
+    setRecordingStatus("recording");
   };
 
   const requestStop = () => {
-    if (recordingStatus !== "stopped") {
+    if (recordingStatus === "recording" || recordingStatus === "paused") {
       setShowStopConfirm(true);
     }
   };
@@ -174,26 +246,43 @@ function AmbientSessionContent() {
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
-    setStatusMessage("Recording stopped");
+    saveSoapDocumentation();
   };
 
   const recordingStatusText =
     recordingStatus === "stopped"
       ? "Recording Stopped"
+      : recordingStatus === "recording"
+        ? "Recording Active"
       : recordingStatus === "paused"
         ? "Recording Paused"
-        : "Recording Active";
+        : "Ready to Record";
   const recordingCardText =
     recordingStatus === "stopped"
-      ? "Recording Stopped"
+      ? "Recording saved. Start a new recording when ready."
       : recordingStatus === "paused"
-        ? "Recording Paused"
+        ? "Recording paused. Resume when ready."
+        : recordingStatus === "idle"
+          ? "Press play to start recording."
         : (
             <>
               Say <b>Stop</b> Recording...
             </>
           );
   const formattedRecordingDuration = formatDuration(recordingSeconds);
+  const recordedUnits = Math.floor(recordingSeconds / BILLABLE_UNIT_SECONDS);
+  const nextUnit = recordedUnits + 1;
+  const nextUnitTargetSeconds = nextUnit * BILLABLE_UNIT_SECONDS;
+  const secondsUntilNextUnit = nextUnitTargetSeconds - recordingSeconds;
+  const unitLabel = recordedUnits === 1 ? "Unit" : "Units";
+  const primaryControlLabel =
+    recordingStatus === "recording"
+      ? "Pause"
+      : recordingStatus === "paused"
+        ? "Resume"
+        : recordingStatus === "stopped"
+          ? "Start New"
+          : "Start";
 
   return (
     <main className="session-page">
@@ -254,20 +343,20 @@ function AmbientSessionContent() {
             <div>
               <div className="timer-line">
                 <strong>{formattedRecordingDuration}</strong>
-                <span>/ 1 Unit</span>
+                <span>/ {recordedUnits} {unitLabel}</span>
               </div>
               <p>{recordingCardText}</p>
             </div>
           </div>
           <div className="recording-right">
-            <p>Unit 2 at <b>23:00</b></p>
-            <strong>+14:00 left</strong>
+            <p>Unit {nextUnit} at <b>{formatDuration(nextUnitTargetSeconds)}</b></p>
+            <strong>+{formatDuration(secondsUntilNextUnit)} left</strong>
           </div>
         </section>
 
         <div className="session-status-row" aria-live="polite">
           <p className={`recording-status is-${recordingStatus}`}>{recordingStatusText}</p>
-          <p className="status-message">{statusMessage}</p>
+          {statusMessage && <p className="status-message">{statusMessage}</p>}
         </div>
 
         <p className="processing-text">Medexa is Processing for Insights...</p>
@@ -398,18 +487,17 @@ function AmbientSessionContent() {
         <button
           type="button"
           className="pause-icon"
-          aria-label={recordingStatus === "paused" ? "Resume" : "Pause"}
-          disabled={recordingStatus === "stopped"}
-          onClick={togglePause}
+          aria-label={primaryControlLabel}
+          onClick={handlePrimaryRecordingControl}
         >
-          {recordingStatus === "paused" ? "▶" : "||"}
+          {recordingStatus === "recording" ? "||" : "▶"}
         </button>
-        <span>{recordingStatus === "paused" ? "Resume" : "Pause"}</span>
+        <span>{primaryControlLabel}</span>
         <button
           type="button"
           className={`stop-icon ${recordingStatus === "stopped" ? "is-stopped" : ""}`}
           aria-label="Stop"
-          disabled={recordingStatus === "stopped"}
+          disabled={recordingStatus === "idle" || recordingStatus === "stopped"}
           onClick={requestStop}
         >
           <span />
@@ -805,6 +893,16 @@ function AmbientSessionContent() {
         }
 
         .recording-status {
+          background: #eaf8f1;
+          color: #087c4a;
+        }
+
+        .recording-status.is-idle {
+          background: #eef2ff;
+          color: #001eff;
+        }
+
+        .recording-status.is-recording {
           background: #eaf8f1;
           color: #087c4a;
         }

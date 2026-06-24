@@ -1,51 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
-
-type SectionKey = "subjective" | "objective" | "assessment";
-
-type SoapData = {
-  subjective: {
-    chiefComplaint: string;
-    painScale: string;
-    duration: string;
-  };
-  objective: {
-    observationNotes: string;
-    rangeOfMotion: string;
-    affect: string;
-    vitalSigns: string;
-  };
-  assessment: {
-    diagnosisSummary: string;
-    primaryDiagnosisCode: string;
-    severity: string;
-  };
-};
-
-const initialSoapData: SoapData = {
-  subjective: {
-    chiefComplaint:
-      "Patient reports persistent discomfort in the lower back over the last 14 days, particularly after prolonged sitting. Mentions difficulty with mobility and occasional sharp pains. States: I feel like my back is always tight and stiff.",
-    painScale: "6",
-    duration: "14 days",
-  },
-  objective: {
-    observationNotes:
-      "Observed limited range of motion in lumbar flexion (40 deg) and slight guarding behavior on palpation of L4-L5 region. Patient ambulates with mild antalgic gait. Vital signs within normal limits: BP 118/76, HR 72 bpm. Affect is mildly anxious. Arrived on time.",
-    rangeOfMotion: "Lumbar Flexion 40 deg",
-    affect: "Mildly Anxious",
-    vitalSigns: "BP 118/76, HR 72",
-  },
-  assessment: {
-    diagnosisSummary:
-      "Chronic Lower Back Pain (M54.5) secondary to postural dysfunction and muscle deconditioning. Patient demonstrates functional limitations consistent with moderate severity. Focus on stretching and strengthening exercises for lumbar support. Follow-up scheduled.",
-    primaryDiagnosisCode: "M54.5",
-    severity: "Moderate",
-  },
-};
+import {
+  defaultSoapData,
+  type SectionKey,
+  useSessionDocumentation,
+} from "@/context/SessionDocumentationContext";
 
 function Field({
   label,
@@ -140,16 +102,23 @@ function NoteCard({
 
 export default function SoapNotesPage() {
   const [headerSearch, setHeaderSearch] = useState("");
-  const [soapData, setSoapData] = useState<SoapData>(initialSoapData);
-  const [draftData, setDraftData] = useState<SoapData>(initialSoapData);
+  const { soapData, updateSoapData } = useSessionDocumentation();
+  const [draftData, setDraftData] = useState(defaultSoapData);
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
+
+  useEffect(() => {
+    if (!editingSection) {
+      setDraftData(soapData);
+    }
+  }, [editingSection, soapData]);
 
   const soapSearchText = useMemo(
     () => ({
       subjective: `Subjective Chief Complaint ${soapData.subjective.chiefComplaint} Pain Scale ${soapData.subjective.painScale} Duration ${soapData.subjective.duration}`,
       objective: `Objective Observation Notes ${soapData.objective.observationNotes} Range of Motion ${soapData.objective.rangeOfMotion} Affect ${soapData.objective.affect} Vital Signs ${soapData.objective.vitalSigns}`,
       assessment: `Assessment Diagnosis Summary ${soapData.assessment.diagnosisSummary} Primary Diagnosis Code ${soapData.assessment.primaryDiagnosisCode} Severity ${soapData.assessment.severity}`,
+      plan: `Plan Follow Up Plan ${soapData.plan.followUpPlan}`,
     }),
     [soapData],
   );
@@ -161,7 +130,7 @@ export default function SoapNotesPage() {
   };
 
   const saveSection = (section: SectionKey) => {
-    setSoapData(draftData);
+    updateSoapData(draftData);
     setEditingSection(null);
     setStatusMessage(`${section.charAt(0).toUpperCase()}${section.slice(1)} updated.`);
   };
@@ -179,6 +148,7 @@ export default function SoapNotesPage() {
         subjective: true,
         objective: true,
         assessment: true,
+        plan: true,
       };
     }
 
@@ -186,12 +156,14 @@ export default function SoapNotesPage() {
       subjective: soapSearchText.subjective.toLowerCase().includes(query),
       objective: soapSearchText.objective.toLowerCase().includes(query),
       assessment: soapSearchText.assessment.toLowerCase().includes(query),
+      plan: soapSearchText.plan.toLowerCase().includes(query),
     };
   }, [headerSearch, soapSearchText]);
   const hasVisibleSections =
     visibleSections.subjective ||
     visibleSections.objective ||
-    visibleSections.assessment;
+    visibleSections.assessment ||
+    visibleSections.plan;
 
   return (
     <main className="ambient-page">
@@ -440,6 +412,34 @@ export default function SoapNotesPage() {
                     </>
                   )}
                 </div>
+              </div>
+            </NoteCard>
+          )}
+
+          {visibleSections.plan && (
+            <NoteCard
+              title="Plan"
+              isEditing={editingSection === "plan"}
+              onEdit={() => startEdit("plan")}
+              onSave={() => saveSection("plan")}
+              onCancel={cancelEdit}
+            >
+              <div className="card-fields">
+                {editingSection === "plan" ? (
+                  <EditableField
+                    label="Follow-up Plan"
+                    multiline
+                    value={draftData.plan.followUpPlan}
+                    onChange={(value) =>
+                      setDraftData((data) => ({
+                        ...data,
+                        plan: { ...data.plan, followUpPlan: value },
+                      }))
+                    }
+                  />
+                ) : (
+                  <Field label="Follow-up Plan" multiline value={soapData.plan.followUpPlan} />
+                )}
               </div>
             </NoteCard>
           )}
