@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
@@ -76,6 +76,160 @@ const formatDuration = (totalSeconds: number) => {
 
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
+
+function SlideToApprove({
+  approved,
+  onApprove,
+}: {
+  approved: boolean;
+  onApprove: () => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const dragStartXRef = useRef(0);
+  const hasDraggedRef = useRef(false);
+  const [progress, setProgress] = useState(approved ? 1 : 0);
+  const [handleTravel, setHandleTravel] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const updateHandleTravel = () => {
+      const track = trackRef.current;
+
+      if (!track) {
+        return;
+      }
+
+      const handleSize = 24;
+      const sideOffset = 5;
+      setHandleTravel(Math.max(track.getBoundingClientRect().width - handleSize - sideOffset * 2, 1));
+    };
+
+    updateHandleTravel();
+    window.addEventListener("resize", updateHandleTravel);
+
+    return () => {
+      window.removeEventListener("resize", updateHandleTravel);
+    };
+  }, []);
+
+  useEffect(() => {
+    setProgress(approved ? 1 : 0);
+  }, [approved]);
+
+  const updateProgressFromClientX = (clientX: number) => {
+    const track = trackRef.current;
+
+    if (!track) {
+      return 0;
+    }
+
+    const rect = track.getBoundingClientRect();
+    const handleSize = 24;
+    const sideOffset = 5;
+    const maxTravel = Math.max(rect.width - handleSize - sideOffset * 2, 1);
+    setHandleTravel(maxTravel);
+    const nextProgress = Math.min(
+      Math.max((clientX - rect.left - sideOffset - handleSize / 2) / maxTravel, 0),
+      1,
+    );
+
+    setProgress(nextProgress);
+    return nextProgress;
+  };
+
+  const completeApproval = () => {
+    setProgress(1);
+    onApprove();
+  };
+
+  const finishDrag = (nextProgress = progress) => {
+    setIsDragging(false);
+
+    if (approved) {
+      setProgress(1);
+      return;
+    }
+
+    if (nextProgress >= 0.8) {
+      completeApproval();
+      return;
+    }
+
+    setProgress(0);
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      className={`approve-slider ${approved ? "is-approved" : ""} ${isDragging ? "is-dragging" : ""}`}
+      role="slider"
+      tabIndex={approved ? -1 : 0}
+      aria-label={approved ? "Approved" : "Slide to approve"}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(progress * 100)}
+      aria-disabled={approved}
+      onPointerDown={(event) => {
+        if (approved) {
+          return;
+        }
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragStartXRef.current = event.clientX;
+        hasDraggedRef.current = false;
+        setIsDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (!isDragging || approved) {
+          return;
+        }
+
+        if (Math.abs(event.clientX - dragStartXRef.current) < 4 && !hasDraggedRef.current) {
+          return;
+        }
+
+        hasDraggedRef.current = true;
+        updateProgressFromClientX(event.clientX);
+      }}
+      onPointerUp={(event) => {
+        if (!isDragging || approved) {
+          return;
+        }
+
+        if (!hasDraggedRef.current) {
+          finishDrag(0);
+          return;
+        }
+
+        finishDrag(updateProgressFromClientX(event.clientX));
+      }}
+      onPointerCancel={() => finishDrag(0)}
+      onKeyDown={(event) => {
+        if (approved) {
+          return;
+        }
+
+        if (event.key === "ArrowRight" || event.key === "End") {
+          event.preventDefault();
+          completeApproval();
+        }
+
+        if (event.key === "ArrowLeft" || event.key === "Home") {
+          event.preventDefault();
+          setProgress(0);
+        }
+      }}
+    >
+      <span
+        className="approve-slider-handle"
+        style={{ transform: `translateX(${progress * handleTravel}px)` }}
+      >
+        {approved ? "✓" : "›"}
+      </span>
+      <span className="approve-slider-label">{approved ? "Approved" : "Slide to Approve"}</span>
+    </div>
+  );
+}
 
 export default function AmbientSessionPage() {
   return (
@@ -421,20 +575,16 @@ function AmbientSessionContent() {
                       </span>
                     )}
                   </div>
-                  <button
-                    className={`approve-slider ${itemState.approved ? "is-approved" : ""}`}
-                    type="button"
-                    onClick={() =>
+                  <SlideToApprove
+                    approved={Boolean(itemState.approved)}
+                    onApprove={() =>
                       updateInsight(
                         item.id,
                         { approved: true, ignored: false },
                         "Insight approved",
                       )
                     }
-                  >
-                    <span>{itemState.approved ? "✓" : "›"}</span>
-                    {itemState.approved ? "Approved" : "Slide to Approve"}
-                  </button>
+                  />
                 </article>
               );
             })}
@@ -1077,21 +1227,40 @@ function AmbientSessionContent() {
         }
 
         .approve-slider {
+          position: relative;
           width: min(100%, 260px);
           height: 34px;
-          display: flex;
+          box-sizing: border-box;
+          display: block;
           align-items: center;
-          gap: 18px;
           margin-top: 8px;
-          padding: 0 14px 0 6px;
+          padding: 0 14px 0 42px;
           border: 1px solid #9fb4ff;
           border-radius: 999px;
           background: #fff;
           color: #172033;
           font-size: 11px;
+          line-height: 32px;
+          cursor: grab;
+          outline: 0;
+          touch-action: none;
+          user-select: none;
+          transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
         }
 
-        .approve-slider span {
+        .approve-slider:focus-visible {
+          border-color: #001eff;
+          box-shadow: 0 0 0 3px rgba(0, 30, 255, 0.12);
+        }
+
+        .approve-slider.is-dragging {
+          cursor: grabbing;
+        }
+
+        .approve-slider-handle {
+          position: absolute;
+          left: 5px;
+          top: 4px;
           width: 24px;
           height: 24px;
           display: flex;
@@ -1101,6 +1270,21 @@ function AmbientSessionContent() {
           background: #f0f2ff;
           color: #001eff;
           font-size: 17px;
+          transition: transform 0.18s ease, background 0.16s ease, color 0.16s ease;
+          will-change: transform;
+        }
+
+        .approve-slider.is-dragging .approve-slider-handle {
+          transition: none;
+        }
+
+        .approve-slider-label {
+          display: block;
+          overflow: hidden;
+          color: inherit;
+          font-size: 11px;
+          white-space: nowrap;
+          text-overflow: ellipsis;
         }
 
         .approve-slider.is-approved {
@@ -1110,7 +1294,7 @@ function AmbientSessionContent() {
           font-weight: 800;
         }
 
-        .approve-slider.is-approved span {
+        .approve-slider.is-approved .approve-slider-handle {
           background: #10c978;
           color: #fff;
           font-size: 12px;
