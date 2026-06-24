@@ -220,7 +220,7 @@ export default function AmbientListeningPage() {
             <span className="mic-icon">◉</span>
             <span>
               <strong>Start a new session?</strong>
-              <em>&quot;Hey Medexa, start a new session with David Peter&quot;</em>
+              <em>&quot;Start a new session with David Peter&quot;</em>
             </span>
           </Link>
         </section>

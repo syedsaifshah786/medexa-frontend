@@ -39,9 +39,9 @@ export default function StartSessionPage() {
                 margin: 0,
               }}
             >
-              "Hey Medexa, start a new session
+              Start a new session
               <br />
-              with Samuel Thompson "
+              with Samuel Thompson
             </h1>
   
             <div

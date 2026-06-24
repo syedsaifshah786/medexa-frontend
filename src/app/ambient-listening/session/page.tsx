@@ -141,6 +141,12 @@ function AmbientSessionContent() {
     });
   };
 
+  const requestStop = () => {
+    if (recordingStatus !== "stopped") {
+      setShowStopConfirm(true);
+    }
+  };
+
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
@@ -371,7 +377,7 @@ function AmbientSessionContent() {
           className={`stop-icon ${recordingStatus === "stopped" ? "is-stopped" : ""}`}
           aria-label="Stop"
           disabled={recordingStatus === "stopped"}
-          onClick={() => setShowStopConfirm(true)}
+          onClick={requestStop}
         >
           <span />
         </button>
