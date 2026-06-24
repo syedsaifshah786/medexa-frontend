@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
+import { api, asRecord, findArray, textValue } from "@/lib/api";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
@@ -82,6 +83,40 @@ const initialTranscripts: Transcript[] = [
 const transcriptsPerPage = 2;
 const sessionDragThreshold = 6;
 
+const normalizeStatus = (value: string): UpcomingSession["status"] =>
+  value.toLowerCase() === "active" ? "active" : "Awaiting";
+
+const normalizeSession = (value: unknown, index: number): UpcomingSession => {
+  const record = asRecord(value);
+  const patient = asRecord(record.patient);
+
+  return {
+    id: textValue(record.id, textValue(record.session_id, `api-session-${index}`)),
+    name: textValue(record.name, textValue(record.patient_name, textValue(patient.name, sessions[index % sessions.length].name))),
+    status: normalizeStatus(textValue(record.status, sessions[index % sessions.length].status)),
+    careType: textValue(record.care_type, textValue(record.session_type, sessions[index % sessions.length].careType)),
+    cpt: textValue(record.cpt, textValue(record.cpt_code, sessions[index % sessions.length].cpt)),
+    icd: textValue(record.icd, textValue(record.icd_code, sessions[index % sessions.length].icd)),
+    time: textValue(record.time, textValue(record.started_at, sessions[index % sessions.length].time)),
+    img: textValue(record.img, textValue(record.avatar, sessions[index % sessions.length].img)),
+    ageSex: textValue(record.ageSex, textValue(record.age_sex, sessions[index % sessions.length].ageSex)),
+    weight: textValue(record.weight, sessions[index % sessions.length].weight),
+    mrn: textValue(record.mrn, textValue(patient.mrn, sessions[index % sessions.length].mrn)),
+    payor: textValue(record.payor, textValue(record.payer, sessions[index % sessions.length].payor)),
+  };
+};
+
+const sessionsToTranscripts = (items: UpcomingSession[]): Transcript[] =>
+  items.map((session) => ({
+    id: `transcript-${session.id}`,
+    name: session.name,
+    time: session.time.toUpperCase(),
+    status: session.status === "active" ? "SUMMARY PENDING" : "SUMMARIZED",
+    img: session.img,
+    summary: `${session.careType} session for ${session.name} is available from the backend session feed.`,
+    transcript: `Session ${session.id} includes CPT ${session.cpt}, ICD ${session.icd}, MRN ${session.mrn}, and payor ${session.payor}.`,
+  }));
+
 export default function AmbientListeningPage() {
   const router = useRouter();
   const sessionsRowRef = useRef<HTMLDivElement>(null);
@@ -102,17 +137,54 @@ export default function AmbientListeningPage() {
   const [sessionMessage, setSessionMessage] = useState("");
   const [sessionStatusDetail, setSessionStatusDetail] = useState("");
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
+  const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
+  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
   const { selectedDoctor } = useSelectedDoctor();
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
   const doctorFirstName = selectedDoctor.name.replace(/^Dr\.\s+/, "").split(" ")[0];
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSessions = async () => {
+      setIsSessionsLoading(true);
+      const result = await api.sessions();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setIsSessionsLoading(false);
+
+      if (result.error) {
+        setSessionsError(result.error);
+        return;
+      }
+
+      const apiSessions = findArray(result.data, ["sessions", "items", "data"]).map(normalizeSession);
+
+      if (apiSessions.length > 0) {
+        setSessionItems(apiSessions);
+        setTranscriptItems(sessionsToTranscripts(apiSessions));
+        setSessionsError("");
+      }
+    };
+
+    loadSessions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredSessions = useMemo(() => {
     if (!normalizedHeaderSearch) {
-      return sessions;
+      return sessionItems;
     }
 
-    return sessions.filter((session) => {
+    return sessionItems.filter((session) => {
       return [
         session.name,
         session.status,
@@ -125,7 +197,7 @@ export default function AmbientListeningPage() {
         .toLowerCase()
         .includes(normalizedHeaderSearch);
     });
-  }, [normalizedHeaderSearch]);
+  }, [normalizedHeaderSearch, sessionItems]);
 
   const openSession = (session: UpcomingSession) => {
     if (sessionDragRef.current.moved) {
@@ -295,7 +367,7 @@ export default function AmbientListeningPage() {
           <div className="section-heading">
             <div>
               <h2>Upcoming Sessions</h2>
-              <p>8 sessions remaining ahead</p>
+              <p>{sessionItems.length} sessions remaining ahead</p>
             </div>
             <div className="heading-actions">
               <button type="button" onClick={() => setIsSessionsModalOpen(true)}>
@@ -307,8 +379,10 @@ export default function AmbientListeningPage() {
             </div>
           </div>
 
-          {(sessionMessage || sessionStatusDetail) && (
+          {(isSessionsLoading || sessionsError || sessionMessage || sessionStatusDetail) && (
             <div className="session-feedback" aria-live="polite">
+              {isSessionsLoading && <strong>Loading backend sessions...</strong>}
+              {sessionsError && <span>{sessionsError}</span>}
               {sessionMessage && <strong>{sessionMessage}</strong>}
               {sessionStatusDetail && <span>{sessionStatusDetail}</span>}
             </div>
@@ -391,7 +465,7 @@ export default function AmbientListeningPage() {
                 <div className="sessions-modal-heading">
                   <div>
                     <h3 id="sessions-modal-title">All Upcoming Sessions</h3>
-                    <p>{sessions.length} sessions scheduled ahead</p>
+                    <p>{sessionItems.length} sessions scheduled ahead</p>
                   </div>
                   <button type="button" onClick={() => setIsSessionsModalOpen(false)}>
                     Close
@@ -399,7 +473,7 @@ export default function AmbientListeningPage() {
                 </div>
 
                 <div className="sessions-list">
-                  {sessions.map((session) => (
+                  {sessionItems.map((session) => (
                     <button
                       key={session.id}
                       type="button"
@@ -1515,11 +1589,18 @@ export default function AmbientListeningPage() {
           }
 
           .transcripts-card {
-            overflow-x: auto;
+            overflow: visible;
           }
 
           .transcript-row {
-            min-width: 620px;
+            min-width: 0;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            padding: 14px;
+          }
+
+          .row-arrow {
+            justify-self: end;
           }
 
           .detail-body {

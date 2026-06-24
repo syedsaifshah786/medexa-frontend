@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { api, asRecord, numberValue } from "@/lib/api";
+import { sessions } from "@/lib/sessions";
 
 type CptStatus = "pending" | "approved" | "rejected";
 
@@ -65,9 +67,58 @@ const initialCptCodes: CptItem[] = [
 export default function BillingIntelligencePage() {
   const [headerSearch, setHeaderSearch] = useState("");
   const [cptItems, setCptItems] = useState<CptItem[]>(initialCptCodes);
+  const [billingMessage, setBillingMessage] = useState("");
+  const [isBillingLoading, setIsBillingLoading] = useState(false);
+  const [sessionDuration, setSessionDuration] = useState("52:22");
+  const [sessionUnits, setSessionUnits] = useState("4");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formValues, setFormValues] = useState<CptForm>(emptyCptForm);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadBilling = async () => {
+      setIsBillingLoading(true);
+      const result = await api.billingSummary(sessions[0].id);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setIsBillingLoading(false);
+
+      if (result.error) {
+        setBillingMessage(result.error);
+        return;
+      }
+
+      const data = asRecord(result.data);
+      const unitsByCpt = asRecord(data.units_by_cpt);
+      const apiItems = Object.entries(unitsByCpt).map(([code, units]) => ({
+        id: `api-cpt-${code}`,
+        code,
+        title: code === "97110" ? "Therapeutic Ex." : code === "97530" ? "Therapeutic Act." : "Detected CPT",
+        units: String(numberValue(units, 0)),
+        duration: `${numberValue(units, 0) * 8}:00`,
+        warning: "",
+        status: "pending" as CptStatus,
+      }));
+
+      if (apiItems.length > 0) {
+        setCptItems(apiItems);
+        setSessionUnits(String(numberValue(data.total_units, apiItems.length)));
+        setSessionDuration(`${numberValue(data.total_minutes, 52)}:00`);
+        setBillingMessage("");
+      }
+    };
+
+    loadBilling();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredCptCodes = useMemo(() => {
     const query = headerSearch.trim().toLowerCase();
@@ -198,7 +249,7 @@ export default function BillingIntelligencePage() {
             <div className="metric-grid">
               <article className="metric-card">
                 <p>Session Time</p>
-                <strong>52:22</strong>
+                <strong>{sessionDuration}</strong>
                 <span>+ 1 Threshold&nbsp;&nbsp; $11,091/$2,330</span>
               </article>
               <article className="metric-card">
@@ -206,10 +257,15 @@ export default function BillingIntelligencePage() {
                   <p>Session Units</p>
                   <span>ⓘ</span>
                 </div>
-                <strong>4 Units</strong>
+                <strong>{sessionUnits} Units</strong>
                 <em>8 Minute Rule</em>
               </article>
             </div>
+            {(isBillingLoading || billingMessage) && (
+              <div className="api-feedback" aria-live="polite">
+                {isBillingLoading ? "Loading backend billing summary..." : billingMessage}
+              </div>
+            )}
           </section>
 
           <section>
@@ -688,6 +744,19 @@ export default function BillingIntelligencePage() {
           font-weight: 800;
         }
 
+        .api-feedback {
+          width: fit-content;
+          max-width: 100%;
+          box-sizing: border-box;
+          border-radius: 999px;
+          background: #fff;
+          color: #667085;
+          margin-top: 12px;
+          padding: 7px 11px;
+          font-size: 11px;
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+        }
+
         .section-heading {
           display: flex;
           align-items: center;
@@ -1003,6 +1072,21 @@ export default function BillingIntelligencePage() {
 
           .tabs .claim-link {
             margin-left: 0;
+          }
+
+          .billing-stack {
+            width: 100%;
+          }
+
+          .section-heading,
+          .cpt-topline,
+          .review-actions {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .review-actions {
+            gap: 12px;
           }
         }
       `}</style>

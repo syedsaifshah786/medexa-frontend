@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
+import { api, asRecord, findArray, textValue } from "@/lib/api";
 import { getSessionById } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
-const insights = [
+const defaultInsights = [
   {
     id: "family-history",
     tag: "Protocol Ask",
@@ -36,7 +37,7 @@ const insights = [
   },
 ];
 
-const suggestions = [
+const defaultSuggestions = [
   {
     id: "current-live-cpt",
     title: "Current Live CPT",
@@ -65,6 +66,9 @@ type InsightState = {
   selected?: boolean;
 };
 
+type InsightItem = (typeof defaultInsights)[number];
+type SuggestionItem = (typeof defaultSuggestions)[number];
+
 type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 
 const INITIAL_RECORDING_SECONDS = 0;
@@ -75,6 +79,33 @@ const formatDuration = (totalSeconds: number) => {
   const seconds = totalSeconds % 60;
 
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+};
+
+const normalizeInsight = (value: unknown, index: number): InsightItem => {
+  const record = asRecord(value);
+  const fallback = defaultInsights[index % defaultInsights.length];
+  const label = textValue(record.label, textValue(record.type, fallback.label));
+  const tone = label.toLowerCase().includes("billing") ? "billing" : fallback.tone;
+
+  return {
+    id: textValue(record.id, textValue(record.alert_id, `api-insight-${index}`)),
+    tag: textValue(record.tag, textValue(record.category, fallback.tag)),
+    text: textValue(record.text, textValue(record.message, fallback.text)),
+    label,
+    tone,
+    note: textValue(record.note, textValue(record.description, fallback.note)),
+  };
+};
+
+const normalizeSuggestion = (value: unknown, index: number): SuggestionItem => {
+  const record = asRecord(value);
+  const fallback = defaultSuggestions[index % defaultSuggestions.length];
+
+  return {
+    id: textValue(record.id, textValue(record.suggestion_id, `api-suggestion-${index}`)),
+    title: textValue(record.title, textValue(record.type, fallback.title)),
+    text: textValue(record.text, textValue(record.message, fallback.text)),
+  };
 };
 
 function SlideToApprove({
@@ -248,6 +279,9 @@ function AmbientSessionContent() {
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [insightItems, setInsightItems] = useState<InsightItem[]>(defaultInsights);
+  const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
+  const [apiStatusMessage, setApiStatusMessage] = useState("");
   const { updateSoapData } = useSessionDocumentation();
   const selectedSession = useMemo(
     () => getSessionById(searchParams.get("id") ?? searchParams.get("session")),
@@ -257,16 +291,53 @@ function AmbientSessionContent() {
   const query = searchQuery.trim().toLowerCase();
   const filteredInsights = useMemo(() => {
     if (!query) {
-      return insights;
+      return insightItems;
     }
 
-    return insights.filter((item) =>
+    return insightItems.filter((item) =>
       [item.tag, item.text, item.label, item.note]
         .join(" ")
         .toLowerCase()
         .includes(query),
     );
-  }, [query]);
+  }, [insightItems, query]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSessionData = async () => {
+      setApiStatusMessage("Loading backend session data...");
+      const [insightsResult, suggestionsResult, stateResult] = await Promise.all([
+        api.insights(selectedSession.id),
+        api.suggestions(selectedSession.id),
+        api.sessionState(selectedSession.id),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      const nextInsights = findArray(insightsResult.data, ["insights", "alerts", "items"]).map(normalizeInsight);
+      const nextSuggestions = findArray(suggestionsResult.data, ["suggestions", "items"]).map(normalizeSuggestion);
+
+      if (nextInsights.length > 0) {
+        setInsightItems(nextInsights);
+      }
+
+      if (nextSuggestions.length > 0) {
+        setSuggestionItems(nextSuggestions);
+      }
+
+      const firstError = insightsResult.error || suggestionsResult.error || stateResult.error;
+      setApiStatusMessage(firstError || "");
+    };
+
+    loadSessionData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedSession.id]);
 
   useEffect(() => {
     if (recordingStatus !== "recording") {
@@ -283,19 +354,19 @@ function AmbientSessionContent() {
   }, [recordingStatus]);
   const filteredSuggestions = useMemo(() => {
     if (!query) {
-      return suggestions;
+      return suggestionItems;
     }
 
-    return suggestions.filter((item) =>
+    return suggestionItems.filter((item) =>
       [item.title, item.text].join(" ").toLowerCase().includes(query),
     );
-  }, [query]);
+  }, [query, suggestionItems]);
 
   const saveSoapDocumentation = (
     nextInsightStates = insightStates,
     nextAppliedSuggestions = appliedSuggestions,
   ) => {
-    const activeInsights = insights.filter(
+    const activeInsights = insightItems.filter(
       (item) =>
         (nextInsightStates[item.id]?.approved || nextInsightStates[item.id]?.selected) &&
         !nextInsightStates[item.id]?.ignored,
@@ -304,7 +375,7 @@ function AmbientSessionContent() {
     const billingInsights = activeInsights.filter(
       (item) => item.tone === "billing" || item.label === "Billing",
     );
-    const appliedSuggestionNotes = suggestions
+    const appliedSuggestionNotes = suggestionItems
       .filter((item) => nextAppliedSuggestions[item.id])
       .map((item) => item.text);
     const protocolSummary = protocolInsights.map((item) => item.note).join(" ");
@@ -373,6 +444,7 @@ function AmbientSessionContent() {
     };
 
     setAppliedSuggestions(nextAppliedSuggestions);
+    api.applySuggestion(selectedSession.id, id);
     saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
@@ -400,6 +472,7 @@ function AmbientSessionContent() {
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
+    api.endSession(selectedSession.id);
     saveSoapDocumentation();
   };
 
@@ -510,6 +583,7 @@ function AmbientSessionContent() {
 
         <div className="session-status-row" aria-live="polite">
           <p className={`recording-status is-${recordingStatus}`}>{recordingStatusText}</p>
+          {apiStatusMessage && <p className="status-message">{apiStatusMessage}</p>}
           {statusMessage && <p className="status-message">{statusMessage}</p>}
         </div>
 
