@@ -139,7 +139,6 @@ export default function AmbientListeningPage() {
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
   const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
   const [isSessionsLoading, setIsSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState("");
   const { selectedDoctor } = useSelectedDoctor();
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
@@ -159,7 +158,6 @@ export default function AmbientListeningPage() {
       setIsSessionsLoading(false);
 
       if (result.devWarning) {
-        setSessionsError(result.devWarning);
         return;
       }
 
@@ -168,7 +166,6 @@ export default function AmbientListeningPage() {
       if (apiSessions.length > 0) {
         setSessionItems(apiSessions);
         setTranscriptItems(sessionsToTranscripts(apiSessions));
-        setSessionsError("");
       }
     };
 
@@ -214,7 +211,6 @@ export default function AmbientListeningPage() {
     });
     const sessionId = textValue(asRecord(result.data).session_id, session.id);
 
-    setSessionsError(result.devWarning);
     router.push(`/ambient-listening/session?id=${sessionId}`);
   };
 
@@ -226,7 +222,6 @@ export default function AmbientListeningPage() {
     });
     const sessionId = textValue(asRecord(result.data).session_id, "new-session");
 
-    setSessionsError(result.devWarning);
     router.push(`/ambient-listening/session?id=${sessionId}`);
   };
 
@@ -401,10 +396,9 @@ export default function AmbientListeningPage() {
             </div>
           </div>
 
-          {(isSessionsLoading || sessionsError || sessionMessage || sessionStatusDetail) && (
+          {(isSessionsLoading || sessionMessage || sessionStatusDetail) && (
             <div className="session-feedback" aria-live="polite">
               {isSessionsLoading && <strong>Loading backend sessions...</strong>}
-              {sessionsError && <span>{sessionsError}</span>}
               {sessionMessage && <strong>{sessionMessage}</strong>}
               {sessionStatusDetail && <span>{sessionStatusDetail}</span>}
             </div>

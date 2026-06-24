@@ -28,11 +28,19 @@ export function apiPath(path: string) {
   return baseUrl ? `${baseUrl}/${nextPath}` : `/${nextPath}`;
 }
 
+function warnInDevelopment(path: string, message: string) {
+  if (isDevelopment) {
+    console.warn(`[Medexa API] ${path}: ${message}`);
+  }
+}
+
 export async function safeFetch<T>(
   path: string,
   { body, headers, ...options }: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   if (!API_BASE_URL) {
+    warnInDevelopment(path, "Backend URL is not configured. Using mock data.");
+
     return {
       data: null,
       error: "",
@@ -51,6 +59,8 @@ export async function safeFetch<T>(
     });
 
     if (!response.ok) {
+      warnInDevelopment(path, `Request failed with ${response.status}. Using mock data.`);
+
       return {
         data: null,
         error: "",
@@ -63,7 +73,12 @@ export async function safeFetch<T>(
       error: "",
       devWarning: "",
     };
-  } catch {
+  } catch (error) {
+    warnInDevelopment(
+      path,
+      error instanceof Error ? `${error.message}. Using mock data.` : "Request failed. Using mock data.",
+    );
+
     return {
       data: null,
       error: "",
