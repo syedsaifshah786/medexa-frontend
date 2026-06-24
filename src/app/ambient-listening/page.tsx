@@ -158,8 +158,8 @@ export default function AmbientListeningPage() {
 
       setIsSessionsLoading(false);
 
-      if (result.error) {
-        setSessionsError(result.error);
+      if (result.devWarning) {
+        setSessionsError(result.devWarning);
         return;
       }
 
@@ -199,13 +199,35 @@ export default function AmbientListeningPage() {
     });
   }, [normalizedHeaderSearch, sessionItems]);
 
-  const openSession = (session: UpcomingSession) => {
+  const openSession = async (session: UpcomingSession) => {
     if (sessionDragRef.current.moved) {
       return;
     }
 
     setSessionMessage(`Opening ${session.name} session...`);
-    router.push(`/ambient-listening/session?id=${session.id}`);
+    const result = await api.startSession({
+      patient_id: session.id,
+      patient_name: session.name,
+      mrn: session.mrn,
+      therapist_id: selectedDoctor.name,
+      session_type: session.careType,
+    });
+    const sessionId = textValue(asRecord(result.data).session_id, session.id);
+
+    setSessionsError(result.devWarning);
+    router.push(`/ambient-listening/session?id=${sessionId}`);
+  };
+
+  const startNewSession = async () => {
+    setSessionMessage("Starting a new session...");
+    const result = await api.startSession({
+      therapist_id: selectedDoctor.name,
+      session_type: "Therapeutic Therapy Session",
+    });
+    const sessionId = textValue(asRecord(result.data).session_id, "new-session");
+
+    setSessionsError(result.devWarning);
+    router.push(`/ambient-listening/session?id=${sessionId}`);
   };
 
   const showSessionStatus = (session: UpcomingSession) => {
@@ -354,13 +376,13 @@ export default function AmbientListeningPage() {
             Dr. {doctorFirstName}
           </h1>
 
-          <Link href="/ambient-listening/session" className="start-session">
+          <button type="button" className="start-session" onClick={startNewSession}>
             <span className="mic-icon">◉</span>
             <span>
               <strong>Start a new session?</strong>
               <em>&quot;Start a new session with David Peter&quot;</em>
             </span>
-          </Link>
+          </button>
         </section>
 
         <section className="sessions-section">
@@ -893,10 +915,14 @@ export default function AmbientListeningPage() {
           gap: 14px;
           padding: 18px 22px;
           border-radius: 14px;
+          border: 0;
           background: #ffffff;
           color: inherit;
+          font: inherit;
+          text-align: left;
           text-decoration: none;
           box-shadow: 0 10px 28px rgba(25, 32, 56, 0.13);
+          cursor: pointer;
         }
 
         .mic-icon {

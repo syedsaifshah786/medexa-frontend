@@ -9,6 +9,7 @@ export type ApiState<T> = {
 export type ApiResult<T> = {
   data: T | null;
   error: string;
+  devWarning: string;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -16,6 +17,7 @@ type RequestOptions = Omit<RequestInit, "body"> & {
 };
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const isDevelopment = process.env.NODE_ENV === "development";
 
 const trimSlashes = (value: string) => value.replace(/^\/+|\/+$/g, "");
 
@@ -33,7 +35,8 @@ export async function safeFetch<T>(
   if (!API_BASE_URL) {
     return {
       data: null,
-      error: "Backend URL is not configured. Using mock data.",
+      error: "",
+      devWarning: isDevelopment ? "Backend URL is not configured. Using mock data." : "",
     };
   }
 
@@ -50,48 +53,63 @@ export async function safeFetch<T>(
     if (!response.ok) {
       return {
         data: null,
-        error: `Backend returned ${response.status}. Using mock data.`,
+        error: "",
+        devWarning: isDevelopment ? "Backend unavailable. Using mock data." : "",
       };
     }
 
     return {
       data: (await response.json()) as T,
       error: "",
+      devWarning: "",
     };
   } catch {
     return {
       data: null,
-      error: "Could not reach backend. Using mock data.",
+      error: "",
+      devWarning: isDevelopment ? "Could not reach backend. Using mock data." : "",
     };
   }
 }
 
 export const api = {
-  health: () => safeFetch<Record<string, unknown>>("/health"),
+  startSession: (body: {
+    patient_id?: string | null;
+    patient_name?: string | null;
+    mrn?: string | null;
+    therapist_id?: string | null;
+    session_type?: string | null;
+  }) =>
+    safeFetch<Record<string, unknown>>("/sessions/start", {
+      method: "POST",
+      body,
+    }),
   sessions: (status?: string) =>
     safeFetch<Record<string, unknown>>(`/sessions${status ? `?status=${status}` : ""}`),
+  transcriptChunk: (
+    sessionId: string,
+    body: {
+      text: string;
+      start_ts?: number;
+      end_ts?: number;
+      sequence?: number;
+    },
+  ) =>
+    safeFetch<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}/transcript-chunk`,
+      {
+        method: "POST",
+        body,
+      },
+    ),
   sessionState: (sessionId: string) =>
     safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/state`),
   insights: (sessionId: string) =>
     safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/insights`),
   suggestions: (sessionId: string) =>
     safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/suggestions`),
-  billingSummary: (sessionId: string) =>
-    safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/billing-summary`),
-  endSession: (sessionId: string) =>
-    safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/end`, {
-      method: "POST",
-    }),
-  applySuggestion: (sessionId: string, suggestionId: string) =>
-    safeFetch<Record<string, unknown>>(
-      `/sessions/${encodeURIComponent(sessionId)}/suggestions/${encodeURIComponent(suggestionId)}/apply`,
-      { method: "POST" },
-    ),
-  approveAlert: (sessionId: string, alertId: string) =>
-    safeFetch<Record<string, unknown>>(
-      `/sessions/${encodeURIComponent(sessionId)}/alerts/${encodeURIComponent(alertId)}/approve`,
-      { method: "POST" },
-    ),
+  alerts: (sessionId: string) =>
+    safeFetch<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/alerts`),
 };
 
 export function asRecord(value: unknown): Record<string, unknown> {

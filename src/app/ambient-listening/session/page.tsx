@@ -283,9 +283,10 @@ function AmbientSessionContent() {
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
   const [apiStatusMessage, setApiStatusMessage] = useState("");
   const { updateSoapData } = useSessionDocumentation();
+  const routeSessionId = searchParams.get("id") ?? searchParams.get("session") ?? "";
   const selectedSession = useMemo(
-    () => getSessionById(searchParams.get("id") ?? searchParams.get("session")),
-    [searchParams],
+    () => getSessionById(routeSessionId),
+    [routeSessionId],
   );
 
   const query = searchQuery.trim().toLowerCase();
@@ -307,17 +308,21 @@ function AmbientSessionContent() {
 
     const loadSessionData = async () => {
       setApiStatusMessage("Loading backend session data...");
-      const [insightsResult, suggestionsResult, stateResult] = await Promise.all([
-        api.insights(selectedSession.id),
-        api.suggestions(selectedSession.id),
-        api.sessionState(selectedSession.id),
+      const [insightsResult, suggestionsResult, alertsResult, stateResult] = await Promise.all([
+        api.insights(routeSessionId || selectedSession.id),
+        api.suggestions(routeSessionId || selectedSession.id),
+        api.alerts(routeSessionId || selectedSession.id),
+        api.sessionState(routeSessionId || selectedSession.id),
       ]);
 
       if (!isMounted) {
         return;
       }
 
-      const nextInsights = findArray(insightsResult.data, ["insights", "alerts", "items"]).map(normalizeInsight);
+      const nextInsights = [
+        ...findArray(insightsResult.data, ["insights", "items"]),
+        ...findArray(alertsResult.data, ["alerts", "items"]),
+      ].map(normalizeInsight);
       const nextSuggestions = findArray(suggestionsResult.data, ["suggestions", "items"]).map(normalizeSuggestion);
 
       if (nextInsights.length > 0) {
@@ -328,8 +333,12 @@ function AmbientSessionContent() {
         setSuggestionItems(nextSuggestions);
       }
 
-      const firstError = insightsResult.error || suggestionsResult.error || stateResult.error;
-      setApiStatusMessage(firstError || "");
+      const firstWarning =
+        insightsResult.devWarning ||
+        suggestionsResult.devWarning ||
+        alertsResult.devWarning ||
+        stateResult.devWarning;
+      setApiStatusMessage(firstWarning || "");
     };
 
     loadSessionData();
@@ -337,7 +346,7 @@ function AmbientSessionContent() {
     return () => {
       isMounted = false;
     };
-  }, [selectedSession.id]);
+  }, [routeSessionId, selectedSession.id]);
 
   useEffect(() => {
     if (recordingStatus !== "recording") {
@@ -444,7 +453,6 @@ function AmbientSessionContent() {
     };
 
     setAppliedSuggestions(nextAppliedSuggestions);
-    api.applySuggestion(selectedSession.id, id);
     saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
@@ -472,7 +480,12 @@ function AmbientSessionContent() {
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
-    api.endSession(selectedSession.id);
+    api.transcriptChunk(routeSessionId || selectedSession.id, {
+      text: `Finalized ${selectedSession.name} session at ${formatDuration(recordingSeconds)} with ${recordedUnits} ${unitLabel}.`,
+      start_ts: 0,
+      end_ts: recordingSeconds,
+      sequence: 1,
+    });
     saveSoapDocumentation();
   };
 

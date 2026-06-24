@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
-import { api, asRecord, numberValue } from "@/lib/api";
-import { sessions } from "@/lib/sessions";
 
 type CptItem = {
   id: string;
@@ -117,7 +115,6 @@ export default function ClaimDocumentPage() {
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const [apiMessage, setApiMessage] = useState("");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
 
   const query = headerSearch.trim().toLowerCase();
@@ -125,45 +122,6 @@ export default function ClaimDocumentPage() {
   const billableUnits = useMemo(() => {
     return sessionItems.reduce((total, item) => total + (Number.parseInt(item.units, 10) || 0), 0);
   }, [sessionItems]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadClaimBilling = async () => {
-      setApiMessage("Loading backend claim billing data...");
-      const result = await api.billingSummary(sessions[0].id);
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (result.error) {
-        setApiMessage(result.error);
-        return;
-      }
-
-      const unitsByCpt = asRecord(asRecord(result.data).units_by_cpt);
-      const apiItems = Object.entries(unitsByCpt).map(([code, units]) => ({
-        id: `api-claim-cpt-${code}`,
-        code,
-        description: code === "97110" ? "Therapeutic Ex." : code === "97530" ? "Therapeutic Act." : "Detected CPT",
-        units: String(numberValue(units, 0)),
-        duration: `${numberValue(units, 0) * 8}:00`,
-        modifier: "",
-      }));
-
-      if (apiItems.length > 0) {
-        setSessionItems(apiItems);
-        setApiMessage("");
-      }
-    };
-
-    loadClaimBilling();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!hasGeneratedDocumentation) {
@@ -384,11 +342,7 @@ export default function ClaimDocumentPage() {
             </div>
           )}
 
-          {(statusMessage || apiMessage) && (
-            <div className="status-message">
-              {statusMessage || apiMessage}
-            </div>
-          )}
+          {statusMessage && <div className="status-message">{statusMessage}</div>}
         </section>
 
         <section className="content-section">

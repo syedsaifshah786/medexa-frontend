@@ -35,7 +35,7 @@ export default function PatientSummaryPage() {
     const loadSessionSummary = async () => {
       const result = await api.sessionState(sessions[0].id);
 
-      if (!isMounted || result.error || hasGeneratedDocumentation) {
+      if (!isMounted || result.devWarning || hasGeneratedDocumentation) {
         return;
       }
 
