@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-
-/* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
+import MedexaHeader from "@/components/MedexaHeader";
 
 const summaryText =
   "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
@@ -70,45 +69,7 @@ export default function PatientSummaryPage() {
 
   return (
     <main className="ambient-page">
-      <header className="topbar">
-        <button className="menu-button" aria-label="Open menu">
-          <span />
-          <span />
-          <span />
-        </button>
-
-        <Link href="/" className="brand">
-          Medexa
-        </Link>
-
-        <label className="global-search">
-          <span className="search-dot">⌕</span>
-          <input
-            aria-label="Search patients or sessions"
-            placeholder="Search patients or sessions..."
-            type="search"
-            value={headerSearch}
-            onChange={(event) => setHeaderSearch(event.target.value)}
-          />
-        </label>
-
-        <button className="icon-button bell" aria-label="Notifications" />
-
-        <button className="translate-button" aria-label="Translate">
-          <span>✣</span>
-        </button>
-
-        <button className="language-button">Eng</button>
-
-        <div className="profile">
-          <img src="https://i.pravatar.cc/80?img=47" alt="" />
-          <div>
-            <strong>Dr. Sarah Miller</strong>
-            <span>Clinician</span>
-          </div>
-          <span className="chevron">⌄</span>
-        </div>
-      </header>
+      <MedexaHeader searchValue={headerSearch} onSearchChange={setHeaderSearch} />
 
       <section className="summary-content">
         <section className="session-summary">

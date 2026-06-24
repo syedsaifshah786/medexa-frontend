@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-
-/* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
+import MedexaHeader from "@/components/MedexaHeader";
 
 type SectionKey = "subjective" | "objective" | "assessment";
 
@@ -196,45 +195,7 @@ export default function SoapNotesPage() {
 
   return (
     <main className="ambient-page">
-      <header className="topbar">
-        <button className="menu-button" aria-label="Open menu">
-          <span />
-          <span />
-          <span />
-        </button>
-
-        <Link href="/" className="brand">
-          Medexa
-        </Link>
-
-        <label className="global-search">
-          <span className="search-dot">⌕</span>
-          <input
-            aria-label="Search patients or sessions"
-            placeholder="Search patients or sessions..."
-            type="search"
-            value={headerSearch}
-            onChange={(event) => setHeaderSearch(event.target.value)}
-          />
-        </label>
-
-        <button className="icon-button bell" aria-label="Notifications" />
-
-        <button className="translate-button" aria-label="Translate">
-          <span>✣</span>
-        </button>
-
-        <button className="language-button">Eng</button>
-
-        <div className="profile">
-          <img src="https://i.pravatar.cc/80?img=47" alt="" />
-          <div>
-            <strong>Dr. Sarah Miller</strong>
-            <span>Clinician</span>
-          </div>
-          <span className="chevron">⌄</span>
-        </div>
-      </header>
+      <MedexaHeader searchValue={headerSearch} onSearchChange={setHeaderSearch} />
 
       <section className="soap-content">
         <section className="session-summary">
