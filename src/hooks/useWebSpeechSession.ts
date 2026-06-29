@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type TranscriptSegment = {
   id: string;
@@ -12,6 +12,8 @@ type UseWebSpeechSessionOptions = {
   lang?: string;
 };
 
+const normalizeTranscript = (text: string) => text.trim().replace(/\s+/g, " ");
+
 const getRecognitionConstructor = () => {
   if (typeof window === "undefined") {
     return undefined;
@@ -22,10 +24,15 @@ const getRecognitionConstructor = () => {
 
 export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptions = {}) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const finalTranscriptRef = useRef("");
+  const interimTranscriptRef = useRef("");
+  const chunkFinalTranscriptRef = useRef("");
+  const chunkTranscriptRef = useRef("");
+  const lastProcessedChunkRef = useRef("");
+  const lastFinalSentenceRef = useRef("");
+  const isManuallyStoppedRef = useRef(false);
+  const isPausedRef = useRef(false);
   const shouldListenRef = useRef(false);
-  const manuallyStoppedRef = useRef(false);
-  const finalPartsRef = useRef<string[]>([]);
-  const lastFinalTextRef = useRef("");
   const restartTimerRef = useRef<number | null>(null);
 
   const [isSupported, setIsSupported] = useState(false);
@@ -33,7 +40,18 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
   const [permissionError, setPermissionError] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
+  const [currentChunkTranscript, setCurrentChunkTranscript] = useState("");
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
+
+  const syncTranscriptState = useCallback(() => {
+    const fullText = normalizeTranscript([finalTranscriptRef.current, interimTranscriptRef.current].filter(Boolean).join(" "));
+    const chunkText = normalizeTranscript([chunkFinalTranscriptRef.current, interimTranscriptRef.current].filter(Boolean).join(" "));
+
+    chunkTranscriptRef.current = chunkText;
+    setFinalTranscript(finalTranscriptRef.current);
+    setLiveTranscript(fullText);
+    setCurrentChunkTranscript(chunkText);
+  }, []);
 
   useEffect(() => {
     setIsSupported(Boolean(getRecognitionConstructor()));
@@ -46,6 +64,41 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
       recognitionRef.current?.abort();
     };
   }, []);
+
+  const appendFinalTranscript = useCallback(
+    (text: string) => {
+      const normalizedText = normalizeTranscript(text);
+
+      if (!normalizedText || normalizedText === lastFinalSentenceRef.current) {
+        return;
+      }
+
+      const alreadyProcessed = lastProcessedChunkRef.current.includes(normalizedText.toLowerCase());
+      const alreadyInFullTranscript = finalTranscriptRef.current.toLowerCase().includes(normalizedText.toLowerCase());
+
+      if (!alreadyInFullTranscript) {
+        finalTranscriptRef.current = normalizeTranscript([finalTranscriptRef.current, normalizedText].filter(Boolean).join(" "));
+      }
+
+      lastFinalSentenceRef.current = normalizedText;
+
+      if (!alreadyProcessed && !alreadyInFullTranscript) {
+        chunkFinalTranscriptRef.current = normalizeTranscript(
+          [chunkFinalTranscriptRef.current, normalizedText].filter(Boolean).join(" "),
+        );
+      }
+
+      setTranscriptSegments((segments) => [
+        ...segments,
+        {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          text: normalizedText,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    [],
+  );
 
   const createRecognition = useCallback(() => {
     const Recognition = getRecognitionConstructor();
@@ -70,54 +123,38 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
       if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
         setPermissionError("Microphone permission is required for live transcription.");
         shouldListenRef.current = false;
-        manuallyStoppedRef.current = true;
+        isManuallyStoppedRef.current = true;
       }
 
       setIsListening(false);
     };
 
     recognition.onresult = (event) => {
-      let interimText = "";
-      const newFinalParts: string[] = [];
+      const interimParts: string[] = [];
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
-        const transcript = result[0]?.transcript.trim();
+        const transcript = normalizeTranscript(result[0]?.transcript ?? "");
 
         if (!transcript) {
           continue;
         }
 
         if (result.isFinal) {
-          if (transcript !== lastFinalTextRef.current) {
-            newFinalParts.push(transcript);
-            lastFinalTextRef.current = transcript;
-          }
+          appendFinalTranscript(transcript);
         } else {
-          interimText = `${interimText} ${transcript}`.trim();
+          interimParts.push(transcript);
         }
       }
 
-      if (newFinalParts.length > 0) {
-        finalPartsRef.current = [...finalPartsRef.current, ...newFinalParts];
-        setFinalTranscript(finalPartsRef.current.join(" "));
-        setTranscriptSegments((segments) => [
-          ...segments,
-          ...newFinalParts.map((text) => ({
-            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            text,
-            timestamp: Date.now(),
-          })),
-        ]);
-      }
-
-      setLiveTranscript(interimText);
+      interimTranscriptRef.current = normalizeTranscript(interimParts.join(" "));
+      syncTranscriptState();
     };
 
     recognition.onend = () => {
       setIsListening(false);
 
-      if (shouldListenRef.current && !manuallyStoppedRef.current) {
+      if (shouldListenRef.current && !isManuallyStoppedRef.current && !isPausedRef.current) {
         restartTimerRef.current = window.setTimeout(() => {
           try {
             recognition.start();
@@ -130,7 +167,7 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
 
     recognitionRef.current = recognition;
     return recognition;
-  }, [lang]);
+  }, [appendFinalTranscript, lang, syncTranscriptState]);
 
   const startListening = useCallback(() => {
     const recognition = recognitionRef.current ?? createRecognition();
@@ -140,7 +177,8 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
     }
 
     shouldListenRef.current = true;
-    manuallyStoppedRef.current = false;
+    isManuallyStoppedRef.current = false;
+    isPausedRef.current = false;
 
     try {
       recognition.start();
@@ -151,10 +189,12 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
 
   const pauseListening = useCallback(() => {
     shouldListenRef.current = false;
-    manuallyStoppedRef.current = true;
+    isPausedRef.current = true;
+    isManuallyStoppedRef.current = false;
     recognitionRef.current?.stop();
     setIsListening(false);
-  }, []);
+    syncTranscriptState();
+  }, [syncTranscriptState]);
 
   const resumeListening = useCallback(() => {
     startListening();
@@ -162,24 +202,53 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
-    manuallyStoppedRef.current = true;
+    isPausedRef.current = false;
+    isManuallyStoppedRef.current = true;
     recognitionRef.current?.stop();
     setIsListening(false);
-    setLiveTranscript("");
-  }, []);
+    syncTranscriptState();
+  }, [syncTranscriptState]);
+
+  const getCurrentChunkTranscript = useCallback(() => {
+    syncTranscriptState();
+    return chunkTranscriptRef.current;
+  }, [syncTranscriptState]);
+
+  const consumeCurrentChunkTranscript = useCallback(() => {
+    syncTranscriptState();
+    const chunkText = chunkTranscriptRef.current;
+
+    if (chunkText) {
+      lastProcessedChunkRef.current = normalizeTranscript(
+        [lastProcessedChunkRef.current, chunkText.toLowerCase()].filter(Boolean).join(" "),
+      );
+
+      if (!finalTranscriptRef.current.toLowerCase().includes(chunkText.toLowerCase())) {
+        finalTranscriptRef.current = normalizeTranscript([finalTranscriptRef.current, chunkText].filter(Boolean).join(" "));
+        setFinalTranscript(finalTranscriptRef.current);
+      }
+    }
+
+    chunkFinalTranscriptRef.current = "";
+    interimTranscriptRef.current = "";
+    chunkTranscriptRef.current = "";
+    setCurrentChunkTranscript("");
+    setLiveTranscript(finalTranscriptRef.current);
+    return chunkText;
+  }, [syncTranscriptState]);
 
   const resetTranscript = useCallback(() => {
-    finalPartsRef.current = [];
-    lastFinalTextRef.current = "";
+    finalTranscriptRef.current = "";
+    interimTranscriptRef.current = "";
+    chunkFinalTranscriptRef.current = "";
+    chunkTranscriptRef.current = "";
+    lastProcessedChunkRef.current = "";
+    lastFinalSentenceRef.current = "";
     setLiveTranscript("");
     setFinalTranscript("");
+    setCurrentChunkTranscript("");
     setTranscriptSegments([]);
   }, []);
-
-  const currentChunkTranscript = useMemo(
-    () => [finalTranscript, liveTranscript].filter(Boolean).join(" ").trim(),
-    [finalTranscript, liveTranscript],
-  );
 
   return {
     isSupported,
@@ -189,10 +258,19 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
     finalTranscript,
     currentChunkTranscript,
     transcriptSegments,
+    recognitionRef,
+    finalTranscriptRef,
+    interimTranscriptRef,
+    chunkTranscriptRef,
+    lastProcessedChunkRef,
+    isManuallyStoppedRef,
+    isPausedRef,
     startListening,
     pauseListening,
     resumeListening,
     stopListening,
     resetTranscript,
+    getCurrentChunkTranscript,
+    consumeCurrentChunkTranscript,
   };
 }

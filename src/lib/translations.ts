@@ -118,6 +118,8 @@ export type TranslationKey =
   | "session.webSpeechUnsupported"
   | "session.microphoneRequired"
   | "session.aiDisclaimer"
+  | "session.speechStatus"
+  | "session.generateTestSummary"
   | "session.transcriptPlaceholder"
   | "session.noSummarySegments"
   | "session.transcriptExcerpt"
@@ -298,6 +300,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.webSpeechUnsupported": "Web Speech is not supported in this browser. Please use Chrome or Edge.",
     "session.microphoneRequired": "Microphone permission is required for live transcription.",
     "session.aiDisclaimer": "AI-generated suggestions require clinician review before use.",
+    "session.speechStatus": "Speech Status",
+    "session.generateTestSummary": "Generate Test Summary",
     "session.transcriptPlaceholder": "Speech will appear here while recording is active.",
     "session.noSummarySegments": "No AI summary segments generated yet.",
     "session.transcriptExcerpt": "Transcript excerpt",
@@ -477,6 +481,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.webSpeechUnsupported": "Web Speech غير مدعوم في هذا المتصفح. يرجى استخدام Chrome أو Edge.",
     "session.microphoneRequired": "يلزم السماح بالميكروفون للتفريغ المباشر.",
     "session.aiDisclaimer": "تتطلب الاقتراحات المنشأة بالذكاء الاصطناعي مراجعة الطبيب قبل الاستخدام.",
+    "session.speechStatus": "حالة الكلام",
+    "session.generateTestSummary": "إنشاء ملخص تجريبي",
     "session.transcriptPlaceholder": "سيظهر الكلام هنا أثناء التسجيل النشط.",
     "session.noSummarySegments": "لم يتم إنشاء أي ملخصات بالذكاء الاصطناعي بعد.",
     "session.transcriptExcerpt": "مقتطف التفريغ",
@@ -656,6 +662,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.webSpeechUnsupported": "Web Speech אינו נתמך בדפדפן זה. השתמש ב-Chrome או Edge.",
     "session.microphoneRequired": "נדרשת הרשאת מיקרופון לתמלול חי.",
     "session.aiDisclaimer": "הצעות שנוצרו על ידי AI דורשות בדיקת קלינאי לפני שימוש.",
+    "session.speechStatus": "מצב דיבור",
+    "session.generateTestSummary": "צור סיכום בדיקה",
     "session.transcriptPlaceholder": "הדיבור יופיע כאן בזמן שההקלטה פעילה.",
     "session.noSummarySegments": "עדיין לא נוצרו מקטעי סיכום AI.",
     "session.transcriptExcerpt": "קטע תמלול",

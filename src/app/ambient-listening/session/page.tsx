@@ -292,17 +292,15 @@ function AmbientSessionContent() {
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
   const [aiSummarySegments, setAiSummarySegments] = useState<AiSummarySegment[]>([]);
   const [generatedSoapSuggestions, setGeneratedSoapSuggestions] = useState<string[]>([]);
-  const lastAnalyzedTextLengthRef = useRef(0);
   const lastAnalyzedSecondRef = useRef(0);
+  const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
   const speechSession = useWebSpeechSession();
-  const fullTranscript = useMemo(
-    () => [speechSession.finalTranscript, speechSession.liveTranscript].filter(Boolean).join(" ").trim(),
-    [speechSession.finalTranscript, speechSession.liveTranscript],
-  );
-  const currentThirtySecondChunk = fullTranscript.slice(lastAnalyzedTextLengthRef.current).trim();
+  const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
+  const fullTranscript = speechSession.liveTranscript;
+  const currentThirtySecondChunk = speechSession.currentChunkTranscript;
   const aiSegmentsStorageKey = useMemo(
     () => `medexa_session_ai_segments_${sessionId}`,
     [sessionId],
@@ -315,7 +313,6 @@ function AmbientSessionContent() {
   }, [routeSessionId]);
 
   useEffect(() => {
-    lastAnalyzedTextLengthRef.current = 0;
     lastAnalyzedSecondRef.current = 0;
 
     try {
@@ -333,6 +330,10 @@ function AmbientSessionContent() {
       setGeneratedSoapSuggestions([]);
     }
   }, [aiSegmentsStorageKey]);
+
+  useEffect(() => {
+    recordingSecondsRef.current = recordingSeconds;
+  }, [recordingSeconds]);
 
   useEffect(() => {
     window.localStorage.setItem(aiSegmentsStorageKey, JSON.stringify(aiSummarySegments));
@@ -422,72 +423,74 @@ function AmbientSessionContent() {
     };
   }, [recordingStatus]);
 
-  const generateAiSummarySegment = useCallback(
-    async (endSeconds: number) => {
+  const createAiSummarySegment = useCallback(
+    async (endSeconds: number, providedChunkText?: string) => {
       if (isGeneratingSegmentRef.current) {
         return;
       }
 
       isGeneratingSegmentRef.current = true;
-      const fullText = fullTranscript;
-      const chunkText = fullText.slice(lastAnalyzedTextLengthRef.current).trim();
+      try {
+        const chunkText = (providedChunkText ?? consumeCurrentChunkTranscript()).trim();
 
-      if (!chunkText) {
+        if (!chunkText) {
+          lastAnalyzedSecondRef.current = endSeconds;
+          return;
+        }
+
+        const startTime = formatDuration(lastAnalyzedSecondRef.current);
+        const endTime = formatDuration(endSeconds);
+        const backendAnalysis = await medexaApi.analyzeTranscriptChunk(sessionId, {
+          chunk_text: chunkText,
+          start_time: startTime,
+          end_time: endTime,
+        });
+        const analysis: ClinicalAnalysis = backendAnalysis
+          ? {
+              summary: backendAnalysis.summary,
+              possibleDiagnoses: backendAnalysis.possible_diagnoses,
+              symptoms: backendAnalysis.symptoms,
+              soapUpdate: backendAnalysis.soap_update,
+              billingHints: backendAnalysis.billing_hints,
+              confidence: backendAnalysis.confidence,
+            }
+          : analyzeClinicalTranscript(chunkText);
+
+        const segment: AiSummarySegment = {
+          id: `${sessionId}-${endSeconds}-${Date.now()}`,
+          startTime,
+          endTime,
+          transcriptExcerpt: chunkText.slice(0, 260),
+          analysis,
+          status: "Generated",
+        };
+
+        setAiSummarySegments((segments) => [...segments, segment]);
+        setGeneratedSoapSuggestions((suggestions) => [
+          ...suggestions,
+          `${analysis.soapUpdate.subjective} ${analysis.soapUpdate.objective} ${analysis.soapUpdate.assessment} ${analysis.soapUpdate.plan}`,
+        ]);
         lastAnalyzedSecondRef.current = endSeconds;
+      } finally {
         isGeneratingSegmentRef.current = false;
-        return;
       }
-
-      const startTime = formatDuration(lastAnalyzedSecondRef.current);
-      const endTime = formatDuration(endSeconds);
-      const backendAnalysis = await medexaApi.analyzeTranscriptChunk(sessionId, {
-        chunk_text: chunkText,
-        start_time: startTime,
-        end_time: endTime,
-      });
-      const analysis: ClinicalAnalysis = backendAnalysis
-        ? {
-            summary: backendAnalysis.summary,
-            possibleDiagnoses: backendAnalysis.possible_diagnoses,
-            symptoms: backendAnalysis.symptoms,
-            soapUpdate: backendAnalysis.soap_update,
-            billingHints: backendAnalysis.billing_hints,
-            confidence: backendAnalysis.confidence,
-          }
-        : analyzeClinicalTranscript(chunkText);
-
-      const segment: AiSummarySegment = {
-        id: `${sessionId}-${endSeconds}-${Date.now()}`,
-        startTime,
-        endTime,
-        transcriptExcerpt: chunkText.slice(0, 260),
-        analysis,
-        status: "Generated",
-      };
-
-      setAiSummarySegments((segments) => [...segments, segment]);
-      setGeneratedSoapSuggestions((suggestions) => [
-        ...suggestions,
-        `${analysis.soapUpdate.subjective} ${analysis.soapUpdate.objective} ${analysis.soapUpdate.assessment} ${analysis.soapUpdate.plan}`,
-      ]);
-      lastAnalyzedTextLengthRef.current = fullText.length;
-      lastAnalyzedSecondRef.current = endSeconds;
-      isGeneratingSegmentRef.current = false;
     },
-    [fullTranscript, sessionId],
+    [consumeCurrentChunkTranscript, sessionId],
   );
 
   useEffect(() => {
-    if (recordingStatus !== "recording" || recordingSeconds <= 0) {
+    if (recordingStatus !== "recording") {
       return;
     }
 
-    const nextSummaryAt = lastAnalyzedSecondRef.current + 30;
+    const summaryTimerId = window.setInterval(() => {
+      void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 30));
+    }, 30000);
 
-    if (recordingSeconds >= nextSummaryAt) {
-      generateAiSummarySegment(recordingSeconds);
-    }
-  }, [generateAiSummarySegment, recordingSeconds, recordingStatus]);
+    return () => {
+      window.clearInterval(summaryTimerId);
+    };
+  }, [createAiSummarySegment, recordingStatus]);
 
   const filteredSuggestions = useMemo(() => {
     if (!query) {
@@ -593,7 +596,6 @@ function AmbientSessionContent() {
     speechSession.resetTranscript();
     setAiSummarySegments([]);
     setGeneratedSoapSuggestions([]);
-    lastAnalyzedTextLengthRef.current = 0;
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
@@ -621,7 +623,7 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
-    speechSession.startListening();
+    speechSession.resumeListening();
     medexaApi.updateSessionState(sessionId, {
       status: "recording",
       elapsedSeconds: recordingStatus === "stopped" ? INITIAL_RECORDING_SECONDS : recordingSeconds,
@@ -638,7 +640,7 @@ function AmbientSessionContent() {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
     speechSession.stopListening();
-    generateAiSummarySegment(recordingSeconds);
+    void createAiSummarySegment(recordingSecondsRef.current);
     medexaApi.updateSessionState(sessionId, {
       status: "stopped",
       elapsedSeconds: recordingSeconds,
@@ -649,6 +651,19 @@ function AmbientSessionContent() {
         updateSoapData(generatedSoapData);
       }
     });
+  };
+
+  const handleGenerateTestSummary = () => {
+    const chunkText =
+      getCurrentChunkTranscript() ||
+      "Patient reports lower back pain, difficulty walking, pain scale seven out of ten, limited range of motion, and sleep issues.";
+
+    if (getCurrentChunkTranscript()) {
+      void createAiSummarySegment(recordingSecondsRef.current);
+      return;
+    }
+
+    void createAiSummarySegment(recordingSecondsRef.current, chunkText);
   };
 
   const recordingStatusText =
@@ -689,11 +704,9 @@ function AmbientSessionContent() {
     ? t("session.unsupported")
     : recordingStatus === "recording" && speechSession.isListening
       ? t("session.listening")
-      : recordingStatus === "paused"
+      : recordingStatus === "recording" || recordingStatus === "paused"
         ? t("session.paused")
-        : recordingStatus === "stopped"
-          ? t("common.stopped")
-          : t("session.readyToRecord");
+        : t("common.stopped");
 
   return (
     <main className="session-page">
@@ -909,6 +922,15 @@ function AmbientSessionContent() {
             {speechSession.permissionError && (
               <div className="speech-alert">{t("session.microphoneRequired")}</div>
             )}
+
+            <div className="speech-debug-line">
+              <span>
+                {t("session.speechStatus")}: <strong>{listeningStatus}</strong>
+              </span>
+              <button type="button" onClick={handleGenerateTestSummary}>
+                {t("session.generateTestSummary")}
+              </button>
+            </div>
 
             <div className="transcript-box">
               <h3>{t("session.liveTranscript")}</h3>
@@ -1855,6 +1877,33 @@ function AmbientSessionContent() {
           padding: 10px 12px;
           font-size: 11px;
           line-height: 1.45;
+        }
+
+        .speech-debug-line {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-top: 12px;
+          color: #667085;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .speech-debug-line strong {
+          color: #172033;
+        }
+
+        .speech-debug-line button {
+          flex: 0 0 auto;
+          border: 1px solid #dbe3f0;
+          border-radius: 8px;
+          background: #ffffff;
+          color: #001eff;
+          padding: 6px 9px;
+          font-size: 10px;
+          font-weight: 800;
+          cursor: pointer;
         }
 
         .transcript-box,

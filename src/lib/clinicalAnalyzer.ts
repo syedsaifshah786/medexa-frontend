@@ -67,23 +67,23 @@ export function analyzeClinicalTranscript(transcript: string): ClinicalAnalysis 
   }
 
   if (normalized.includes("dizziness")) {
-    possibleDiagnoses.push("Dizziness / balance-related symptoms");
+    possibleDiagnoses.push("Dizziness symptoms");
     symptoms.push("Dizziness");
   }
 
   if (normalized.includes("numbness")) {
-    possibleDiagnoses.push("Possible sensory change");
+    possibleDiagnoses.push("Possible neurological sensory symptoms");
     symptoms.push("Numbness");
   }
 
   if (normalized.includes("weakness")) {
-    possibleDiagnoses.push("Weakness / functional limitation");
+    possibleDiagnoses.push("Weakness / reduced strength symptoms");
     symptoms.push("Weakness");
   }
 
-  if (hasAny(normalized, ["sleep issues", "trouble sleeping", "poor sleep", "insomnia"])) {
-    possibleDiagnoses.push("Sleep disturbance symptoms");
-    symptoms.push("Sleep issues");
+  if (hasAny(normalized, ["sleep", "sleep issues", "trouble sleeping", "poor sleep", "insomnia"])) {
+    possibleDiagnoses.push("Sleep disturbance");
+    symptoms.push("Sleep disturbance");
   }
 
   if (hasAny(normalized, ["trauma", "fall", "injury"])) {
@@ -91,18 +91,23 @@ export function analyzeClinicalTranscript(transcript: string): ClinicalAnalysis 
     symptoms.push("Trauma or injury history");
   }
 
-  if (hasAny(normalized, ["therapy", "mobility", "range of motion", "rom"])) {
+  if (hasAny(normalized, ["therapy", "mobility", "range of motion", "rom", "difficulty walking"])) {
     billingHints.push("Document skilled therapy minutes, functional goals, and response to treatment.");
   }
 
   if (hasAny(normalized, ["pain scale", "pain is", "pain level"])) {
-    symptoms.push("Pain score discussed");
+    symptoms.push("Pain severity reported");
     billingHints.push("Pain scale documentation may support medical necessity and response tracking.");
   }
 
   if (hasAny(normalized, ["range of motion", "rom"])) {
-    symptoms.push("Range of motion limitation");
+    symptoms.push("Limited range of motion");
     billingHints.push("Range of motion findings may support therapeutic exercise or activity documentation.");
+  }
+
+  if (normalized.includes("difficulty walking")) {
+    symptoms.push("Difficulty walking");
+    possibleDiagnoses.push("Possible mobility limitation");
   }
 
   const cleanTranscript = transcript.trim().replace(/\s+/g, " ");
