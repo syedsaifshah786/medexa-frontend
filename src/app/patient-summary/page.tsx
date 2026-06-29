@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
@@ -19,6 +20,7 @@ export default function PatientSummaryPage() {
   const [actionStatus, setActionStatus] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -64,7 +66,7 @@ export default function PatientSummaryPage() {
     const apiSummary = await medexaApi.updatePatientSummary(sessionId, nextSummary);
     setSummaryNote(apiSummary?.summary ?? nextSummary);
     setIsEditing(false);
-    setActionStatus("Summary note updated.");
+    setActionStatus(t("summary.updated"));
   };
 
   const cancelEditing = () => {
@@ -81,7 +83,7 @@ export default function PatientSummaryPage() {
   const confirmSend = async () => {
     await medexaApi.sendPatientSummary(sessionId);
     setShowSendConfirm(false);
-    setActionStatus("Summary sent to patient successfully.");
+    setActionStatus(t("summary.sent"));
   };
 
   const summaryMatches = useMemo(() => {
@@ -94,7 +96,7 @@ export default function PatientSummaryPage() {
     return [
       summaryNote,
       "Therapeutic Therapy Session",
-      "Medexa Summarized",
+      t("session.medexaSummarized"),
       "July 05, 12:00 PM",
       "Patient ID #99283",
       "Duration 52:22",
@@ -105,7 +107,7 @@ export default function PatientSummaryPage() {
       .join(" ")
       .toLowerCase()
       .includes(query);
-  }, [headerSearch, summaryNote]);
+  }, [headerSearch, summaryNote, t]);
 
   return (
     <main className="ambient-page">
@@ -117,8 +119,8 @@ export default function PatientSummaryPage() {
             <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
               ‹
             </Link>
-            <h1>Therapeutic Therapy Session</h1>
-            <span>• Medexa Summarized</span>
+            <h1>{t("session.therapeuticTherapySession")}</h1>
+            <span>• {t("session.medexaSummarized")}</span>
           </div>
 
           <div className="meta-row">
@@ -126,39 +128,39 @@ export default function PatientSummaryPage() {
               <strong>July 05, 12:00 PM</strong>
             </p>
             <p>
-              Patient ID: <strong>#99283</strong>
+              {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              Duration: <strong>52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">52:22</strong>
             </p>
             <p>
-              Unit(s): <strong>3</strong>
+              {t("session.units")}: <strong dir="ltr">3</strong>
             </p>
           </div>
         </section>
 
         <nav className="tabs" aria-label="Session views">
-          <Link href="/soap-notes">SOAP Notes</Link>
-          <Link href="/billing-intelligence">Billing Intelligence</Link>
+          <Link href="/soap-notes">{t("nav.soapNotes")}</Link>
+          <Link href="/billing-intelligence">{t("nav.billingIntelligence")}</Link>
           <Link href="/patient-summary" className="tab-active">
-            Patient Summary
+            {t("nav.patientSummary")}
           </Link>
           <Link href="/claim-document" className="claim-link">
-            ✓ Create Claim-Document
+            ✓ {t("nav.createClaimDocument")}
           </Link>
         </nav>
 
         <section className="summary-card">
           <div className="summary-card-header">
-            <h2>Session Summary Note</h2>
+            <h2>{t("summary.sessionSummaryNote")}</h2>
             <div className="summary-actions">
               {!isEditing && (
                 <button type="button" onClick={startEditing}>
-                  ✎ Edit
+                  ✎ {t("common.edit")}
                 </button>
               )}
               <button type="button" onClick={requestSend}>
-                ✈ Send to Patient
+                ✈ {t("summary.sendToPatient")}
               </button>
             </div>
           </div>
@@ -167,13 +169,13 @@ export default function PatientSummaryPage() {
 
           {showSendConfirm && (
             <div className="send-confirm">
-              <span>Send this summary to the patient?</span>
+              <span>{t("summary.sendQuestion")}</span>
               <div>
                 <button type="button" onClick={confirmSend}>
-                  Confirm Send
+                  {t("summary.confirmSend")}
                 </button>
                 <button type="button" onClick={() => setShowSendConfirm(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -189,10 +191,10 @@ export default function PatientSummaryPage() {
                 />
                 <div className="editor-actions">
                   <button type="button" onClick={cancelEditing}>
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                   <button type="button" onClick={saveSummary}>
-                    Save
+                    {t("common.save")}
                   </button>
                 </div>
               </div>
@@ -200,7 +202,7 @@ export default function PatientSummaryPage() {
               <p>{summaryNote}</p>
             )
           ) : (
-            <div className="empty-state">No matching summary content found.</div>
+            <div className="empty-state">{t("summary.noMatch")}</div>
           )}
         </section>
       </section>

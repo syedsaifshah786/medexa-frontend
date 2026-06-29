@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { apiSessionToUpcomingSession, medexaApi, type ApiTranscript } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
@@ -116,6 +117,7 @@ export default function AmbientListeningPage() {
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
   const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
   const { selectedDoctor } = useSelectedDoctor();
+  const { t } = useLanguage();
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
   const doctorFirstName = selectedDoctor.name.replace(/^Dr\.\s+/, "").split(" ")[0];
@@ -174,7 +176,7 @@ export default function AmbientListeningPage() {
       return;
     }
 
-    setSessionMessage(`Opening ${session.name} session...`);
+    setSessionMessage(`${t("ambient.openingSession")} ${session.name}`);
     setActiveSessionId(session.id);
     medexaApi.startSession({
       patient_id: session.id,
@@ -186,7 +188,7 @@ export default function AmbientListeningPage() {
   };
 
   const startNewSession = () => {
-    setSessionMessage("Starting a new session...");
+    setSessionMessage(t("ambient.startingNewSession"));
     setActiveSessionId("new-session");
     medexaApi.startSession({
       session_id: "new-session",
@@ -198,7 +200,7 @@ export default function AmbientListeningPage() {
 
   const showSessionStatus = (session: UpcomingSession) => {
     setSessionStatusDetail(
-      `${session.name} is ${session.status === "active" ? "currently active" : "awaiting check-in"} for ${session.time}.`,
+      `${session.name} ${session.status === "active" ? t("ambient.activeSessionStatus") : t("ambient.awaitingSessionStatus")} ${session.time}.`,
     );
   };
 
@@ -296,7 +298,9 @@ export default function AmbientListeningPage() {
     setStatusFilter((current) => (current === status ? null : status));
     setCurrentTranscriptPage(1);
     setTranscriptMessage(
-      statusFilter === status ? "Status filter cleared" : `${status} filter applied`,
+      statusFilter === status
+        ? t("ambient.statusFilterCleared")
+        : `${status === "SUMMARIZED" ? t("ambient.summarized") : t("ambient.summaryPending")} ${t("ambient.statusFilterApplied")}`,
     );
   };
 
@@ -309,7 +313,7 @@ export default function AmbientListeningPage() {
           item.id === id ? apiTranscriptToTranscript(generatedTranscript) : item,
         ),
       );
-      setTranscriptMessage("Summary generated");
+      setTranscriptMessage(t("ambient.summaryGenerated"));
       return;
     }
 
@@ -324,14 +328,14 @@ export default function AmbientListeningPage() {
           : item,
       ),
     );
-    setTranscriptMessage("Summary generated");
+    setTranscriptMessage(t("ambient.summaryGenerated"));
   };
 
   const markAsSummarized = (id: string) => {
     setTranscriptItems((items) =>
       items.map((item) => (item.id === id ? { ...item, status: "SUMMARIZED" } : item)),
     );
-    setTranscriptMessage("Transcript marked as summarized");
+    setTranscriptMessage(t("ambient.summaryGenerated"));
   };
 
   return (
@@ -349,7 +353,7 @@ export default function AmbientListeningPage() {
 
         <section className="hero">
           <h1>
-            Good Morning,
+            {t("common.goodMorning")},
             <br />
             Dr. {doctorFirstName}
           </h1>
@@ -357,8 +361,8 @@ export default function AmbientListeningPage() {
           <button type="button" className="start-session" onClick={startNewSession}>
             <span className="mic-icon">◉</span>
             <span>
-              <strong>Start a new session?</strong>
-              <em>&quot;Start a new session with David Peter&quot;</em>
+              <strong>{t("ambient.startNewSession")}</strong>
+              <em>{t("ambient.startPrompt")}</em>
             </span>
           </button>
         </section>
@@ -366,12 +370,12 @@ export default function AmbientListeningPage() {
         <section className="sessions-section">
           <div className="section-heading">
             <div>
-              <h2>Upcoming Sessions</h2>
-              <p>{sessionItems.length} sessions remaining ahead</p>
+              <h2>{t("ambient.upcomingSessions")}</h2>
+              <p>{sessionItems.length} {t("ambient.sessionsRemaining")}</p>
             </div>
             <div className="heading-actions">
               <button type="button" onClick={() => setIsSessionsModalOpen(true)}>
-                View All Upcoming Sessions
+                {t("ambient.viewAllUpcoming")}
               </button>
               <button type="button" aria-label="Scroll upcoming sessions" onClick={scrollSessions}>
                 ↗
@@ -437,7 +441,7 @@ export default function AmbientListeningPage() {
                       showSessionStatus(session);
                     }}
                   >
-                    Awaiting
+                    {session.status}
                   </button>
                 )}
                 <h3>{session.name}</h3>
@@ -452,7 +456,7 @@ export default function AmbientListeningPage() {
             ))}
             {filteredSessions.length === 0 && (
               <div className="sessions-empty">
-                No upcoming sessions match your search.
+                {t("ambient.noUpcoming")}
               </div>
             )}
           </div>
@@ -462,11 +466,11 @@ export default function AmbientListeningPage() {
               <section className="sessions-modal-panel">
                 <div className="sessions-modal-heading">
                   <div>
-                    <h3 id="sessions-modal-title">All Upcoming Sessions</h3>
-                    <p>{sessionItems.length} sessions scheduled ahead</p>
+                    <h3 id="sessions-modal-title">{t("ambient.allUpcoming")}</h3>
+                    <p>{sessionItems.length} {t("ambient.sessionsScheduled")}</p>
                   </div>
                   <button type="button" onClick={() => setIsSessionsModalOpen(false)}>
-                    Close
+                    {t("common.close")}
                   </button>
                 </div>
 
@@ -496,15 +500,15 @@ export default function AmbientListeningPage() {
         <section className="transcripts-section">
           <div className="section-heading transcripts-heading">
             <div>
-              <h2>Recent Transcriptions</h2>
-              <p>Showing transcriptions from recent sessions</p>
+              <h2>{t("ambient.recentTranscriptions")}</h2>
+              <p>{t("ambient.showingTranscriptions")}</p>
             </div>
 
             <label className="transcript-search">
               <span>⌕</span>
               <input
-                aria-label="Search transcriptions"
-                placeholder="Search transcriptions..."
+                aria-label={t("ambient.searchTranscriptions")}
+                placeholder={t("ambient.searchTranscriptions")}
                 type="search"
                 value={transcriptSearch}
                 onChange={(event) => {
@@ -547,12 +551,12 @@ export default function AmbientListeningPage() {
                     toggleStatusFilter(item.status);
                   }}
                 >
-                  {item.status}
+                  {item.status === "SUMMARIZED" ? t("ambient.summarized") : t("ambient.summaryPending")}
                 </button>
                 <button
                   type="button"
                   className="row-arrow"
-                  aria-label={`Open transcript for ${item.name}`}
+                  aria-label={`${t("ambient.openTranscript")} ${item.name}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedTranscriptId(item.id);
@@ -564,15 +568,15 @@ export default function AmbientListeningPage() {
             ))}
             {filteredTranscripts.length === 0 && (
               <div className="transcripts-empty">
-                <strong>No transcriptions found.</strong>
-                <span>Try searching by patient name or clearing the status filter.</span>
+                <strong>{t("ambient.noTranscriptions")}</strong>
+                <span>{t("ambient.noTranscriptionsHint")}</span>
               </div>
             )}
           </div>
 
           {(statusFilter || transcriptMessage) && (
             <div className="transcript-feedback" aria-live="polite">
-              {statusFilter && <span>Showing {statusFilter.toLowerCase()} transcripts</span>}
+              {statusFilter && <span>{statusFilter === "SUMMARIZED" ? t("ambient.summarized") : t("ambient.summaryPending")}</span>}
               {transcriptMessage && <strong>{transcriptMessage}</strong>}
             </div>
           )}
@@ -594,13 +598,13 @@ export default function AmbientListeningPage() {
                       : "badge badge-pending"
                   }
                 >
-                  {selectedTranscript.status}
+                  {selectedTranscript.status === "SUMMARIZED" ? t("ambient.summarized") : t("ambient.summaryPending")}
                 </span>
               </div>
 
               <div className="detail-body">
                 <div>
-                  <h4>Summary</h4>
+                  <h4>{t("ambient.summarized")}</h4>
                   <p>{selectedTranscript.summary}</p>
                 </div>
                 <div>
@@ -615,14 +619,14 @@ export default function AmbientListeningPage() {
                 </button>
                 {selectedTranscript.status === "SUMMARY PENDING" && (
                   <button type="button" onClick={() => generateSummary(selectedTranscript.id)}>
-                    Generate Summary
+                    {t("ambient.generateSummary")}
                   </button>
                 )}
                 <button type="button" onClick={() => markAsSummarized(selectedTranscript.id)}>
                   Mark as Summarized
                 </button>
                 <button type="button" onClick={() => setSelectedTranscriptId(null)}>
-                  Close
+                  {t("common.close")}
                 </button>
               </div>
             </section>

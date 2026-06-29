@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
+import { useLanguage } from "@/context/LanguageContext";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { apiSessionToUpcomingSession, medexaApi, type ApiInsight, type ApiSuggestion } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
@@ -100,9 +101,13 @@ const apiSuggestionToSuggestion = (suggestion: ApiSuggestion): SuggestionItem =>
 function SlideToApprove({
   approved,
   onApprove,
+  label,
+  approvedLabel,
 }: {
   approved: boolean;
   onApprove: () => void;
+  label: string;
+  approvedLabel: string;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragStartXRef = useRef(0);
@@ -184,7 +189,7 @@ function SlideToApprove({
       className={`approve-slider ${approved ? "is-approved" : ""} ${isDragging ? "is-dragging" : ""}`}
       role="slider"
       tabIndex={approved ? -1 : 0}
-      aria-label={approved ? "Approved" : "Slide to approve"}
+      aria-label={approved ? approvedLabel : label}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}
@@ -246,7 +251,7 @@ function SlideToApprove({
       >
         {approved ? "✓" : "›"}
       </span>
-      <span className="approve-slider-label">{approved ? "Approved" : "Slide to Approve"}</span>
+      <span className="approve-slider-label">{approved ? approvedLabel : label}</span>
     </div>
   );
 }
@@ -275,6 +280,7 @@ function AmbientSessionContent() {
   const [insightItems, setInsightItems] = useState<InsightItem[]>(defaultInsights);
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
   const { updateSoapData } = useSessionDocumentation();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const localSession = getSessionById(routeSessionId);
@@ -429,7 +435,7 @@ function AmbientSessionContent() {
     };
 
     updateSoapData(generatedSoapData);
-    setStatusMessage("SOAP notes saved");
+    setStatusMessage(t("session.soapSaved"));
   };
 
   const updateInsight = (id: string, nextState: InsightState, message: string) => {
@@ -511,22 +517,22 @@ function AmbientSessionContent() {
 
   const recordingStatusText =
     recordingStatus === "stopped"
-      ? "Recording Stopped"
+      ? t("session.recordingStopped")
       : recordingStatus === "recording"
-        ? "Recording Active"
+        ? t("session.recordingActive")
       : recordingStatus === "paused"
-        ? "Recording Paused"
-        : "Ready to Record";
+        ? t("session.recordingPaused")
+        : t("session.readyToRecord");
   const recordingCardText =
     recordingStatus === "stopped"
-      ? "Recording saved. Start a new recording when ready."
+      ? t("session.recordingSaved")
       : recordingStatus === "paused"
-        ? "Recording paused. Resume when ready."
+        ? t("session.recordingPaused")
         : recordingStatus === "idle"
-          ? "Press play to start recording."
+          ? t("session.pressPlay")
         : (
             <>
-              Say <b>Stop</b> Recording...
+              {t("session.sayStopRecording")}
             </>
           );
   const formattedRecordingDuration = formatDuration(recordingSeconds);
@@ -537,12 +543,12 @@ function AmbientSessionContent() {
   const unitLabel = recordedUnits === 1 ? "Unit" : "Units";
   const primaryControlLabel =
     recordingStatus === "recording"
-      ? "Pause"
+      ? t("common.pause")
       : recordingStatus === "paused"
-        ? "Resume"
+        ? t("common.resume")
         : recordingStatus === "stopped"
-          ? "Start New"
-          : "Start";
+          ? t("common.start")
+          : t("common.start");
 
   return (
     <main className="session-page">
@@ -558,33 +564,33 @@ function AmbientSessionContent() {
             <h1>{selectedSession.name}</h1>
             <div className="patient-meta">
               <p>
-                Age / Sex
+                {t("session.ageSex")}
                 <strong>{selectedSession.ageSex}</strong>
               </p>
               <p>
-                Weight
+                {t("session.weight")}
                 <strong>{selectedSession.weight}</strong>
               </p>
               <p>
-                MRN Number
+                {t("session.mrnNumber")}
                 <strong>{selectedSession.mrn}</strong>
               </p>
               <p>
-                Payor Source
+                {t("session.payorSource")}
                 <strong className="blue-dot">{selectedSession.payor}</strong>
               </p>
               <p>
-                Care Type
+                {t("session.careType")}
                 <strong>{selectedSession.careType}</strong>
               </p>
               <p>
-                CPT / ICD
+                {t("session.cptIcd")}
                 <strong>
                   {selectedSession.cpt} / {selectedSession.icd}
                 </strong>
               </p>
               <p>
-                Session Time
+                {t("session.sessionTime")}
                 <strong>{selectedSession.time}</strong>
               </p>
             </div>
@@ -609,8 +615,8 @@ function AmbientSessionContent() {
             </div>
           </div>
           <div className="recording-right">
-            <p>Unit {nextUnit} at <b>{formatDuration(nextUnitTargetSeconds)}</b></p>
-            <strong>+{formatDuration(secondsUntilNextUnit)} left</strong>
+            <p>{t("session.unitAt")} {nextUnit} at <b dir="ltr">{formatDuration(nextUnitTargetSeconds)}</b></p>
+            <strong dir="ltr">+{formatDuration(secondsUntilNextUnit)} {t("session.left")}</strong>
           </div>
         </section>
 
@@ -619,7 +625,7 @@ function AmbientSessionContent() {
           {statusMessage && <p className="status-message">{statusMessage}</p>}
         </div>
 
-        <p className="processing-text">Medexa is Processing for Insights...</p>
+        <p className="processing-text">{t("session.processingInsights")}</p>
 
         <section className="live-grid">
           <div className="insights-column">
@@ -651,7 +657,7 @@ function AmbientSessionContent() {
                         updateInsight(
                           item.id,
                           { selected: !itemState.selected },
-                          isBilling ? "Billing item selected" : "Detected item selected",
+                          isBilling ? t("session.billingSelected") : t("session.detectedSelected"),
                         )
                       }
                     >
@@ -664,30 +670,32 @@ function AmbientSessionContent() {
                         updateInsight(
                           item.id,
                           { ignored: true, selected: false },
-                          "Insight ignored",
+                          t("session.insightIgnored"),
                         )
                       }
                     >
-                      × Ignore
+                      × {t("common.ignore")}
                     </button>
                   </div>
                   <p className="insight-note">{item.note}</p>
                   <div className="insight-state-row">
-                    {itemState.approved && <span className="state-badge approved">Approved</span>}
-                    {itemState.ignored && <span className="state-badge ignored">Ignored</span>}
+                    {itemState.approved && <span className="state-badge approved">{t("common.approved")}</span>}
+                    {itemState.ignored && <span className="state-badge ignored">{t("common.ignore")}</span>}
                     {itemState.selected && (
                       <span className="selection-message">
-                        {isBilling ? "Billing item selected" : "Detected item selected"}
+                        {isBilling ? t("session.billingSelected") : t("session.detectedSelected")}
                       </span>
                     )}
                   </div>
                   <SlideToApprove
                     approved={Boolean(itemState.approved)}
+                    label={t("session.slideToApprove")}
+                    approvedLabel={t("common.approved")}
                     onApprove={() =>
                       updateInsight(
                         item.id,
                         { approved: true, ignored: false },
-                        "Insight approved",
+                        t("session.insightApproved"),
                       )
                     }
                   />
@@ -696,13 +704,13 @@ function AmbientSessionContent() {
             })}
 
             {filteredInsights.length === 0 && (
-              <div className="empty-state">No live insights match your search.</div>
+              <div className="empty-state">{t("session.noLiveInsights")}</div>
             )}
           </div>
 
           <aside className="suggestions-panel">
             <div className="suggestions-heading">
-              <h2>Suggestions</h2>
+              <h2>{t("session.suggestions")}</h2>
               <span>3</span>
             </div>
 
@@ -725,14 +733,14 @@ function AmbientSessionContent() {
                       className={isApplied ? "is-applied" : ""}
                       onClick={() => handleSuggestionApply(item.id)}
                     >
-                      {isApplied ? "✓ Applied" : "✓ Apply"}
+                      {isApplied ? `✓ ${t("common.applied")}` : `✓ ${t("common.apply")}`}
                     </button>
                   </article>
                 );
               })}
 
               {filteredSuggestions.length === 0 && (
-                <div className="empty-state compact">No suggestions match your search.</div>
+                <div className="empty-state compact">{t("session.noSuggestions")}</div>
               )}
             </div>
           </aside>
@@ -758,19 +766,19 @@ function AmbientSessionContent() {
         >
           <span />
         </button>
-        <span>{recordingStatus === "stopped" ? "Stopped" : "Stop"}</span>
+        <span>{recordingStatus === "stopped" ? t("common.stopped") : t("common.stop")}</span>
       </div>
 
       {showStopConfirm && (
         <div className="stop-confirm" role="dialog" aria-modal="true" aria-labelledby="stop-title">
           <div className="stop-confirm-panel">
-            <h2 id="stop-title">Stop this recording?</h2>
+            <h2 id="stop-title">{t("session.stopRecordingQuestion")}</h2>
             <div className="stop-confirm-actions">
               <button type="button" onClick={confirmStop}>
-                Confirm Stop
+                {t("session.confirmStop")}
               </button>
               <button type="button" onClick={() => setShowStopConfirm(false)}>
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>

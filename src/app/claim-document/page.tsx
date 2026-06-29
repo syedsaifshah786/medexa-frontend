@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
@@ -119,6 +120,7 @@ export default function ClaimDocumentPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
+  const { t } = useLanguage();
 
   const query = headerSearch.trim().toLowerCase();
 
@@ -204,7 +206,7 @@ export default function ClaimDocumentPage() {
     };
 
     if (!nextItem.code || !nextItem.description || !nextItem.units || !nextItem.duration) {
-      setStatusMessage("Add CPT code, description, units, and duration before saving.");
+      setStatusMessage(`${t("billing.addCpt")}: ${t("billing.cptCode")}, ${t("billing.description")}, ${t("session.units")}, ${t("common.duration")}.`);
       return;
     }
 
@@ -236,18 +238,18 @@ export default function ClaimDocumentPage() {
 
   const exportClaim = (format: "PDF" | "CSV") => {
     setShowExportMenu(false);
-    setStatusMessage(`Exported as ${format}.`);
+    setStatusMessage(`${t("claim.export")} ${format}.`);
   };
 
   const submitClaim = async () => {
     await medexaApi.submitClaim(sessionId);
     setIsSubmitted(true);
-    setStatusMessage("Claim submitted successfully.");
+    setStatusMessage(t("claim.submitted"));
   };
 
   const saveDraft = async () => {
     await medexaApi.saveClaimDraft(sessionId);
-    setStatusMessage("Draft saved.");
+    setStatusMessage(t("claim.draftSaved"));
   };
 
   const startMetaEdit = () => {
@@ -265,7 +267,7 @@ export default function ClaimDocumentPage() {
       setMeta(metaDraft);
     }
     setIsEditingMeta(false);
-    setStatusMessage("Session data updated.");
+    setStatusMessage(t("claim.sessionDataUpdated"));
   };
 
   const verifyClaim = async () => {
@@ -293,7 +295,7 @@ export default function ClaimDocumentPage() {
     }
 
     await medexaApi.verifyClaim(sessionId);
-    setStatusMessage("Claim document verified successfully.");
+    setStatusMessage(t("claim.verified"));
   };
 
   return (
@@ -307,13 +309,13 @@ export default function ClaimDocumentPage() {
               <Link href="/patient-summary" className="back-link" aria-label="Back to Patient Summary">
                 ‹
               </Link>
-              <h1>Claim Document</h1>
+              <h1>{t("claim.title")}</h1>
             </div>
 
             <div className="top-actions">
               <div className="export-wrap">
                 <button type="button" onClick={() => setShowExportMenu((value) => !value)}>
-                  Export⌄
+                  {t("claim.export")}⌄
                 </button>
                 {showExportMenu && (
                   <div className="export-menu">
@@ -332,30 +334,30 @@ export default function ClaimDocumentPage() {
                 disabled={isSubmitted}
                 onClick={submitClaim}
               >
-                ▷ {isSubmitted ? "Claim Submitted" : "Submit Claim"}
+                ▷ {isSubmitted ? t("claim.claimSubmitted") : t("claim.submitClaim")}
               </button>
             </div>
           </div>
 
           <div className="meta-row">
             <div>
-              <span>Patient</span>
+              <span>{t("claim.patient")}</span>
               <strong>{meta.patient}</strong>
             </div>
             <div>
-              <span>MRN Number</span>
+              <span>{t("session.mrnNumber")}</span>
               <strong>{meta.mrn}</strong>
             </div>
             <div>
-              <span>Ordering Provider</span>
+              <span>{t("claim.orderingProvider")}</span>
               <strong>{meta.provider}</strong>
             </div>
             <div>
-              <span>Session Meta</span>
+              <span>{t("claim.sessionMeta")}</span>
               <strong>{meta.session}</strong>
             </div>
             <div>
-              <span>Payor Source</span>
+              <span>{t("session.payorSource")}</span>
               <strong className="payor">{meta.payor}</strong>
             </div>
           </div>
@@ -375,10 +377,10 @@ export default function ClaimDocumentPage() {
               ))}
               <div className="form-actions">
                 <button type="button" onClick={() => setIsEditingMeta(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="button" onClick={saveMeta}>
-                  Save Session Data
+                  {t("claim.saveSessionData")}
                 </button>
               </div>
             </div>
@@ -390,10 +392,10 @@ export default function ClaimDocumentPage() {
         <section className="content-section">
           <div className="section-heading">
             <h2>
-              Session List Items <span>{billableUnits} Billable Units</span>
+              {t("claim.sessionListItems")} <span>{billableUnits} {t("claim.billableUnits")}</span>
             </h2>
             <button type="button" onClick={() => setShowCptForm(true)}>
-              + Add more CPTs
+              + {t("billing.addMoreCpts")}
             </button>
           </div>
 
@@ -401,14 +403,14 @@ export default function ClaimDocumentPage() {
             <div className="inline-form">
               <div className="form-grid">
                 <label>
-                  CPT code
+                  {t("billing.cptCode")}
                   <input
                     value={cptForm.code}
                     onChange={(event) => setCptForm((form) => ({ ...form, code: event.target.value }))}
                   />
                 </label>
                 <label>
-                  Description
+                  {t("billing.description")}
                   <input
                     value={cptForm.description}
                     onChange={(event) =>
@@ -417,14 +419,14 @@ export default function ClaimDocumentPage() {
                   />
                 </label>
                 <label>
-                  Units
+                  {t("session.units")}
                   <input
                     value={cptForm.units}
                     onChange={(event) => setCptForm((form) => ({ ...form, units: event.target.value }))}
                   />
                 </label>
                 <label>
-                  Duration
+                  {t("common.duration")}
                   <input
                     value={cptForm.duration}
                     onChange={(event) =>
@@ -433,7 +435,7 @@ export default function ClaimDocumentPage() {
                   />
                 </label>
                 <label>
-                  Modifier
+                  {t("claim.modifier")}
                   <input
                     value={cptForm.modifier}
                     placeholder="--"
@@ -445,10 +447,10 @@ export default function ClaimDocumentPage() {
               </div>
               <div className="form-actions">
                 <button type="button" onClick={() => setShowCptForm(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="button" onClick={saveCpt}>
-                  Save CPT
+                  {t("billing.saveCpt")}
                 </button>
               </div>
             </div>
@@ -456,11 +458,11 @@ export default function ClaimDocumentPage() {
 
           <div className="session-table">
             <div className="table-head">
-              <span>CPT Code</span>
-              <span>Description</span>
-              <span>Units</span>
-              <span>Duration</span>
-              <span>Modifier</span>
+              <span>{t("billing.cptCode")}</span>
+              <span>{t("billing.description")}</span>
+              <span>{t("session.units")}</span>
+              <span>{t("common.duration")}</span>
+              <span>{t("claim.modifier")}</span>
             </div>
             {filteredSessionItems.map((item) => (
               <div className="table-row" key={item.id}>
@@ -476,16 +478,16 @@ export default function ClaimDocumentPage() {
               </div>
             ))}
             {filteredSessionItems.length === 0 && (
-              <div className="empty-state">No session list items match your search.</div>
+              <div className="empty-state">{t("claim.noSessionItems")}</div>
             )}
           </div>
         </section>
 
         <section className="content-section diagnosis-section">
           <div className="section-heading">
-            <h2>ICD-10 Diagnosis Codes</h2>
+            <h2>{t("claim.icd10DiagnosisCodes")}</h2>
             <button type="button" onClick={() => setShowDiagnosisForm(true)}>
-              + Add Diagnosis
+              + {t("claim.addDiagnosis")}
             </button>
           </div>
 
@@ -502,7 +504,7 @@ export default function ClaimDocumentPage() {
                   />
                 </label>
                 <label>
-                  Description
+                  {t("billing.description")}
                   <input
                     value={diagnosisForm.description}
                     onChange={(event) =>
@@ -528,7 +530,7 @@ export default function ClaimDocumentPage() {
               </div>
               <div className="form-actions">
                 <button type="button" onClick={() => setShowDiagnosisForm(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button type="button" onClick={saveDiagnosis}>
                   Save Diagnosis
@@ -548,7 +550,7 @@ export default function ClaimDocumentPage() {
               </article>
             ))}
             {filteredDiagnosis.length === 0 && (
-              <div className="empty-state">No diagnosis codes match your search.</div>
+              <div className="empty-state">{t("claim.noDiagnosis")}</div>
             )}
           </div>
         </section>
@@ -560,20 +562,20 @@ export default function ClaimDocumentPage() {
             <span className="bar-icon save-icon" aria-hidden="true">
               ▣
             </span>
-            <span>Save as Draft</span>
+            <span>{t("claim.saveAsDraft")}</span>
           </button>
           <button type="button" className="bar-action" onClick={startMetaEdit}>
             <span className="bar-icon edit-icon" aria-hidden="true">
               ✎
             </span>
-            <span>Edit Session Data</span>
+            <span>{t("claim.editSessionData")}</span>
           </button>
           <span className="bar-divider" aria-hidden="true" />
           <button type="button" className="verify-button" onClick={verifyClaim}>
             <span className="verify-icon" aria-hidden="true">
               →
             </span>
-            <span>Verify Claim Document</span>
+            <span>{t("claim.verifyClaimDocument")}</span>
             <span className="info-icon" aria-hidden="true">
               i
             </span>
@@ -1281,3 +1283,5 @@ export default function ClaimDocumentPage() {
     </main>
   );
 }
+
+

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   defaultSoapData,
   type SectionKey,
@@ -67,6 +68,9 @@ function NoteCard({
   onEdit,
   onSave,
   onCancel,
+  editLabel,
+  saveLabel,
+  cancelLabel,
   children,
 }: {
   title: string;
@@ -74,6 +78,9 @@ function NoteCard({
   onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
+  editLabel: string;
+  saveLabel: string;
+  cancelLabel: string;
   children: React.ReactNode;
 }) {
   return (
@@ -82,19 +89,19 @@ function NoteCard({
         <h2>{title}</h2>
         {!isEditing && (
           <button type="button" className="edit-trigger" onClick={onEdit}>
-            ✎ Edit
+            ✎ {editLabel}
           </button>
         )}
-        <button type="button">✎ Edit</button>
+        <button type="button">✎ {editLabel}</button>
       </div>
       {children}
       {isEditing && (
         <div className="edit-actions">
           <button type="button" onClick={onCancel}>
-            Cancel
+            {cancelLabel}
           </button>
           <button type="button" onClick={onSave}>
-            Save
+            {saveLabel}
           </button>
         </div>
       )}
@@ -109,6 +116,7 @@ export default function SoapNotesPage() {
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
+  const { t } = useLanguage();
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -157,7 +165,7 @@ export default function SoapNotesPage() {
     updateSoapData(draftData);
     medexaApi.updateSoapNotes(sessionId, draftData);
     setEditingSection(null);
-    setStatusMessage(`${section.charAt(0).toUpperCase()}${section.slice(1)} updated.`);
+    setStatusMessage(`${t(`soap.${section}`)} ${t("summary.updated")}`);
   };
 
   const cancelEdit = () => {
@@ -200,8 +208,8 @@ export default function SoapNotesPage() {
             <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
               ‹
             </Link>
-            <h1>Therapeutic Therapy Session</h1>
-            <span>• Medexa Summarized</span>
+            <h1>{t("session.therapeuticTherapySession")}</h1>
+            <span>• {t("session.medexaSummarized")}</span>
           </div>
 
           <div className="meta-row">
@@ -209,25 +217,25 @@ export default function SoapNotesPage() {
               <strong>July 05, 12:00 PM</strong>
             </p>
             <p>
-              Patient ID: <strong>#99283</strong>
+              {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              Duration: <strong>52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">52:22</strong>
             </p>
             <p>
-              Unit(s): <strong>3</strong>
+              {t("session.units")}: <strong dir="ltr">3</strong>
             </p>
           </div>
         </section>
 
         <nav className="tabs" aria-label="Session views">
           <Link href="/soap-notes" className="tab-active">
-            SOAP Notes
+            {t("nav.soapNotes")}
           </Link>
-          <Link href="/billing-intelligence">Billing Intelligence</Link>
-          <Link href="/patient-summary">Patient Summary</Link>
+          <Link href="/billing-intelligence">{t("nav.billingIntelligence")}</Link>
+          <Link href="/patient-summary">{t("nav.patientSummary")}</Link>
           <Link href="/claim-document" className="claim-link">
-            ✓ Create Claim-Document
+            ✓ {t("nav.createClaimDocument")}
           </Link>
         </nav>
 
@@ -235,21 +243,24 @@ export default function SoapNotesPage() {
           {statusMessage && <div className="status-message">{statusMessage}</div>}
 
           {!hasVisibleSections && (
-            <div className="empty-state">No SOAP sections match your search.</div>
+            <div className="empty-state">{t("soap.noSections")}</div>
           )}
 
           {visibleSections.subjective && (
             <NoteCard
-              title="Subjective"
+              title={t("soap.subjective")}
               isEditing={editingSection === "subjective"}
               onEdit={() => startEdit("subjective")}
               onSave={() => saveSection("subjective")}
               onCancel={cancelEdit}
+              editLabel={t("common.edit")}
+              saveLabel={t("common.save")}
+              cancelLabel={t("common.cancel")}
             >
               <div className="card-fields">
                 {editingSection === "subjective" ? (
                   <EditableField
-                    label="Chief Complaint"
+                    label={t("soap.chiefComplaint")}
                     multiline
                     value={draftData.subjective.chiefComplaint}
                     onChange={(value) =>
@@ -261,7 +272,7 @@ export default function SoapNotesPage() {
                   />
                 ) : (
                   <Field
-                    label="Chief Complaint"
+                    label={t("soap.chiefComplaint")}
                     multiline
                     value={soapData.subjective.chiefComplaint}
                   />
@@ -270,7 +281,7 @@ export default function SoapNotesPage() {
                   {editingSection === "subjective" ? (
                     <>
                       <EditableField
-                        label="Pain Scale (0-10)"
+                        label={`${t("soap.painScale")} (0-10)`}
                         value={draftData.subjective.painScale}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -280,7 +291,7 @@ export default function SoapNotesPage() {
                         }
                       />
                       <EditableField
-                        label="Duration"
+                        label={t("common.duration")}
                         value={draftData.subjective.duration}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -292,8 +303,8 @@ export default function SoapNotesPage() {
                     </>
                   ) : (
                     <>
-                      <Field label="Pain Scale (0-10)" value={soapData.subjective.painScale} />
-                      <Field label="Duration" value={soapData.subjective.duration} />
+                      <Field label={`${t("soap.painScale")} (0-10)`} value={soapData.subjective.painScale} />
+                      <Field label={t("common.duration")} value={soapData.subjective.duration} />
                     </>
                   )}
                 </div>
@@ -303,16 +314,19 @@ export default function SoapNotesPage() {
 
           {visibleSections.objective && (
             <NoteCard
-              title="Objective"
+              title={t("soap.objective")}
               isEditing={editingSection === "objective"}
               onEdit={() => startEdit("objective")}
               onSave={() => saveSection("objective")}
               onCancel={cancelEdit}
+              editLabel={t("common.edit")}
+              saveLabel={t("common.save")}
+              cancelLabel={t("common.cancel")}
             >
               <div className="card-fields">
                 {editingSection === "objective" ? (
                   <EditableField
-                    label="Observation Notes"
+                    label={t("soap.observationNotes")}
                     multiline
                     value={draftData.objective.observationNotes}
                     onChange={(value) =>
@@ -324,7 +338,7 @@ export default function SoapNotesPage() {
                   />
                 ) : (
                   <Field
-                    label="Observation Notes"
+                    label={t("soap.observationNotes")}
                     multiline
                     value={soapData.objective.observationNotes}
                   />
@@ -333,7 +347,7 @@ export default function SoapNotesPage() {
                   {editingSection === "objective" ? (
                     <>
                       <EditableField
-                        label="Range of Motion"
+                        label={t("soap.rangeOfMotion")}
                         value={draftData.objective.rangeOfMotion}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -343,7 +357,7 @@ export default function SoapNotesPage() {
                         }
                       />
                       <EditableField
-                        label="Affect"
+                        label={t("soap.affect")}
                         value={draftData.objective.affect}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -353,7 +367,7 @@ export default function SoapNotesPage() {
                         }
                       />
                       <EditableField
-                        label="Vital Signs"
+                        label={t("soap.vitalSigns")}
                         value={draftData.objective.vitalSigns}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -365,9 +379,9 @@ export default function SoapNotesPage() {
                     </>
                   ) : (
                     <>
-                      <Field label="Range of Motion" value={soapData.objective.rangeOfMotion} />
-                      <Field label="Affect" value={soapData.objective.affect} />
-                      <Field label="Vital Signs" value={soapData.objective.vitalSigns} />
+                      <Field label={t("soap.rangeOfMotion")} value={soapData.objective.rangeOfMotion} />
+                      <Field label={t("soap.affect")} value={soapData.objective.affect} />
+                      <Field label={t("soap.vitalSigns")} value={soapData.objective.vitalSigns} />
                     </>
                   )}
                 </div>
@@ -377,16 +391,19 @@ export default function SoapNotesPage() {
 
           {visibleSections.assessment && (
             <NoteCard
-              title="Assessment"
+              title={t("soap.assessment")}
               isEditing={editingSection === "assessment"}
               onEdit={() => startEdit("assessment")}
               onSave={() => saveSection("assessment")}
               onCancel={cancelEdit}
+              editLabel={t("common.edit")}
+              saveLabel={t("common.save")}
+              cancelLabel={t("common.cancel")}
             >
               <div className="card-fields">
                 {editingSection === "assessment" ? (
                   <EditableField
-                    label="Diagnosis Summary"
+                    label={t("soap.diagnosisSummary")}
                     multiline
                     value={draftData.assessment.diagnosisSummary}
                     onChange={(value) =>
@@ -398,7 +415,7 @@ export default function SoapNotesPage() {
                   />
                 ) : (
                   <Field
-                    label="Diagnosis Summary"
+                    label={t("soap.diagnosisSummary")}
                     multiline
                     value={soapData.assessment.diagnosisSummary}
                   />
@@ -407,7 +424,7 @@ export default function SoapNotesPage() {
                   {editingSection === "assessment" ? (
                     <>
                       <EditableField
-                        label="Primary Diagnosis Code"
+                        label={t("soap.primaryDiagnosisCode")}
                         value={draftData.assessment.primaryDiagnosisCode}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -417,7 +434,7 @@ export default function SoapNotesPage() {
                         }
                       />
                       <EditableField
-                        label="Severity"
+                        label={t("soap.severity")}
                         value={draftData.assessment.severity}
                         onChange={(value) =>
                           setDraftData((data) => ({
@@ -430,10 +447,10 @@ export default function SoapNotesPage() {
                   ) : (
                     <>
                       <Field
-                        label="Primary Diagnosis Code"
+                        label={t("soap.primaryDiagnosisCode")}
                         value={soapData.assessment.primaryDiagnosisCode}
                       />
-                      <Field label="Severity" value={soapData.assessment.severity} />
+                      <Field label={t("soap.severity")} value={soapData.assessment.severity} />
                     </>
                   )}
                 </div>
@@ -443,16 +460,19 @@ export default function SoapNotesPage() {
 
           {visibleSections.plan && (
             <NoteCard
-              title="Plan"
+              title={t("soap.plan")}
               isEditing={editingSection === "plan"}
               onEdit={() => startEdit("plan")}
               onSave={() => saveSection("plan")}
               onCancel={cancelEdit}
+              editLabel={t("common.edit")}
+              saveLabel={t("common.save")}
+              cancelLabel={t("common.cancel")}
             >
               <div className="card-fields">
                 {editingSection === "plan" ? (
                   <EditableField
-                    label="Follow-up Plan"
+                    label={t("soap.followUpPlan")}
                     multiline
                     value={draftData.plan.followUpPlan}
                     onChange={(value) =>
@@ -463,7 +483,7 @@ export default function SoapNotesPage() {
                     }
                   />
                 ) : (
-                  <Field label="Follow-up Plan" multiline value={soapData.plan.followUpPlan} />
+                  <Field label={t("soap.followUpPlan")} multiline value={soapData.plan.followUpPlan} />
                 )}
               </div>
             </NoteCard>

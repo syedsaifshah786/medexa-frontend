@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { useLanguage } from "@/context/LanguageContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
 
@@ -73,6 +74,7 @@ export default function BillingIntelligencePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formValues, setFormValues] = useState<CptForm>(emptyCptForm);
+  const { t } = useLanguage();
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -198,8 +200,8 @@ export default function BillingIntelligencePage() {
             <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
               ‹
             </Link>
-            <h1>Therapeutic Therapy Session</h1>
-            <span>• Medexa Summarized</span>
+            <h1>{t("session.therapeuticTherapySession")}</h1>
+            <span>• {t("session.medexaSummarized")}</span>
           </div>
 
           <div className="meta-row">
@@ -207,43 +209,43 @@ export default function BillingIntelligencePage() {
               <strong>July 05, 12:00 PM</strong>
             </p>
             <p>
-              Patient ID: <strong>#99283</strong>
+              {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              Duration: <strong>52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">52:22</strong>
             </p>
             <p>
-              Unit(s): <strong>4</strong>
+              {t("session.units")}: <strong dir="ltr">4</strong>
             </p>
           </div>
         </section>
 
         <nav className="tabs" aria-label="Session views">
-          <Link href="/soap-notes">SOAP Notes</Link>
+          <Link href="/soap-notes">{t("nav.soapNotes")}</Link>
           <Link href="/billing-intelligence" className="tab-active">
-            Billing Intelligence
+            {t("nav.billingIntelligence")}
           </Link>
-          <Link href="/patient-summary">Patient Summary</Link>
+          <Link href="/patient-summary">{t("nav.patientSummary")}</Link>
           <Link href="/claim-document" className="claim-link">
-            ✓ Create Claim-Document
+            ✓ {t("nav.createClaimDocument")}
           </Link>
         </nav>
 
         <section className="billing-stack">
           <section>
-            <h2 className="section-title">Billing Intelligence</h2>
+            <h2 className="section-title">{t("nav.billingIntelligence")}</h2>
             <div className="metric-grid">
               <article className="metric-card">
-                <p>Session Time</p>
-                <strong>{sessionDuration}</strong>
+                <p>{t("billing.sessionTime")}</p>
+                <strong dir="ltr">{sessionDuration}</strong>
                 <span>+ 1 Threshold&nbsp;&nbsp; $11,091/$2,330</span>
               </article>
               <article className="metric-card">
                 <div className="metric-heading">
-                  <p>Session Units</p>
+                  <p>{t("billing.sessionUnits")}</p>
                   <span>ⓘ</span>
                 </div>
-                <strong>{sessionUnits} Units</strong>
+                <strong dir="ltr">{sessionUnits} {t("session.units")}</strong>
                 <em>8 Minute Rule</em>
               </article>
             </div>
@@ -251,19 +253,19 @@ export default function BillingIntelligencePage() {
 
           <section>
             <div className="section-heading">
-              <h2>CPT Codes Detected</h2>
-              <button type="button" onClick={openAddForm}>+ Add more CPTs</button>
+              <h2>{t("billing.cptCodesDetected")}</h2>
+              <button type="button" onClick={openAddForm}>+ {t("billing.addMoreCpts")}</button>
             </div>
 
             {isFormOpen && (
-              <div className="cpt-form" aria-label={editingId ? "Edit CPT" : "Add CPT"}>
+              <div className="cpt-form" aria-label={editingId ? t("billing.editCpt") : t("billing.addCpt")}>
                 <div className="cpt-form-heading">
-                  <h3>{editingId ? "Edit CPT" : "Add CPT"}</h3>
+                  <h3>{editingId ? t("billing.editCpt") : t("billing.addCpt")}</h3>
                   <button type="button" onClick={closeForm}>×</button>
                 </div>
                 <div className="cpt-form-grid">
                   <label>
-                    CPT code
+                    {t("billing.cptCode")}
                     <input
                       value={formValues.code}
                       onChange={(event) =>
@@ -272,7 +274,7 @@ export default function BillingIntelligencePage() {
                     />
                   </label>
                   <label>
-                    Description
+                    {t("billing.description")}
                     <input
                       value={formValues.title}
                       onChange={(event) =>
@@ -281,7 +283,7 @@ export default function BillingIntelligencePage() {
                     />
                   </label>
                   <label>
-                    Units
+                    {t("session.units")}
                     <input
                       value={formValues.units}
                       onChange={(event) =>
@@ -290,7 +292,7 @@ export default function BillingIntelligencePage() {
                     />
                   </label>
                   <label>
-                    Duration
+                    {t("common.duration")}
                     <input
                       value={formValues.duration}
                       onChange={(event) =>
@@ -300,9 +302,9 @@ export default function BillingIntelligencePage() {
                   </label>
                 </div>
                 <div className="cpt-form-actions">
-                  <button type="button" onClick={closeForm}>Cancel</button>
+                  <button type="button" onClick={closeForm}>{t("common.cancel")}</button>
                   <button type="button" onClick={saveCptItem}>
-                    {editingId ? "Save Changes" : "Save CPT"}
+                    {editingId ? t("billing.saveChanges") : t("billing.saveCpt")}
                   </button>
                 </div>
               </div>
@@ -317,14 +319,14 @@ export default function BillingIntelligencePage() {
                         {item.code} - {item.title}
                       </h3>
                       <p>
-                        Unit(s): {item.units}&nbsp;&nbsp;&nbsp; Duration: {item.duration}
+                        Unit(s): {item.units}&nbsp;&nbsp;&nbsp; {t("common.duration")}: {item.duration}
                       </p>
                     </div>
 
                     <div className="cpt-actions">
                       {item.status !== "pending" && (
                         <span className={`status-badge ${item.status}`}>
-                          {item.status === "approved" ? "Approved" : "Rejected"}
+                          {item.status === "approved" ? t("common.approved") : t("common.rejected")}
                         </span>
                       )}
                       {item.warning && <span className="modifier-badge">{item.warning}</span>}
@@ -344,10 +346,10 @@ export default function BillingIntelligencePage() {
                       <p className="conflict-note">{item.note}</p>
                       <div className="review-actions">
                         <button type="button" onClick={() => updateCptStatus(item.id, "rejected")}>
-                          × Reject
+                          × {t("common.reject")}
                         </button>
                         <button type="button" onClick={() => updateCptStatus(item.id, "approved")}>
-                          ✓ Approve
+                          ✓ {t("common.approve")}
                         </button>
                       </div>
                     </>
@@ -356,13 +358,13 @@ export default function BillingIntelligencePage() {
               ))}
 
               {filteredCptCodes.length === 0 && (
-                <div className="empty-state">No CPT codes match your search.</div>
+                <div className="empty-state">{t("billing.noCpt")}</div>
               )}
             </div>
           </section>
 
           <section className="snf-section">
-            <h2>SNF & Functional Logic</h2>
+            <h2>{t("billing.snfFunctionalLogic")}</h2>
             <p>Section GG — Patient Assist Level (MDS 3.0)</p>
             <strong>3 - Partial</strong>
 
