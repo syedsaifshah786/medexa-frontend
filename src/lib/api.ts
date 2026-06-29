@@ -1,7 +1,12 @@
 "use client";
 
 import type { SoapData } from "@/context/SessionDocumentationContext";
-import type { ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
+import type {
+  ClinicalAnalysis,
+  CptSuggestion,
+  Icd10Suggestion,
+  NcciConflict,
+} from "@/lib/clinicalAnalyzer";
 import type { UpcomingSession } from "@/lib/sessions";
 
 export type ApiSession = {
@@ -137,7 +142,7 @@ async function request<T>(
     return (await response.json()) as T;
   } catch (error) {
     if (isDevelopment) {
-      console.log("[Medexa API] Falling back to local mock data.", path, error);
+      console.warn("[Medexa API] Falling back to local mock data.", path, error);
     }
     return null;
   }
@@ -173,11 +178,43 @@ export const medexaApi = {
   ) =>
     request<{
       summary: string;
+      possible_clinical_impressions?: string[];
       possible_diagnoses: string[];
+      icd10_suggestions?: Array<{
+        phrase: string;
+        code: string;
+        reason: string;
+        confidence: Icd10Suggestion["confidence"];
+      }>;
+      body_regions?: Array<{
+        phrase: string;
+        region: string;
+      }>;
+      cpt_suggestions?: Array<{
+        code: string;
+        label: string;
+        display_name: string;
+        descriptor: string;
+        matched_phrases: string[];
+        documentation_requirements: string[];
+        billing_caveats: Record<string, unknown>;
+        reason: string;
+        confidence: CptSuggestion["confidence"];
+      }>;
+      ncci_conflicts?: Array<{
+        cpt_a: string;
+        cpt_b: string;
+        conflict_type: string;
+        body_region_sensitive: boolean;
+        modifier_59_possible: boolean;
+        explanation: string;
+        severity: NcciConflict["severity"];
+      }>;
       symptoms: string[];
       soap_update: ClinicalAnalysis["soapUpdate"];
       billing_hints: string[];
       confidence: ClinicalAnalysis["confidence"];
+      disclaimer?: string;
     }>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
       method: "POST",
       body,

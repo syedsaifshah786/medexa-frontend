@@ -94,6 +94,26 @@ const formatDuration = (totalSeconds: number) => {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
 
+const summarizeBillingCaveats = (billingCaveats: Record<string, unknown>) =>
+  Object.entries(billingCaveats)
+    .map(([key, value]) => {
+      if (typeof value === "string") {
+        return `${key.replace(/_/g, " ")}: ${value}`;
+      }
+
+      if (Array.isArray(value)) {
+        return `${key.replace(/_/g, " ")}: ${value.join(", ")}`;
+      }
+
+      if (value && typeof value === "object") {
+        return `${key.replace(/_/g, " ")}: ${Object.values(value as Record<string, unknown>).join("; ")}`;
+      }
+
+      return "";
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+
 const apiInsightToInsight = (insight: ApiInsight): InsightItem => ({
   id: insight.id,
   tag: insight.type === "billing" ? "Billing" : insight.type === "protocol" ? "Protocol Ask" : "Detected",
@@ -448,11 +468,42 @@ function AmbientSessionContent() {
         const analysis: ClinicalAnalysis = backendAnalysis
           ? {
               summary: backendAnalysis.summary,
-              possibleDiagnoses: backendAnalysis.possible_diagnoses,
+              possibleDiagnoses: backendAnalysis.possible_clinical_impressions ?? backendAnalysis.possible_diagnoses,
+              icd10Suggestions: (backendAnalysis.icd10_suggestions ?? []).map((suggestion) => ({
+                phrase: suggestion.phrase,
+                code: suggestion.code,
+                reason: suggestion.reason,
+                confidence: suggestion.confidence,
+              })),
+              bodyRegions: (backendAnalysis.body_regions ?? []).map((region) => ({
+                phrase: region.phrase,
+                region: region.region,
+              })),
+              cptSuggestions: (backendAnalysis.cpt_suggestions ?? []).map((suggestion) => ({
+                code: suggestion.code,
+                label: suggestion.label,
+                displayName: suggestion.display_name,
+                descriptor: suggestion.descriptor,
+                matchedPhrases: suggestion.matched_phrases,
+                documentationRequirements: suggestion.documentation_requirements,
+                billingCaveats: suggestion.billing_caveats,
+                reason: suggestion.reason,
+                confidence: suggestion.confidence,
+              })),
+              ncciConflicts: (backendAnalysis.ncci_conflicts ?? []).map((conflict) => ({
+                cptA: conflict.cpt_a,
+                cptB: conflict.cpt_b,
+                conflictType: conflict.conflict_type,
+                bodyRegionSensitive: conflict.body_region_sensitive,
+                modifier59Possible: conflict.modifier_59_possible,
+                explanation: conflict.explanation,
+                severity: conflict.severity,
+              })),
               symptoms: backendAnalysis.symptoms,
               soapUpdate: backendAnalysis.soap_update,
               billingHints: backendAnalysis.billing_hints,
               confidence: backendAnalysis.confidence,
+              disclaimer: backendAnalysis.disclaimer ?? "AI-generated suggestions require clinician review before use.",
             }
           : analyzeClinicalTranscript(chunkText);
 
@@ -988,7 +1039,7 @@ function AmbientSessionContent() {
 
                   <div className="segment-columns">
                     <div className="segment-section">
-                      <h3>{t("session.possibleClinicalImpressions")}</h3>
+                      <h3>AI-Assisted Possible Clinical Impressions</h3>
                       <ul>
                         {segment.analysis.possibleDiagnoses.map((diagnosis) => (
                           <li key={diagnosis}>{diagnosis}</li>
@@ -1002,6 +1053,86 @@ function AmbientSessionContent() {
                           <li key={symptom}>{symptom}</li>
                         ))}
                       </ul>
+                    </div>
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>ICD-10 Suggestions</h3>
+                    {segment.analysis.icd10Suggestions.length > 0 ? (
+                      <ul>
+                        {segment.analysis.icd10Suggestions.map((suggestion) => (
+                          <li key={`${suggestion.code}-${suggestion.phrase}`}>
+                            <strong dir="ltr">{suggestion.code}</strong> - {suggestion.phrase}. {suggestion.reason}.{" "}
+                            <span>{t("session.confidence")}: {suggestion.confidence}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No ICD-10 suggestions detected.</p>
+                    )}
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>CPT/Billing Suggestions</h3>
+                    {segment.analysis.cptSuggestions.length > 0 ? (
+                      <ul>
+                        {segment.analysis.cptSuggestions.map((suggestion) => {
+                          const caveats = summarizeBillingCaveats(suggestion.billingCaveats);
+
+                          return (
+                            <li key={suggestion.code}>
+                              <strong dir="ltr">{suggestion.code}</strong> - {suggestion.displayName}.{" "}
+                              {suggestion.matchedPhrases.length > 0 && (
+                                <span>Matched: {suggestion.matchedPhrases.join(", ")}. </span>
+                              )}
+                              <span>{suggestion.reason} </span>
+                              {suggestion.documentationRequirements.length > 0 && (
+                                <span>Documentation: {suggestion.documentationRequirements.slice(0, 2).join(" | ")}. </span>
+                              )}
+                              {caveats.length > 0 && <span>Billing caveats: {caveats.join(" | ")}. </span>}
+                              <span>{t("session.confidence")}: {suggestion.confidence}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p>No CPT/Billing suggestions detected.</p>
+                    )}
+                  </div>
+
+                  <div className="segment-columns">
+                    <div className="segment-section">
+                      <h3>Body Region Detected</h3>
+                      {segment.analysis.bodyRegions.length > 0 ? (
+                        <ul>
+                          {segment.analysis.bodyRegions.map((bodyRegion) => (
+                            <li key={`${bodyRegion.region}-${bodyRegion.phrase}`}>
+                              {bodyRegion.phrase}: <strong>{bodyRegion.region}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No body region detected.</p>
+                      )}
+                    </div>
+
+                    <div className="segment-section">
+                      <h3>NCCI Conflict Warnings</h3>
+                      {segment.analysis.ncciConflicts.length > 0 ? (
+                        <ul>
+                          {segment.analysis.ncciConflicts.map((conflict) => (
+                            <li key={`${conflict.cptA}-${conflict.cptB}`}>
+                              <strong dir="ltr">
+                                {conflict.cptA} / {conflict.cptB}
+                              </strong>{" "}
+                              - {conflict.conflictType}. {conflict.explanation} Modifier 59 possible:{" "}
+                              {conflict.modifier59Possible ? "Yes" : "No"}. Severity: {conflict.severity}.
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No NCCI conflict warnings detected.</p>
+                      )}
                     </div>
                   </div>
 
@@ -1025,6 +1156,7 @@ function AmbientSessionContent() {
                   <p className="confidence-line">
                     {t("session.confidence")}: <strong>{segment.analysis.confidence}</strong>
                   </p>
+                  <p className="confidence-line">{segment.analysis.disclaimer}</p>
                 </article>
               ))}
             </div>

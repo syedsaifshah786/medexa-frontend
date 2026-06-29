@@ -1,6 +1,44 @@
+export type Icd10Suggestion = {
+  phrase: string;
+  code: string;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
+export type BodyRegionSuggestion = {
+  phrase: string;
+  region: string;
+};
+
+export type CptSuggestion = {
+  code: string;
+  label: string;
+  displayName: string;
+  descriptor: string;
+  matchedPhrases: string[];
+  documentationRequirements: string[];
+  billingCaveats: Record<string, unknown>;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
+export type NcciConflict = {
+  cptA: string;
+  cptB: string;
+  conflictType: string;
+  bodyRegionSensitive: boolean;
+  modifier59Possible: boolean;
+  explanation: string;
+  severity: "info" | "warning";
+};
+
 export type ClinicalAnalysis = {
   summary: string;
   possibleDiagnoses: string[];
+  icd10Suggestions: Icd10Suggestion[];
+  bodyRegions: BodyRegionSuggestion[];
+  cptSuggestions: CptSuggestion[];
+  ncciConflicts: NcciConflict[];
   symptoms: string[];
   soapUpdate: {
     subjective: string;
@@ -10,6 +48,7 @@ export type ClinicalAnalysis = {
   };
   billingHints: string[];
   confidence: "low" | "medium" | "high";
+  disclaimer: string;
 };
 
 const unique = (items: string[]) => Array.from(new Set(items));
@@ -124,6 +163,10 @@ export function analyzeClinicalTranscript(transcript: string): ClinicalAnalysis 
   return {
     summary,
     possibleDiagnoses: diagnoses.length > 0 ? diagnoses : ["No specific possible diagnosis detected from this segment"],
+    icd10Suggestions: [],
+    bodyRegions: [],
+    cptSuggestions: [],
+    ncciConflicts: [],
     symptoms: detectedSymptoms.length > 0 ? detectedSymptoms : ["No clear symptom keywords detected"],
     soapUpdate: {
       subjective:
@@ -145,5 +188,6 @@ export function analyzeClinicalTranscript(transcript: string): ClinicalAnalysis 
     },
     billingHints: hints.length > 0 ? hints : ["No specific CPT or billing relevance detected in this segment"],
     confidence,
+    disclaimer: "AI-generated suggestions require clinician review before use.",
   };
 }
