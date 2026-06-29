@@ -103,6 +103,24 @@ export type TranslationKey =
   | "session.confirmStop"
   | "session.unitAt"
   | "session.left"
+  | "session.liveTranscript"
+  | "session.currentChunk"
+  | "session.aiSummarySegments"
+  | "session.possibleClinicalImpressions"
+  | "session.symptomsDetected"
+  | "session.soapSuggestions"
+  | "session.billingHints"
+  | "session.confidence"
+  | "session.generated"
+  | "session.listening"
+  | "session.paused"
+  | "session.unsupported"
+  | "session.webSpeechUnsupported"
+  | "session.microphoneRequired"
+  | "session.aiDisclaimer"
+  | "session.transcriptPlaceholder"
+  | "session.noSummarySegments"
+  | "session.transcriptExcerpt"
   | "soap.subjective"
   | "soap.objective"
   | "soap.assessment"
@@ -265,6 +283,24 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.confirmStop": "Confirm Stop",
     "session.unitAt": "Unit",
     "session.left": "left",
+    "session.liveTranscript": "Live Transcript",
+    "session.currentChunk": "Current 30-sec chunk",
+    "session.aiSummarySegments": "30-Second AI Summary Segments",
+    "session.possibleClinicalImpressions": "Possible Clinical Impressions",
+    "session.symptomsDetected": "Symptoms Detected",
+    "session.soapSuggestions": "SOAP Suggestions",
+    "session.billingHints": "Billing Hints",
+    "session.confidence": "Confidence",
+    "session.generated": "Generated",
+    "session.listening": "Listening",
+    "session.paused": "Paused",
+    "session.unsupported": "Unsupported",
+    "session.webSpeechUnsupported": "Web Speech is not supported in this browser. Please use Chrome or Edge.",
+    "session.microphoneRequired": "Microphone permission is required for live transcription.",
+    "session.aiDisclaimer": "AI-generated suggestions require clinician review before use.",
+    "session.transcriptPlaceholder": "Speech will appear here while recording is active.",
+    "session.noSummarySegments": "No AI summary segments generated yet.",
+    "session.transcriptExcerpt": "Transcript excerpt",
     "soap.subjective": "Subjective",
     "soap.objective": "Objective",
     "soap.assessment": "Assessment",
@@ -426,6 +462,24 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.confirmStop": "تأكيد الإيقاف",
     "session.unitAt": "الوحدة",
     "session.left": "متبقي",
+    "session.liveTranscript": "التفريغ المباشر",
+    "session.currentChunk": "مقطع 30 ثانية الحالي",
+    "session.aiSummarySegments": "ملخصات الذكاء الاصطناعي كل 30 ثانية",
+    "session.possibleClinicalImpressions": "انطباعات سريرية محتملة",
+    "session.symptomsDetected": "الأعراض المكتشفة",
+    "session.soapSuggestions": "اقتراحات SOAP",
+    "session.billingHints": "تلميحات الفوترة",
+    "session.confidence": "الثقة",
+    "session.generated": "تم الإنشاء",
+    "session.listening": "يستمع",
+    "session.paused": "متوقف مؤقتًا",
+    "session.unsupported": "غير مدعوم",
+    "session.webSpeechUnsupported": "Web Speech غير مدعوم في هذا المتصفح. يرجى استخدام Chrome أو Edge.",
+    "session.microphoneRequired": "يلزم السماح بالميكروفون للتفريغ المباشر.",
+    "session.aiDisclaimer": "تتطلب الاقتراحات المنشأة بالذكاء الاصطناعي مراجعة الطبيب قبل الاستخدام.",
+    "session.transcriptPlaceholder": "سيظهر الكلام هنا أثناء التسجيل النشط.",
+    "session.noSummarySegments": "لم يتم إنشاء أي ملخصات بالذكاء الاصطناعي بعد.",
+    "session.transcriptExcerpt": "مقتطف التفريغ",
     "soap.subjective": "ذاتي",
     "soap.objective": "موضوعي",
     "soap.assessment": "التقييم",
@@ -587,6 +641,24 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.confirmStop": "אשר עצירה",
     "session.unitAt": "יחידה",
     "session.left": "נותר",
+    "session.liveTranscript": "תמלול חי",
+    "session.currentChunk": "מקטע 30 שניות נוכחי",
+    "session.aiSummarySegments": "מקטעי סיכום AI בני 30 שניות",
+    "session.possibleClinicalImpressions": "רשמים קליניים אפשריים",
+    "session.symptomsDetected": "תסמינים שזוהו",
+    "session.soapSuggestions": "הצעות SOAP",
+    "session.billingHints": "רמזי חיוב",
+    "session.confidence": "רמת ביטחון",
+    "session.generated": "נוצר",
+    "session.listening": "מאזין",
+    "session.paused": "מושהה",
+    "session.unsupported": "לא נתמך",
+    "session.webSpeechUnsupported": "Web Speech אינו נתמך בדפדפן זה. השתמש ב-Chrome או Edge.",
+    "session.microphoneRequired": "נדרשת הרשאת מיקרופון לתמלול חי.",
+    "session.aiDisclaimer": "הצעות שנוצרו על ידי AI דורשות בדיקת קלינאי לפני שימוש.",
+    "session.transcriptPlaceholder": "הדיבור יופיע כאן בזמן שההקלטה פעילה.",
+    "session.noSummarySegments": "עדיין לא נוצרו מקטעי סיכום AI.",
+    "session.transcriptExcerpt": "קטע תמלול",
     "soap.subjective": "סובייקטיבי",
     "soap.objective": "אובייקטיבי",
     "soap.assessment": "הערכה",

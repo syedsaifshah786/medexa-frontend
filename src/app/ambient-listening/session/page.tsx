@@ -1,13 +1,15 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
+import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import { apiSessionToUpcomingSession, medexaApi, type ApiInsight, type ApiSuggestion } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
+import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { getSessionById } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
@@ -72,6 +74,15 @@ type InsightItem = (typeof defaultInsights)[number];
 type SuggestionItem = (typeof defaultSuggestions)[number];
 
 type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
+
+type AiSummarySegment = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  transcriptExcerpt: string;
+  analysis: ClinicalAnalysis;
+  status: "Generated";
+};
 
 const INITIAL_RECORDING_SECONDS = 0;
 const BILLABLE_UNIT_SECONDS = 8 * 60;
@@ -279,14 +290,53 @@ function AmbientSessionContent() {
   const [selectedSession, setSelectedSession] = useState(localRouteSession);
   const [insightItems, setInsightItems] = useState<InsightItem[]>(defaultInsights);
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
+  const [aiSummarySegments, setAiSummarySegments] = useState<AiSummarySegment[]>([]);
+  const [generatedSoapSuggestions, setGeneratedSoapSuggestions] = useState<string[]>([]);
+  const lastAnalyzedTextLengthRef = useRef(0);
+  const lastAnalyzedSecondRef = useRef(0);
+  const isGeneratingSegmentRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
+  const speechSession = useWebSpeechSession();
+  const fullTranscript = useMemo(
+    () => [speechSession.finalTranscript, speechSession.liveTranscript].filter(Boolean).join(" ").trim(),
+    [speechSession.finalTranscript, speechSession.liveTranscript],
+  );
+  const currentThirtySecondChunk = fullTranscript.slice(lastAnalyzedTextLengthRef.current).trim();
+  const aiSegmentsStorageKey = useMemo(
+    () => `medexa_session_ai_segments_${sessionId}`,
+    [sessionId],
+  );
 
   useEffect(() => {
     const localSession = getSessionById(routeSessionId);
     setSelectedSession(localSession);
     setActiveSessionId(routeSessionId || localSession.id);
   }, [routeSessionId]);
+
+  useEffect(() => {
+    lastAnalyzedTextLengthRef.current = 0;
+    lastAnalyzedSecondRef.current = 0;
+
+    try {
+      const storedSegments = window.localStorage.getItem(aiSegmentsStorageKey);
+      const parsedSegments = storedSegments ? (JSON.parse(storedSegments) as AiSummarySegment[]) : [];
+      setAiSummarySegments(Array.isArray(parsedSegments) ? parsedSegments : []);
+      setGeneratedSoapSuggestions(
+        Array.isArray(parsedSegments)
+          ? parsedSegments.map((segment) => segment.analysis.soapUpdate.plan)
+          : [],
+      );
+    } catch {
+      window.localStorage.removeItem(aiSegmentsStorageKey);
+      setAiSummarySegments([]);
+      setGeneratedSoapSuggestions([]);
+    }
+  }, [aiSegmentsStorageKey]);
+
+  useEffect(() => {
+    window.localStorage.setItem(aiSegmentsStorageKey, JSON.stringify(aiSummarySegments));
+  }, [aiSegmentsStorageKey, aiSummarySegments]);
 
   useEffect(() => {
     let isMounted = true;
@@ -371,6 +421,74 @@ function AmbientSessionContent() {
       window.clearInterval(timerId);
     };
   }, [recordingStatus]);
+
+  const generateAiSummarySegment = useCallback(
+    async (endSeconds: number) => {
+      if (isGeneratingSegmentRef.current) {
+        return;
+      }
+
+      isGeneratingSegmentRef.current = true;
+      const fullText = fullTranscript;
+      const chunkText = fullText.slice(lastAnalyzedTextLengthRef.current).trim();
+
+      if (!chunkText) {
+        lastAnalyzedSecondRef.current = endSeconds;
+        isGeneratingSegmentRef.current = false;
+        return;
+      }
+
+      const startTime = formatDuration(lastAnalyzedSecondRef.current);
+      const endTime = formatDuration(endSeconds);
+      const backendAnalysis = await medexaApi.analyzeTranscriptChunk(sessionId, {
+        chunk_text: chunkText,
+        start_time: startTime,
+        end_time: endTime,
+      });
+      const analysis: ClinicalAnalysis = backendAnalysis
+        ? {
+            summary: backendAnalysis.summary,
+            possibleDiagnoses: backendAnalysis.possible_diagnoses,
+            symptoms: backendAnalysis.symptoms,
+            soapUpdate: backendAnalysis.soap_update,
+            billingHints: backendAnalysis.billing_hints,
+            confidence: backendAnalysis.confidence,
+          }
+        : analyzeClinicalTranscript(chunkText);
+
+      const segment: AiSummarySegment = {
+        id: `${sessionId}-${endSeconds}-${Date.now()}`,
+        startTime,
+        endTime,
+        transcriptExcerpt: chunkText.slice(0, 260),
+        analysis,
+        status: "Generated",
+      };
+
+      setAiSummarySegments((segments) => [...segments, segment]);
+      setGeneratedSoapSuggestions((suggestions) => [
+        ...suggestions,
+        `${analysis.soapUpdate.subjective} ${analysis.soapUpdate.objective} ${analysis.soapUpdate.assessment} ${analysis.soapUpdate.plan}`,
+      ]);
+      lastAnalyzedTextLengthRef.current = fullText.length;
+      lastAnalyzedSecondRef.current = endSeconds;
+      isGeneratingSegmentRef.current = false;
+    },
+    [fullTranscript, sessionId],
+  );
+
+  useEffect(() => {
+    if (recordingStatus !== "recording" || recordingSeconds <= 0) {
+      return;
+    }
+
+    const nextSummaryAt = lastAnalyzedSecondRef.current + 30;
+
+    if (recordingSeconds >= nextSummaryAt) {
+      generateAiSummarySegment(recordingSeconds);
+    }
+  }, [generateAiSummarySegment, recordingSeconds, recordingStatus]);
+
   const filteredSuggestions = useMemo(() => {
     if (!query) {
       return suggestionItems;
@@ -471,11 +589,21 @@ function AmbientSessionContent() {
     saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
+  const resetAiSession = () => {
+    speechSession.resetTranscript();
+    setAiSummarySegments([]);
+    setGeneratedSoapSuggestions([]);
+    lastAnalyzedTextLengthRef.current = 0;
+    lastAnalyzedSecondRef.current = 0;
+    isGeneratingSegmentRef.current = false;
+  };
+
   const handlePrimaryRecordingControl = () => {
     setStatusMessage("");
 
     if (recordingStatus === "recording") {
       setRecordingStatus("paused");
+      speechSession.pauseListening();
       medexaApi.updateSessionState(sessionId, {
         status: "paused",
         elapsedSeconds: recordingSeconds,
@@ -485,9 +613,15 @@ function AmbientSessionContent() {
 
     if (recordingStatus === "stopped") {
       setRecordingSeconds(INITIAL_RECORDING_SECONDS);
+      resetAiSession();
+    }
+
+    if (recordingStatus === "idle") {
+      resetAiSession();
     }
 
     setRecordingStatus("recording");
+    speechSession.startListening();
     medexaApi.updateSessionState(sessionId, {
       status: "recording",
       elapsedSeconds: recordingStatus === "stopped" ? INITIAL_RECORDING_SECONDS : recordingSeconds,
@@ -503,6 +637,8 @@ function AmbientSessionContent() {
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
+    speechSession.stopListening();
+    generateAiSummarySegment(recordingSeconds);
     medexaApi.updateSessionState(sessionId, {
       status: "stopped",
       elapsedSeconds: recordingSeconds,
@@ -549,6 +685,15 @@ function AmbientSessionContent() {
         : recordingStatus === "stopped"
           ? t("common.start")
           : t("common.start");
+  const listeningStatus = !speechSession.isSupported
+    ? t("session.unsupported")
+    : recordingStatus === "recording" && speechSession.isListening
+      ? t("session.listening")
+      : recordingStatus === "paused"
+        ? t("session.paused")
+        : recordingStatus === "stopped"
+          ? t("common.stopped")
+          : t("session.readyToRecord");
 
   return (
     <main className="session-page">
@@ -744,6 +889,124 @@ function AmbientSessionContent() {
               )}
             </div>
           </aside>
+        </section>
+
+        <section className="speech-ai-grid" aria-label="Live transcription and AI summaries">
+          <article className="speech-card">
+            <div className="speech-card-heading">
+              <div>
+                <h2>{t("session.liveTranscript")}</h2>
+                <p>{t("session.aiDisclaimer")}</p>
+              </div>
+              <span className={`listening-badge is-${speechSession.isSupported ? recordingStatus : "unsupported"}`}>
+                {listeningStatus}
+              </span>
+            </div>
+
+            {!speechSession.isSupported && (
+              <div className="speech-alert">{t("session.webSpeechUnsupported")}</div>
+            )}
+            {speechSession.permissionError && (
+              <div className="speech-alert">{t("session.microphoneRequired")}</div>
+            )}
+
+            <div className="transcript-box">
+              <h3>{t("session.liveTranscript")}</h3>
+              <p>{fullTranscript || t("session.transcriptPlaceholder")}</p>
+            </div>
+
+            <div className="transcript-box">
+              <h3>{t("session.currentChunk")}</h3>
+              <p>{currentThirtySecondChunk || t("session.transcriptPlaceholder")}</p>
+            </div>
+
+            {generatedSoapSuggestions.length > 0 && (
+              <div className="transcript-box">
+                <h3>{t("session.soapSuggestions")}</h3>
+                <ul>
+                  {generatedSoapSuggestions.slice(-3).map((suggestion, index) => (
+                    <li key={`${suggestion}-${index}`}>{suggestion}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </article>
+
+          <article className="speech-card">
+            <div className="speech-card-heading">
+              <div>
+                <h2>{t("session.aiSummarySegments")}</h2>
+                <p>{t("session.aiDisclaimer")}</p>
+              </div>
+            </div>
+
+            <div className="summary-segments">
+              {aiSummarySegments.length === 0 && (
+                <div className="empty-state compact">{t("session.noSummarySegments")}</div>
+              )}
+
+              {aiSummarySegments.map((segment) => (
+                <article className="summary-segment-card" key={segment.id}>
+                  <div className="segment-topline">
+                    <strong dir="ltr">
+                      {segment.startTime} - {segment.endTime}
+                    </strong>
+                    <span>{t("session.generated")}</span>
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>{t("session.transcriptExcerpt")}</h3>
+                    <p>{segment.transcriptExcerpt}</p>
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>{t("ambient.summarized")}</h3>
+                    <p>{segment.analysis.summary}</p>
+                  </div>
+
+                  <div className="segment-columns">
+                    <div className="segment-section">
+                      <h3>{t("session.possibleClinicalImpressions")}</h3>
+                      <ul>
+                        {segment.analysis.possibleDiagnoses.map((diagnosis) => (
+                          <li key={diagnosis}>{diagnosis}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="segment-section">
+                      <h3>{t("session.symptomsDetected")}</h3>
+                      <ul>
+                        {segment.analysis.symptoms.map((symptom) => (
+                          <li key={symptom}>{symptom}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>{t("session.soapSuggestions")}</h3>
+                    <p>{segment.analysis.soapUpdate.subjective}</p>
+                    <p>{segment.analysis.soapUpdate.objective}</p>
+                    <p>{segment.analysis.soapUpdate.assessment}</p>
+                    <p>{segment.analysis.soapUpdate.plan}</p>
+                  </div>
+
+                  <div className="segment-section">
+                    <h3>{t("session.billingHints")}</h3>
+                    <ul>
+                      {segment.analysis.billingHints.map((hint) => (
+                        <li key={hint}>{hint}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <p className="confidence-line">
+                    {t("session.confidence")}: <strong>{segment.analysis.confidence}</strong>
+                  </p>
+                </article>
+              ))}
+            </div>
+          </article>
         </section>
       </section>
 
@@ -1518,6 +1781,155 @@ function AmbientSessionContent() {
           padding: 18px;
         }
 
+        .speech-ai-grid {
+          display: grid;
+          grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+          gap: 18px;
+          margin-top: 22px;
+          align-items: start;
+        }
+
+        .speech-card {
+          box-sizing: border-box;
+          border-radius: 14px;
+          background: #fff;
+          padding: 16px;
+          box-shadow: 0 14px 30px rgba(15, 23, 42, 0.09);
+        }
+
+        .speech-card-heading,
+        .segment-topline {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .speech-card-heading h2 {
+          margin: 0;
+          color: #172033;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .speech-card-heading p {
+          margin: 5px 0 0;
+          color: #667085;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .listening-badge,
+        .segment-topline span {
+          flex: 0 0 auto;
+          border-radius: 999px;
+          background: #eef2ff;
+          color: #001eff;
+          padding: 5px 9px;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .listening-badge.is-recording {
+          background: #eaf8f1;
+          color: #087c4a;
+        }
+
+        .listening-badge.is-paused {
+          background: #fff6df;
+          color: #9f6b00;
+        }
+
+        .listening-badge.is-stopped,
+        .listening-badge.is-unsupported {
+          background: #f1f3f6;
+          color: #667085;
+        }
+
+        .speech-alert {
+          margin-top: 12px;
+          border: 1px solid #ffd7a8;
+          border-radius: 10px;
+          background: #fff8ec;
+          color: #8a4b00;
+          padding: 10px 12px;
+          font-size: 11px;
+          line-height: 1.45;
+        }
+
+        .transcript-box,
+        .segment-section {
+          margin-top: 14px;
+        }
+
+        .transcript-box {
+          border: 1px solid #eef1f6;
+          border-radius: 12px;
+          background: #fbfcff;
+          padding: 12px;
+        }
+
+        .transcript-box h3,
+        .segment-section h3 {
+          margin: 0 0 7px;
+          color: #172033;
+          font-size: 11px;
+          font-weight: 800;
+        }
+
+        .transcript-box p,
+        .transcript-box li,
+        .segment-section p,
+        .segment-section li,
+        .confidence-line {
+          margin: 0;
+          color: #475467;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .transcript-box ul,
+        .segment-section ul {
+          margin: 0;
+          padding-left: 18px;
+        }
+
+        .summary-segments {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-top: 14px;
+        }
+
+        .summary-segment-card {
+          border: 1px solid #e6ebf3;
+          border-radius: 12px;
+          background: #fbfcff;
+          padding: 13px;
+        }
+
+        .segment-topline strong {
+          color: #172033;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .segment-columns {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .confidence-line {
+          margin-top: 12px;
+        }
+
+        :global(html[dir="rtl"]) .transcript-box ul,
+        :global(html[dir="rtl"]) .segment-section ul {
+          padding-left: 0;
+          padding-right: 18px;
+        }
+
         .recording-controls {
           position: fixed;
           left: 50%;
@@ -1633,6 +2045,11 @@ function AmbientSessionContent() {
 
         @media (max-width: 900px) {
           .live-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .speech-ai-grid,
+          .segment-columns {
             grid-template-columns: 1fr;
           }
 

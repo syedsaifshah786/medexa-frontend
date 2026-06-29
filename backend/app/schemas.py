@@ -50,3 +50,9 @@ class SessionMetaPayload(BaseModel):
     provider: str
     session: str
     payor: str
+
+
+class TranscriptChunkAnalysisRequest(BaseModel):
+    chunk_text: str
+    start_time: str
+    end_time: str

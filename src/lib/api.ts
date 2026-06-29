@@ -1,6 +1,7 @@
 "use client";
 
 import type { SoapData } from "@/context/SessionDocumentationContext";
+import type { ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import type { UpcomingSession } from "@/lib/sessions";
 
 export type ApiSession = {
@@ -159,6 +160,25 @@ export const medexaApi = {
     request<ApiRecordingState>(`/sessions/${encodeURIComponent(sessionId)}/state`),
   updateSessionState: (sessionId: string, body: Pick<ApiRecordingState, "status"> & { elapsedSeconds?: number }) =>
     request<ApiRecordingState>(`/sessions/${encodeURIComponent(sessionId)}/state`, {
+      method: "POST",
+      body,
+    }),
+  analyzeTranscriptChunk: (
+    sessionId: string,
+    body: {
+      chunk_text: string;
+      start_time: string;
+      end_time: string;
+    },
+  ) =>
+    request<{
+      summary: string;
+      possible_diagnoses: string[];
+      symptoms: string[];
+      soap_update: ClinicalAnalysis["soapUpdate"];
+      billing_hints: string[];
+      confidence: ClinicalAnalysis["confidence"];
+    }>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
       method: "POST",
       body,
     }),
