@@ -59,6 +59,56 @@ export type ApiRecordingState = {
   timeLeft: number;
 };
 
+export type ApiTranscriptAnalysis = {
+  summary: string;
+  possible_clinical_impressions?: string[];
+  possible_diagnoses: string[];
+  icd10_suggestions?: Array<{
+    phrase: string;
+    code: string;
+    reason: string;
+    confidence: Icd10Suggestion["confidence"];
+  }>;
+  body_regions?: Array<{
+    phrase: string;
+    region: string;
+  }>;
+  cpt_suggestions?: Array<{
+    code: string;
+    label: string;
+    display_name: string;
+    descriptor: string;
+    matched_phrases: string[];
+    documentation_requirements: string[];
+    billing_caveats: Record<string, unknown>;
+    reason: string;
+    confidence: CptSuggestion["confidence"];
+  }>;
+  ncci_conflicts?: Array<{
+    cpt_a: string;
+    cpt_b: string;
+    conflict_type: string;
+    body_region_sensitive: boolean;
+    modifier_59_possible: boolean;
+    explanation: string;
+    severity: NcciConflict["severity"];
+  }>;
+  symptoms: string[];
+  soap_update: ClinicalAnalysis["soapUpdate"];
+  billing_hints: string[];
+  confidence: ClinicalAnalysis["confidence"];
+  disclaimer?: string;
+};
+
+export type ApiAudioTranscriptionAnalysis = ApiTranscriptAnalysis & {
+  transcript: string;
+  audio_segments: Array<{
+    start: number;
+    end: number;
+    text: string;
+  }>;
+};
+
 export type ApiBilling = {
   sessionTime: string;
   units: string;
@@ -176,49 +226,36 @@ export const medexaApi = {
       end_time: string;
     },
   ) =>
-    request<{
-      summary: string;
-      possible_clinical_impressions?: string[];
-      possible_diagnoses: string[];
-      icd10_suggestions?: Array<{
-        phrase: string;
-        code: string;
-        reason: string;
-        confidence: Icd10Suggestion["confidence"];
-      }>;
-      body_regions?: Array<{
-        phrase: string;
-        region: string;
-      }>;
-      cpt_suggestions?: Array<{
-        code: string;
-        label: string;
-        display_name: string;
-        descriptor: string;
-        matched_phrases: string[];
-        documentation_requirements: string[];
-        billing_caveats: Record<string, unknown>;
-        reason: string;
-        confidence: CptSuggestion["confidence"];
-      }>;
-      ncci_conflicts?: Array<{
-        cpt_a: string;
-        cpt_b: string;
-        conflict_type: string;
-        body_region_sensitive: boolean;
-        modifier_59_possible: boolean;
-        explanation: string;
-        severity: NcciConflict["severity"];
-      }>;
-      symptoms: string[];
-      soap_update: ClinicalAnalysis["soapUpdate"];
-      billing_hints: string[];
-      confidence: ClinicalAnalysis["confidence"];
-      disclaimer?: string;
-    }>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
+    request<ApiTranscriptAnalysis>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
       method: "POST",
       body,
     }),
+  transcribeAudio: async (sessionId: string, file: File) => {
+    if (!API_BASE_URL) {
+      return null;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(endpoint(`/sessions/${encodeURIComponent(sessionId)}/transcribe-audio`), {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+
+      return (await response.json()) as ApiAudioTranscriptionAnalysis;
+    } catch (error) {
+      if (isDevelopment) {
+        console.warn("[Medexa API] Audio transcription failed.", error);
+      }
+      return null;
+    }
+  },
   insights: (sessionId: string) =>
     request<ApiInsight[]>(`/sessions/${encodeURIComponent(sessionId)}/insights`),
   approveInsight: (sessionId: string, insightId: string) =>

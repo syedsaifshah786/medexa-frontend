@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import billing, claims, patient_summary, session_transcript_analysis, sessions, soap_notes, transcripts
+from app.routes import audio, billing, claims, patient_summary, session_transcript_analysis, sessions, soap_notes, transcripts
 
 app = FastAPI(title="Medexa Local API")
 
@@ -20,6 +20,7 @@ def health() -> dict:
 
 
 app.include_router(sessions.router)
+app.include_router(audio.router)
 app.include_router(session_transcript_analysis.router)
 app.include_router(transcripts.router)
 app.include_router(soap_notes.router)

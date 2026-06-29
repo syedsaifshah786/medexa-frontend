@@ -1,13 +1,19 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
-import { apiSessionToUpcomingSession, medexaApi, type ApiInsight, type ApiSuggestion } from "@/lib/api";
+import {
+  apiSessionToUpcomingSession,
+  medexaApi,
+  type ApiInsight,
+  type ApiSuggestion,
+  type ApiTranscriptAnalysis,
+} from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { getSessionById } from "@/lib/sessions";
@@ -127,6 +133,46 @@ const apiSuggestionToSuggestion = (suggestion: ApiSuggestion): SuggestionItem =>
   id: suggestion.id,
   title: suggestion.title,
   text: suggestion.text,
+});
+
+const apiAnalysisToClinicalAnalysis = (backendAnalysis: ApiTranscriptAnalysis): ClinicalAnalysis => ({
+  summary: backendAnalysis.summary,
+  possibleDiagnoses: backendAnalysis.possible_clinical_impressions ?? backendAnalysis.possible_diagnoses,
+  icd10Suggestions: (backendAnalysis.icd10_suggestions ?? []).map((suggestion) => ({
+    phrase: suggestion.phrase,
+    code: suggestion.code,
+    reason: suggestion.reason,
+    confidence: suggestion.confidence,
+  })),
+  bodyRegions: (backendAnalysis.body_regions ?? []).map((region) => ({
+    phrase: region.phrase,
+    region: region.region,
+  })),
+  cptSuggestions: (backendAnalysis.cpt_suggestions ?? []).map((suggestion) => ({
+    code: suggestion.code,
+    label: suggestion.label,
+    displayName: suggestion.display_name,
+    descriptor: suggestion.descriptor,
+    matchedPhrases: suggestion.matched_phrases,
+    documentationRequirements: suggestion.documentation_requirements,
+    billingCaveats: suggestion.billing_caveats,
+    reason: suggestion.reason,
+    confidence: suggestion.confidence,
+  })),
+  ncciConflicts: (backendAnalysis.ncci_conflicts ?? []).map((conflict) => ({
+    cptA: conflict.cpt_a,
+    cptB: conflict.cpt_b,
+    conflictType: conflict.conflict_type,
+    bodyRegionSensitive: conflict.body_region_sensitive,
+    modifier59Possible: conflict.modifier_59_possible,
+    explanation: conflict.explanation,
+    severity: conflict.severity,
+  })),
+  symptoms: backendAnalysis.symptoms,
+  soapUpdate: backendAnalysis.soap_update,
+  billingHints: backendAnalysis.billing_hints,
+  confidence: backendAnalysis.confidence,
+  disclaimer: backendAnalysis.disclaimer ?? "AI-generated suggestions require clinician review before use.",
 });
 
 function SlideToApprove({
@@ -312,6 +358,10 @@ function AmbientSessionContent() {
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
   const [aiSummarySegments, setAiSummarySegments] = useState<AiSummarySegment[]>([]);
   const [generatedSoapSuggestions, setGeneratedSoapSuggestions] = useState<string[]>([]);
+  const [audioUploadStatus, setAudioUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [audioUploadError, setAudioUploadError] = useState("");
+  const [uploadedAudioTranscript, setUploadedAudioTranscript] = useState("");
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const lastAnalyzedSecondRef = useRef(0);
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
@@ -466,45 +516,7 @@ function AmbientSessionContent() {
           end_time: endTime,
         });
         const analysis: ClinicalAnalysis = backendAnalysis
-          ? {
-              summary: backendAnalysis.summary,
-              possibleDiagnoses: backendAnalysis.possible_clinical_impressions ?? backendAnalysis.possible_diagnoses,
-              icd10Suggestions: (backendAnalysis.icd10_suggestions ?? []).map((suggestion) => ({
-                phrase: suggestion.phrase,
-                code: suggestion.code,
-                reason: suggestion.reason,
-                confidence: suggestion.confidence,
-              })),
-              bodyRegions: (backendAnalysis.body_regions ?? []).map((region) => ({
-                phrase: region.phrase,
-                region: region.region,
-              })),
-              cptSuggestions: (backendAnalysis.cpt_suggestions ?? []).map((suggestion) => ({
-                code: suggestion.code,
-                label: suggestion.label,
-                displayName: suggestion.display_name,
-                descriptor: suggestion.descriptor,
-                matchedPhrases: suggestion.matched_phrases,
-                documentationRequirements: suggestion.documentation_requirements,
-                billingCaveats: suggestion.billing_caveats,
-                reason: suggestion.reason,
-                confidence: suggestion.confidence,
-              })),
-              ncciConflicts: (backendAnalysis.ncci_conflicts ?? []).map((conflict) => ({
-                cptA: conflict.cpt_a,
-                cptB: conflict.cpt_b,
-                conflictType: conflict.conflict_type,
-                bodyRegionSensitive: conflict.body_region_sensitive,
-                modifier59Possible: conflict.modifier_59_possible,
-                explanation: conflict.explanation,
-                severity: conflict.severity,
-              })),
-              symptoms: backendAnalysis.symptoms,
-              soapUpdate: backendAnalysis.soap_update,
-              billingHints: backendAnalysis.billing_hints,
-              confidence: backendAnalysis.confidence,
-              disclaimer: backendAnalysis.disclaimer ?? "AI-generated suggestions require clinician review before use.",
-            }
+          ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
 
         const segment: AiSummarySegment = {
@@ -715,6 +727,52 @@ function AmbientSessionContent() {
     }
 
     void createAiSummarySegment(recordingSecondsRef.current, chunkText);
+  };
+
+  const handleAudioUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setAudioUploadStatus("uploading");
+    setAudioUploadError("");
+
+    try {
+      const response = await medexaApi.transcribeAudio(sessionId, file);
+
+      if (!response?.transcript) {
+        throw new Error("Audio transcription failed.");
+      }
+
+      const analysis = apiAnalysisToClinicalAnalysis(response);
+      const finalSegmentEnd = response.audio_segments.length
+        ? Math.ceil(Math.max(...response.audio_segments.map((segment) => segment.end)))
+        : 0;
+      const segment: AiSummarySegment = {
+        id: `${sessionId}-uploaded-audio-${Date.now()}`,
+        startTime: "Uploaded Audio",
+        endTime: finalSegmentEnd > 0 ? formatDuration(finalSegmentEnd) : "Analysis",
+        transcriptExcerpt: response.transcript.slice(0, 260),
+        analysis,
+        status: "Generated",
+      };
+
+      setUploadedAudioTranscript(response.transcript);
+      setAiSummarySegments((segments) => [...segments, segment]);
+      setGeneratedSoapSuggestions((suggestions) => [
+        ...suggestions,
+        `${analysis.soapUpdate.subjective} ${analysis.soapUpdate.objective} ${analysis.soapUpdate.assessment} ${analysis.soapUpdate.plan}`,
+      ]);
+      setAudioUploadStatus("success");
+    } catch (error) {
+      console.warn("Audio transcription failed.", error);
+      setAudioUploadStatus("error");
+      setAudioUploadError("Audio transcription failed. Please check backend and audio format.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const recordingStatusText =
@@ -978,15 +1036,45 @@ function AmbientSessionContent() {
               <span>
                 {t("session.speechStatus")}: <strong>{listeningStatus}</strong>
               </span>
-              <button type="button" onClick={handleGenerateTestSummary}>
-                {t("session.generateTestSummary")}
-              </button>
+              <div className="speech-debug-actions">
+                <button type="button" onClick={handleGenerateTestSummary}>
+                  {t("session.generateTestSummary")}
+                </button>
+                <button
+                  type="button"
+                  disabled={audioUploadStatus === "uploading"}
+                  onClick={() => audioInputRef.current?.click()}
+                >
+                  {audioUploadStatus === "uploading" ? "Transcribing audio..." : "Upload Audio for Test"}
+                </button>
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="sr-only"
+                  onChange={handleAudioUpload}
+                />
+              </div>
             </div>
+
+            {audioUploadStatus === "success" && (
+              <div className="speech-alert is-success">Audio transcript generated</div>
+            )}
+            {audioUploadStatus === "error" && (
+              <div className="speech-alert">{audioUploadError || "Audio transcription failed. Please check backend."}</div>
+            )}
 
             <div className="transcript-box">
               <h3>{t("session.liveTranscript")}</h3>
               <p>{fullTranscript || t("session.transcriptPlaceholder")}</p>
             </div>
+
+            {uploadedAudioTranscript && (
+              <div className="transcript-box">
+                <h3>Uploaded Audio Transcript</h3>
+                <p>{uploadedAudioTranscript}</p>
+              </div>
+            )}
 
             <div className="transcript-box">
               <h3>{t("session.currentChunk")}</h3>
@@ -2011,6 +2099,12 @@ function AmbientSessionContent() {
           line-height: 1.45;
         }
 
+        .speech-alert.is-success {
+          border-color: #b7ebce;
+          background: #effaf4;
+          color: #087c4a;
+        }
+
         .speech-debug-line {
           display: flex;
           align-items: center;
@@ -2020,6 +2114,13 @@ function AmbientSessionContent() {
           color: #667085;
           font-size: 11px;
           line-height: 1.4;
+        }
+
+        .speech-debug-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 8px;
         }
 
         .speech-debug-line strong {
@@ -2036,6 +2137,24 @@ function AmbientSessionContent() {
           font-size: 10px;
           font-weight: 800;
           cursor: pointer;
+        }
+
+        .speech-debug-line button:disabled {
+          color: #667085;
+          cursor: wait;
+          opacity: 0.75;
+        }
+
+        .sr-only {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
         }
 
         .transcript-box,
