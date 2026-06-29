@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
-import { api, asRecord, textValue } from "@/lib/api";
-import { sessions } from "@/lib/sessions";
 
 const summaryText =
   "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
@@ -28,32 +26,6 @@ export default function PatientSummaryPage() {
       `${soapData.subjective.chiefComplaint} ${soapData.objective.observationNotes} ${soapData.assessment.diagnosisSummary} ${soapData.plan.followUpPlan}`,
     );
   }, [hasGeneratedDocumentation, isEditing, soapData]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadSessionSummary = async () => {
-      const result = await api.sessionState(sessions[0].id);
-
-      if (!isMounted || result.devWarning || hasGeneratedDocumentation) {
-        return;
-      }
-
-      const state = asRecord(result.data);
-      const summary = textValue(state.summary, textValue(state.patient_summary));
-
-      if (summary) {
-        setSummaryNote(summary);
-        setDraftNote(summary);
-      }
-    };
-
-    loadSessionSummary();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [hasGeneratedDocumentation]);
 
   const startEditing = () => {
     setDraftNote(summaryNote);
