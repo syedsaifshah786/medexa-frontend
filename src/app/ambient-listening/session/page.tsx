@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
+import { apiSessionToUpcomingSession, medexaApi, type ApiInsight, type ApiSuggestion } from "@/lib/api";
+import { setActiveSessionId } from "@/lib/activeSession";
 import { getSessionById } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
@@ -79,6 +81,21 @@ const formatDuration = (totalSeconds: number) => {
 
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
+
+const apiInsightToInsight = (insight: ApiInsight): InsightItem => ({
+  id: insight.id,
+  tag: insight.type === "billing" ? "Billing" : insight.type === "protocol" ? "Protocol Ask" : "Detected",
+  text: insight.question,
+  label: insight.label,
+  tone: insight.type === "billing" ? "billing" : "protocol",
+  note: insight.description,
+});
+
+const apiSuggestionToSuggestion = (suggestion: ApiSuggestion): SuggestionItem => ({
+  id: suggestion.id,
+  title: suggestion.title,
+  text: suggestion.text,
+});
 
 function SlideToApprove({
   approved,
@@ -251,26 +268,89 @@ function AmbientSessionContent() {
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const { updateSoapData } = useSessionDocumentation();
   const routeSessionId = searchParams.get("id") ?? searchParams.get("session") ?? "";
-  const selectedSession = useMemo(
-    () => getSessionById(routeSessionId),
-    [routeSessionId],
-  );
+  const localRouteSession = getSessionById(routeSessionId);
+  const sessionId = routeSessionId || localRouteSession.id;
+  const [selectedSession, setSelectedSession] = useState(localRouteSession);
+  const [insightItems, setInsightItems] = useState<InsightItem[]>(defaultInsights);
+  const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>(defaultSuggestions);
+  const { updateSoapData } = useSessionDocumentation();
+
+  useEffect(() => {
+    const localSession = getSessionById(routeSessionId);
+    setSelectedSession(localSession);
+    setActiveSessionId(routeSessionId || localSession.id);
+  }, [routeSessionId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSession = async () => {
+      const [apiSession, apiState, apiInsights, apiSuggestions] = await Promise.all([
+        medexaApi.session(sessionId),
+        medexaApi.sessionState(sessionId),
+        medexaApi.insights(sessionId),
+        medexaApi.suggestions(sessionId),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (apiSession) {
+        setSelectedSession(apiSessionToUpcomingSession(apiSession));
+      }
+
+      if (apiState) {
+        setRecordingStatus(apiState.status);
+        setRecordingSeconds(apiState.elapsedSeconds);
+      }
+
+      if (apiInsights) {
+        setInsightItems(apiInsights.map(apiInsightToInsight));
+        setInsightStates(
+          Object.fromEntries(
+            apiInsights.map((insight) => [
+              insight.id,
+              {
+                approved: insight.status === "approved",
+                ignored: insight.status === "ignored",
+              },
+            ]),
+          ),
+        );
+      }
+
+      if (apiSuggestions) {
+        setSuggestionItems(apiSuggestions.map(apiSuggestionToSuggestion));
+        setAppliedSuggestions(
+          Object.fromEntries(
+            apiSuggestions.map((suggestion) => [suggestion.id, suggestion.applied]),
+          ),
+        );
+      }
+    };
+
+    loadSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionId]);
 
   const query = searchQuery.trim().toLowerCase();
   const filteredInsights = useMemo(() => {
     if (!query) {
-      return defaultInsights;
+      return insightItems;
     }
 
-    return defaultInsights.filter((item) =>
+    return insightItems.filter((item) =>
       [item.tag, item.text, item.label, item.note]
         .join(" ")
         .toLowerCase()
         .includes(query),
     );
-  }, [query]);
+  }, [insightItems, query]);
 
   useEffect(() => {
     if (recordingStatus !== "recording") {
@@ -287,19 +367,19 @@ function AmbientSessionContent() {
   }, [recordingStatus]);
   const filteredSuggestions = useMemo(() => {
     if (!query) {
-      return defaultSuggestions;
+      return suggestionItems;
     }
 
-    return defaultSuggestions.filter((item) =>
+    return suggestionItems.filter((item) =>
       [item.title, item.text].join(" ").toLowerCase().includes(query),
     );
-  }, [query]);
+  }, [query, suggestionItems]);
 
   const saveSoapDocumentation = (
     nextInsightStates = insightStates,
     nextAppliedSuggestions = appliedSuggestions,
   ) => {
-    const activeInsights = defaultInsights.filter(
+    const activeInsights = insightItems.filter(
       (item) =>
         (nextInsightStates[item.id]?.approved || nextInsightStates[item.id]?.selected) &&
         !nextInsightStates[item.id]?.ignored,
@@ -308,7 +388,7 @@ function AmbientSessionContent() {
     const billingInsights = activeInsights.filter(
       (item) => item.tone === "billing" || item.label === "Billing",
     );
-    const appliedSuggestionNotes = defaultSuggestions
+    const appliedSuggestionNotes = suggestionItems
       .filter((item) => nextAppliedSuggestions[item.id])
       .map((item) => item.text);
     const protocolSummary = protocolInsights.map((item) => item.note).join(" ");
@@ -364,8 +444,12 @@ function AmbientSessionContent() {
     setInsightStates(nextInsightStates);
 
     if (nextState.approved) {
+      medexaApi.approveInsight(sessionId, id);
       saveSoapDocumentation(nextInsightStates, appliedSuggestions);
     } else {
+      if (nextState.ignored) {
+        medexaApi.ignoreInsight(sessionId, id);
+      }
       setStatusMessage(message);
     }
   };
@@ -377,6 +461,7 @@ function AmbientSessionContent() {
     };
 
     setAppliedSuggestions(nextAppliedSuggestions);
+    medexaApi.applySuggestion(sessionId, id);
     saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
@@ -385,6 +470,10 @@ function AmbientSessionContent() {
 
     if (recordingStatus === "recording") {
       setRecordingStatus("paused");
+      medexaApi.updateSessionState(sessionId, {
+        status: "paused",
+        elapsedSeconds: recordingSeconds,
+      });
       return;
     }
 
@@ -393,6 +482,10 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
+    medexaApi.updateSessionState(sessionId, {
+      status: "recording",
+      elapsedSeconds: recordingStatus === "stopped" ? INITIAL_RECORDING_SECONDS : recordingSeconds,
+    });
   };
 
   const requestStop = () => {
@@ -404,7 +497,16 @@ function AmbientSessionContent() {
   const confirmStop = () => {
     setRecordingStatus("stopped");
     setShowStopConfirm(false);
+    medexaApi.updateSessionState(sessionId, {
+      status: "stopped",
+      elapsedSeconds: recordingSeconds,
+    });
     saveSoapDocumentation();
+    medexaApi.generateSoapNotes(sessionId).then((generatedSoapData) => {
+      if (generatedSoapData) {
+        updateSoapData(generatedSoapData);
+      }
+    });
   };
 
   const recordingStatusText =

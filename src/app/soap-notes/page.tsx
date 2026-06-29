@@ -8,6 +8,8 @@ import {
   type SectionKey,
   useSessionDocumentation,
 } from "@/context/SessionDocumentationContext";
+import { getActiveSessionId } from "@/lib/activeSession";
+import { medexaApi } from "@/lib/api";
 
 function Field({
   label,
@@ -106,6 +108,28 @@ export default function SoapNotesPage() {
   const [draftData, setDraftData] = useState(defaultSoapData);
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [sessionId, setSessionId] = useState("samuel-thompson");
+
+  useEffect(() => {
+    const activeSessionId = getActiveSessionId();
+    setSessionId(activeSessionId);
+
+    let isMounted = true;
+
+    const loadSoapNotes = async () => {
+      const apiSoapData = await medexaApi.soapNotes(activeSessionId);
+
+      if (isMounted && apiSoapData) {
+        updateSoapData(apiSoapData);
+      }
+    };
+
+    loadSoapNotes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editingSection) {
@@ -131,6 +155,7 @@ export default function SoapNotesPage() {
 
   const saveSection = (section: SectionKey) => {
     updateSoapData(draftData);
+    medexaApi.updateSoapNotes(sessionId, draftData);
     setEditingSection(null);
     setStatusMessage(`${section.charAt(0).toUpperCase()}${section.slice(1)} updated.`);
   };

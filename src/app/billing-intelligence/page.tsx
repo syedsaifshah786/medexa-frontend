@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
+import { getActiveSessionId } from "@/lib/activeSession";
+import { medexaApi } from "@/lib/api";
 
 type CptStatus = "pending" | "approved" | "rejected";
 
@@ -65,11 +67,37 @@ const initialCptCodes: CptItem[] = [
 export default function BillingIntelligencePage() {
   const [headerSearch, setHeaderSearch] = useState("");
   const [cptItems, setCptItems] = useState<CptItem[]>(initialCptCodes);
-  const sessionDuration = "52:22";
-  const sessionUnits = "4";
+  const [sessionDuration, setSessionDuration] = useState("52:22");
+  const [sessionUnits, setSessionUnits] = useState("4");
+  const [sessionId, setSessionId] = useState("samuel-thompson");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formValues, setFormValues] = useState<CptForm>(emptyCptForm);
+
+  useEffect(() => {
+    const activeSessionId = getActiveSessionId();
+    setSessionId(activeSessionId);
+
+    let isMounted = true;
+
+    const loadBilling = async () => {
+      const billing = await medexaApi.billing(activeSessionId);
+
+      if (!isMounted || !billing) {
+        return;
+      }
+
+      setSessionDuration(billing.sessionTime);
+      setSessionUnits(billing.units);
+      setCptItems(billing.cptCodes);
+    };
+
+    loadBilling();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredCptCodes = useMemo(() => {
     const query = headerSearch.trim().toLowerCase();
@@ -109,7 +137,7 @@ export default function BillingIntelligencePage() {
     setIsFormOpen(false);
   };
 
-  const saveCptItem = () => {
+  const saveCptItem = async () => {
     const nextValues = {
       code: formValues.code.trim(),
       title: formValues.title.trim(),
@@ -122,34 +150,41 @@ export default function BillingIntelligencePage() {
     }
 
     if (editingId) {
+      const savedItem = await medexaApi.editBillingCpt(sessionId, editingId, nextValues);
       setCptItems((items) =>
         items.map((item) =>
           item.id === editingId
             ? {
                 ...item,
-                ...nextValues,
+                ...(savedItem ?? nextValues),
               }
             : item,
         ),
       );
     } else {
+      const savedItem = await medexaApi.addBillingCpt(sessionId, nextValues);
       setCptItems((items) => [
         ...items,
-        {
-          id: `cpt-${Date.now()}`,
-          ...nextValues,
-          warning: "",
-          status: "pending",
-        },
+        savedItem ?? {
+            id: `cpt-${Date.now()}`,
+            ...nextValues,
+            warning: "",
+            status: "pending",
+          },
       ]);
     }
 
     closeForm();
   };
 
-  const updateCptStatus = (id: string, status: CptStatus) => {
+  const updateCptStatus = async (id: string, status: CptStatus) => {
+    const savedItem =
+      status === "approved"
+        ? await medexaApi.approveBillingCpt(sessionId, id)
+        : await medexaApi.rejectBillingCpt(sessionId, id);
+
     setCptItems((items) =>
-      items.map((item) => (item.id === id ? { ...item, status } : item)),
+      items.map((item) => (item.id === id ? { ...item, ...(savedItem ?? { status }) } : item)),
     );
   };
 

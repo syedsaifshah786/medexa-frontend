@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
+import { apiSessionToUpcomingSession, medexaApi, type ApiTranscript } from "@/lib/api";
+import { setActiveSessionId } from "@/lib/activeSession";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
@@ -82,6 +84,16 @@ const initialTranscripts: Transcript[] = [
 const transcriptsPerPage = 2;
 const sessionDragThreshold = 6;
 
+const apiTranscriptToTranscript = (transcript: ApiTranscript): Transcript => ({
+  id: transcript.id,
+  name: transcript.patientName,
+  time: transcript.time,
+  status: transcript.status,
+  img: transcript.avatar,
+  summary: transcript.summary,
+  transcript: transcript.transcript,
+});
+
 export default function AmbientListeningPage() {
   const router = useRouter();
   const sessionsRowRef = useRef<HTMLDivElement>(null);
@@ -102,17 +114,47 @@ export default function AmbientListeningPage() {
   const [sessionMessage, setSessionMessage] = useState("");
   const [sessionStatusDetail, setSessionStatusDetail] = useState("");
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
+  const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
   const { selectedDoctor } = useSelectedDoctor();
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
   const doctorFirstName = selectedDoctor.name.replace(/^Dr\.\s+/, "").split(" ")[0];
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboardData = async () => {
+      const [apiSessions, apiTranscripts] = await Promise.all([
+        medexaApi.sessions(),
+        medexaApi.transcripts(),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (apiSessions) {
+        setSessionItems(apiSessions.map(apiSessionToUpcomingSession));
+      }
+
+      if (apiTranscripts) {
+        setTranscriptItems(apiTranscripts.map(apiTranscriptToTranscript));
+      }
+    };
+
+    loadDashboardData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredSessions = useMemo(() => {
     if (!normalizedHeaderSearch) {
-      return sessions;
+      return sessionItems;
     }
 
-    return sessions.filter((session) => {
+    return sessionItems.filter((session) => {
       return [
         session.name,
         session.status,
@@ -125,7 +167,7 @@ export default function AmbientListeningPage() {
         .toLowerCase()
         .includes(normalizedHeaderSearch);
     });
-  }, [normalizedHeaderSearch]);
+  }, [normalizedHeaderSearch, sessionItems]);
 
   const openSession = (session: UpcomingSession) => {
     if (sessionDragRef.current.moved) {
@@ -133,11 +175,24 @@ export default function AmbientListeningPage() {
     }
 
     setSessionMessage(`Opening ${session.name} session...`);
+    setActiveSessionId(session.id);
+    medexaApi.startSession({
+      patient_id: session.id,
+      patientName: session.name,
+      therapist_id: selectedDoctor.name,
+      session_type: session.careType,
+    });
     router.push(`/ambient-listening/session?id=${session.id}`);
   };
 
   const startNewSession = () => {
     setSessionMessage("Starting a new session...");
+    setActiveSessionId("new-session");
+    medexaApi.startSession({
+      session_id: "new-session",
+      therapist_id: selectedDoctor.name,
+      session_type: "Therapeutic Therapy Session",
+    });
     router.push("/ambient-listening/session?id=new-session");
   };
 
@@ -245,7 +300,19 @@ export default function AmbientListeningPage() {
     );
   };
 
-  const generateSummary = (id: string) => {
+  const generateSummary = async (id: string) => {
+    const generatedTranscript = await medexaApi.generateTranscriptSummary(id);
+
+    if (generatedTranscript) {
+      setTranscriptItems((items) =>
+        items.map((item) =>
+          item.id === id ? apiTranscriptToTranscript(generatedTranscript) : item,
+        ),
+      );
+      setTranscriptMessage("Summary generated");
+      return;
+    }
+
     setTranscriptItems((items) =>
       items.map((item) =>
         item.id === id
@@ -300,7 +367,7 @@ export default function AmbientListeningPage() {
           <div className="section-heading">
             <div>
               <h2>Upcoming Sessions</h2>
-              <p>{sessions.length} sessions remaining ahead</p>
+              <p>{sessionItems.length} sessions remaining ahead</p>
             </div>
             <div className="heading-actions">
               <button type="button" onClick={() => setIsSessionsModalOpen(true)}>
@@ -396,7 +463,7 @@ export default function AmbientListeningPage() {
                 <div className="sessions-modal-heading">
                   <div>
                     <h3 id="sessions-modal-title">All Upcoming Sessions</h3>
-                    <p>{sessions.length} sessions scheduled ahead</p>
+                    <p>{sessionItems.length} sessions scheduled ahead</p>
                   </div>
                   <button type="button" onClick={() => setIsSessionsModalOpen(false)}>
                     Close
@@ -404,7 +471,7 @@ export default function AmbientListeningPage() {
                 </div>
 
                 <div className="sessions-list">
-                  {sessions.map((session) => (
+                  {sessionItems.map((session) => (
                     <button
                       key={session.id}
                       type="button"

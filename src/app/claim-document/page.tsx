@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
+import { getActiveSessionId } from "@/lib/activeSession";
+import { medexaApi } from "@/lib/api";
 
 type CptItem = {
   id: string;
@@ -115,9 +117,37 @@ export default function ClaimDocumentPage() {
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
 
   const query = headerSearch.trim().toLowerCase();
+
+  useEffect(() => {
+    const activeSessionId = getActiveSessionId();
+    setSessionId(activeSessionId);
+
+    let isMounted = true;
+
+    const loadClaim = async () => {
+      const claim = await medexaApi.claim(activeSessionId);
+
+      if (!isMounted || !claim) {
+        return;
+      }
+
+      setSessionItems(claim.cptItems);
+      setDiagnoses(claim.diagnosisCodes);
+      setMeta(claim.patientMeta);
+      setMetaDraft(claim.patientMeta);
+      setIsSubmitted(claim.claimStatus === "submitted");
+    };
+
+    loadClaim();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const billableUnits = useMemo(() => {
     return sessionItems.reduce((total, item) => total + (Number.parseInt(item.units, 10) || 0), 0);
@@ -163,7 +193,7 @@ export default function ClaimDocumentPage() {
     );
   }, [diagnoses, query]);
 
-  const saveCpt = () => {
+  const saveCpt = async () => {
     const nextItem = {
       ...cptForm,
       code: cptForm.code.trim(),
@@ -178,13 +208,14 @@ export default function ClaimDocumentPage() {
       return;
     }
 
-    setSessionItems((items) => [...items, { ...nextItem, id: `cpt-${Date.now()}` }]);
+    const savedItem = await medexaApi.addClaimCpt(sessionId, nextItem);
+    setSessionItems((items) => [...items, savedItem ?? { ...nextItem, id: `cpt-${Date.now()}` }]);
     setCptForm(emptyCptForm);
     setShowCptForm(false);
     setStatusMessage("CPT item added.");
   };
 
-  const saveDiagnosis = () => {
+  const saveDiagnosis = async () => {
     const nextDiagnosis = {
       ...diagnosisForm,
       code: diagnosisForm.code.trim(),
@@ -196,7 +227,8 @@ export default function ClaimDocumentPage() {
       return;
     }
 
-    setDiagnoses((items) => [...items, { ...nextDiagnosis, id: `dx-${Date.now()}` }]);
+    const savedDiagnosis = await medexaApi.addClaimDiagnosis(sessionId, nextDiagnosis);
+    setDiagnoses((items) => [...items, savedDiagnosis ?? { ...nextDiagnosis, id: `dx-${Date.now()}` }]);
     setDiagnosisForm(emptyDiagnosisForm);
     setShowDiagnosisForm(false);
     setStatusMessage("Diagnosis added.");
@@ -207,12 +239,14 @@ export default function ClaimDocumentPage() {
     setStatusMessage(`Exported as ${format}.`);
   };
 
-  const submitClaim = () => {
+  const submitClaim = async () => {
+    await medexaApi.submitClaim(sessionId);
     setIsSubmitted(true);
     setStatusMessage("Claim submitted successfully.");
   };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
+    await medexaApi.saveClaimDraft(sessionId);
     setStatusMessage("Draft saved.");
   };
 
@@ -222,13 +256,19 @@ export default function ClaimDocumentPage() {
     setStatusMessage("");
   };
 
-  const saveMeta = () => {
-    setMeta(metaDraft);
+  const saveMeta = async () => {
+    const updatedClaim = await medexaApi.updateClaimSessionData(sessionId, metaDraft);
+    if (updatedClaim) {
+      setMeta(updatedClaim.patientMeta);
+      setMetaDraft(updatedClaim.patientMeta);
+    } else {
+      setMeta(metaDraft);
+    }
     setIsEditingMeta(false);
     setStatusMessage("Session data updated.");
   };
 
-  const verifyClaim = () => {
+  const verifyClaim = async () => {
     const missing: string[] = [];
 
     if (sessionItems.length === 0) {
@@ -247,11 +287,13 @@ export default function ClaimDocumentPage() {
       missing.push("ordering provider");
     }
 
-    setStatusMessage(
-      missing.length > 0
-        ? `Missing ${missing.join(", ")}.`
-        : "Claim document verified successfully.",
-    );
+    if (missing.length > 0) {
+      setStatusMessage(`Missing ${missing.join(", ")}.`);
+      return;
+    }
+
+    await medexaApi.verifyClaim(sessionId);
+    setStatusMessage("Claim document verified successfully.");
   };
 
   return (

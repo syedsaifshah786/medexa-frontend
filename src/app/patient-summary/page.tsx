@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
+import { getActiveSessionId } from "@/lib/activeSession";
+import { medexaApi } from "@/lib/api";
 
 const summaryText =
   "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
@@ -15,7 +17,30 @@ export default function PatientSummaryPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [actionStatus, setActionStatus] = useState("");
+  const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
+
+  useEffect(() => {
+    const activeSessionId = getActiveSessionId();
+    setSessionId(activeSessionId);
+
+    let isMounted = true;
+
+    const loadSummary = async () => {
+      const apiSummary = await medexaApi.patientSummary(activeSessionId);
+
+      if (isMounted && apiSummary && !hasGeneratedDocumentation) {
+        setSummaryNote(apiSummary.summary);
+        setDraftNote(apiSummary.summary);
+      }
+    };
+
+    loadSummary();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasGeneratedDocumentation]);
 
   useEffect(() => {
     if (!hasGeneratedDocumentation || isEditing) {
@@ -34,8 +59,10 @@ export default function PatientSummaryPage() {
     setActionStatus("");
   };
 
-  const saveSummary = () => {
-    setSummaryNote(draftNote.trim() || summaryNote);
+  const saveSummary = async () => {
+    const nextSummary = draftNote.trim() || summaryNote;
+    const apiSummary = await medexaApi.updatePatientSummary(sessionId, nextSummary);
+    setSummaryNote(apiSummary?.summary ?? nextSummary);
     setIsEditing(false);
     setActionStatus("Summary note updated.");
   };
@@ -51,7 +78,8 @@ export default function PatientSummaryPage() {
     setActionStatus("");
   };
 
-  const confirmSend = () => {
+  const confirmSend = async () => {
+    await medexaApi.sendPatientSummary(sessionId);
     setShowSendConfirm(false);
     setActionStatus("Summary sent to patient successfully.");
   };
