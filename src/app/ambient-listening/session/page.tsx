@@ -600,17 +600,7 @@ function AmbientSessionContent() {
 
       if (apiInsights) {
         setInsightItems(apiInsights.map(apiInsightToInsight));
-        setInsightStates(
-          Object.fromEntries(
-            apiInsights.map((insight) => [
-              insight.id,
-              {
-                approved: insight.status === "approved",
-                ignored: insight.status === "ignored",
-              },
-            ]),
-          ),
-        );
+        setInsightStates({});
       }
 
       if (apiSuggestions) {
@@ -632,17 +622,19 @@ function AmbientSessionContent() {
 
   const query = searchQuery.trim().toLowerCase();
   const filteredInsights = useMemo(() => {
+    const visibleItems = insightItems.filter((item) => !insightStates[item.id]?.ignored);
+
     if (!query) {
-      return insightItems;
+      return visibleItems;
     }
 
-    return insightItems.filter((item) =>
+    return visibleItems.filter((item) =>
       [item.tag, item.text, item.label, item.note]
         .join(" ")
         .toLowerCase()
         .includes(query),
     );
-  }, [insightItems, query]);
+  }, [insightItems, insightStates, query]);
 
   useEffect(() => {
     if (recordingStatus !== "recording") {
@@ -719,8 +711,16 @@ function AmbientSessionContent() {
         const backendLiveSuggestions = backendAnalysis?.live_suggestions ?? [];
         if (backendLiveSuggestions.length > 0) {
           const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
+          const nextInsightItems = backendLiveSuggestions.map(apiLiveSuggestionToInsight);
           setSuggestionItems(nextSuggestions);
-          setInsightItems(backendLiveSuggestions.map(apiLiveSuggestionToInsight));
+          setInsightItems(nextInsightItems);
+          setInsightStates((states) =>
+            Object.fromEntries(
+              nextInsightItems
+                .filter((item) => states[item.id]?.approved)
+                .map((item) => [item.id, { approved: true }]),
+            ),
+          );
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
           const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
             id: `local-cpt-${suggestion.code}`,
@@ -728,15 +728,21 @@ function AmbientSessionContent() {
             text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
           }));
           setSuggestionItems(nextSuggestions);
-          setInsightItems(
-            nextSuggestions.map((suggestion) => ({
-              id: suggestion.id,
-              tag: "Billing",
-              text: suggestion.text,
-              label: "Billing",
-              tone: "billing",
-              note: "Procedure detected from live speech. Requires clinician review.",
-            })),
+          const nextInsightItems = nextSuggestions.map((suggestion) => ({
+            id: suggestion.id,
+            tag: "Billing",
+            text: suggestion.text,
+            label: "Billing",
+            tone: "billing",
+            note: "Procedure detected from live speech. Requires clinician review.",
+          }));
+          setInsightItems(nextInsightItems);
+          setInsightStates((states) =>
+            Object.fromEntries(
+              nextInsightItems
+                .filter((item) => states[item.id]?.approved)
+                .map((item) => [item.id, { approved: true }]),
+            ),
           );
         }
 
@@ -1398,7 +1404,7 @@ function AmbientSessionContent() {
                       onClick={() =>
                         updateInsight(
                           item.id,
-                          { ignored: true, selected: false },
+                          { ignored: true, selected: false, approved: false },
                           t("session.insightIgnored"),
                         )
                       }
@@ -2326,6 +2332,21 @@ function AmbientSessionContent() {
           display: flex;
           flex-direction: column;
           gap: 10px;
+          max-height: calc(100vh - 300px);
+          overflow-y: auto;
+          padding-right: 8px;
+          padding-bottom: 120px;
+          scrollbar-width: thin;
+          scrollbar-color: #c9d4e5 transparent;
+        }
+
+        .insights-column::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .insights-column::-webkit-scrollbar-thumb {
+          border-radius: 999px;
+          background: #c9d4e5;
         }
 
         .insight-item {
@@ -2997,8 +3018,8 @@ function AmbientSessionContent() {
           inset: 0;
           z-index: 4;
           pointer-events: none;
-          backdrop-filter: blur(1.5px);
-          background: rgba(15, 23, 42, 0.03);
+          backdrop-filter: blur(1px);
+          background: rgba(15, 23, 42, 0.02);
         }
 
         .procedure-popup {
@@ -3013,11 +3034,12 @@ function AmbientSessionContent() {
           gap: 20px;
           box-sizing: border-box;
           padding: 18px 20px;
-          border: 1px solid rgba(17, 199, 120, 0.72);
-          border-radius: 18px;
-          background: #081322;
-          box-shadow: 0 18px 48px rgba(8, 19, 34, 0.32), 0 0 0 5px rgba(17, 199, 120, 0.09);
-          color: #fff;
+          border: 1px solid #b8f0d2;
+          border-left: 5px solid #11c778;
+          border-radius: 20px;
+          background: linear-gradient(135deg, #ffffff 0%, #f7fbff 55%, #f5fff9 100%);
+          box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16), 0 0 0 5px rgba(17, 199, 120, 0.08);
+          color: #172033;
           transform: translateX(-50%);
         }
 
@@ -3046,7 +3068,7 @@ function AmbientSessionContent() {
         }
 
         .procedure-popup p {
-          color: #5cffaa;
+          color: #087c4a;
           font-size: 10px;
           font-weight: 800;
           text-transform: uppercase;
@@ -3062,13 +3084,13 @@ function AmbientSessionContent() {
         .procedure-popup small {
           display: block;
           margin-top: 6px;
-          color: #d7e2ef;
+          color: #344054;
           font-size: 12px;
           line-height: 1.4;
         }
 
         .procedure-popup small {
-          color: #97a6b8;
+          color: #667085;
           font-size: 11px;
         }
 
@@ -3081,10 +3103,10 @@ function AmbientSessionContent() {
 
         .procedure-popup-actions button {
           height: 36px;
-          border: 1px solid rgba(255, 255, 255, 0.16);
+          border: 1px solid #d8deea;
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.08);
-          color: #fff;
+          background: #fff;
+          color: #344054;
           padding: 0 15px;
           font-size: 12px;
           font-weight: 800;
@@ -3092,9 +3114,10 @@ function AmbientSessionContent() {
         }
 
         .procedure-popup-actions button:last-child {
-          border-color: #11c778;
-          background: #11c778;
-          color: #06121f;
+          border-color: #0800d8;
+          background: #0800d8;
+          color: #fff;
+          box-shadow: 0 10px 22px rgba(8, 0, 216, 0.18);
         }
 
         @media (max-width: 900px) {
