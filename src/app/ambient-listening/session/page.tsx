@@ -19,7 +19,7 @@ import {
 import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { getSessionById } from "@/lib/sessions";
-import { detectMedexaCommand, type MedexaCommandDetection } from "@/lib/voiceCommands";
+import { detectMedexaCommand } from "@/lib/voiceCommands";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
@@ -483,9 +483,7 @@ function AmbientSessionContent() {
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
   const [cptTimerSuggestion, setCptTimerSuggestion] = useState<ApiCptTimerSuggestion | null>(null);
-  const [voiceTriggerArmed, setVoiceTriggerArmed] = useState(false);
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
-  const [lastTriggerDetection, setLastTriggerDetection] = useState<MedexaCommandDetection | null>(null);
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -522,6 +520,11 @@ function AmbientSessionContent() {
     () => `medexa_session_ai_segments_${sessionId}`,
     [sessionId],
   );
+
+  useEffect(() => {
+    speechSession.autoStartTriggerMode();
+    setTriggerStatus("armed");
+  }, [speechSession.autoStartTriggerMode]);
 
   useEffect(() => {
     const localSession = getSessionById(routeSessionId);
@@ -1070,19 +1073,12 @@ function AmbientSessionContent() {
     medexaApi.stopCptTimer(sessionId);
   };
 
-  const enableVoiceTrigger = () => {
-    setVoiceTriggerArmed(true);
-    setTriggerStatus("armed");
-    speechSession.startListening();
-  };
-
   useEffect(() => {
-    if (!lastHeardText || (!voiceTriggerArmed && recordingStatus === "idle")) {
+    if (!lastHeardText || (!speechSession.triggerModeEnabled && recordingStatus === "idle")) {
       return;
     }
 
     const detection = detectMedexaCommand(lastHeardText);
-    setLastTriggerDetection(detection);
 
     if (!detection.wakeWordDetected && detection.command === "none") {
       return;
@@ -1130,7 +1126,7 @@ function AmbientSessionContent() {
     if (detection.command === "start_cpt" && recordingStatus === "recording" && cptTimer.status !== "running") {
       startCptTimerFromSuggestion("manual");
     }
-  }, [cptTimer.status, lastHeardText, recordingStatus, voiceTriggerArmed]);
+  }, [cptTimer.status, lastHeardText, recordingStatus, speechSession.triggerModeEnabled]);
 
   const handleGenerateTestSummary = () => {
     const chunkText =
@@ -1241,6 +1237,17 @@ function AmbientSessionContent() {
         ? t("session.paused")
         : t("common.stopped");
   const showBottomControl = true;
+  const voiceTriggerLabel = !speechSession.isSupported
+    ? "Web Speech is not supported in this browser. Please use Chrome or Edge."
+    : speechSession.triggerPermissionStatus === "required" || speechSession.permissionError
+      ? "Voice Trigger: Permission Required"
+      : triggerStatus === "detected"
+        ? "Voice Trigger: Detected"
+        : speechSession.isListening
+          ? "Voice Trigger: Listening"
+          : "Voice Trigger: Armed";
+  const showVoicePermissionMessage =
+    speechSession.isSupported && (speechSession.triggerPermissionStatus === "required" || Boolean(speechSession.permissionError));
 
   return (
     <main className="session-page">
@@ -1324,14 +1331,6 @@ function AmbientSessionContent() {
         <div className="cpt-action-row">
           <button
             type="button"
-            className="secondary"
-            onClick={enableVoiceTrigger}
-            disabled={voiceTriggerArmed && speechSession.isListening}
-          >
-            {voiceTriggerArmed ? "Voice Trigger Armed" : "Enable Voice Trigger"}
-          </button>
-          <button
-            type="button"
             onClick={() => startCptTimerFromSuggestion("manual")}
             disabled={recordingStatus !== "recording" || cptTimer.status === "running"}
           >
@@ -1345,10 +1344,9 @@ function AmbientSessionContent() {
         </div>
 
         <div className="voice-debug-line" aria-live="polite">
-          <span>Last heard: "{lastHeardText ? lastHeardText.slice(-80) : "waiting"}"</span>
-          <span>Trigger: {triggerStatus === "armed" ? "Armed" : triggerStatus === "detected" ? "Detected" : "Waiting"}</span>
+          <span>{voiceTriggerLabel}</span>
+          {showVoicePermissionMessage && <span>Microphone permission is required for Medexa voice trigger.</span>}
           <span>CPT Detection: {cptDetectionStatus}</span>
-          {lastTriggerDetection?.command !== "none" && <span>Command: {lastTriggerDetection?.command}</span>}
         </div>
 
         <div className="session-status-row" aria-live="polite">

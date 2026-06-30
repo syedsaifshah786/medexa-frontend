@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { detectMedexaCommand, type MedexaCommandDetection } from "@/lib/voiceCommands";
 
 export type TranscriptSegment = {
   id: string;
@@ -34,16 +35,20 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
   const isManuallyStoppedRef = useRef(false);
   const isPausedRef = useRef(false);
   const shouldListenRef = useRef(false);
+  const triggerModeRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
 
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [permissionError, setPermissionError] = useState("");
+  const [triggerModeEnabled, setTriggerModeEnabled] = useState(false);
+  const [triggerPermissionStatus, setTriggerPermissionStatus] = useState<"idle" | "requesting" | "listening" | "required" | "unsupported">("idle");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
   const [lastHeardText, setLastHeardText] = useState("");
   const [latestInterimText, setLatestInterimText] = useState("");
   const [latestFinalText, setLatestFinalText] = useState("");
+  const [lastDetectedCommand, setLastDetectedCommand] = useState<MedexaCommandDetection | null>(null);
   const [currentChunkTranscript, setCurrentChunkTranscript] = useState("");
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
 
@@ -58,7 +63,11 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
   }, []);
 
   useEffect(() => {
-    setIsSupported(Boolean(getRecognitionConstructor()));
+    const supported = Boolean(getRecognitionConstructor());
+    setIsSupported(supported);
+    if (!supported) {
+      setTriggerPermissionStatus("unsupported");
+    }
 
     return () => {
       if (restartTimerRef.current) {
@@ -121,11 +130,15 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     recognition.onstart = () => {
       setIsListening(true);
       setPermissionError("");
+      if (triggerModeRef.current) {
+        setTriggerPermissionStatus("listening");
+      }
     };
 
     recognition.onerror = (event) => {
       if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
         setPermissionError("Microphone permission is required for live transcription.");
+        setTriggerPermissionStatus("required");
         shouldListenRef.current = false;
         isManuallyStoppedRef.current = true;
       }
@@ -145,9 +158,13 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
         }
 
         if (result.isFinal) {
+          const detection = detectMedexaCommand(transcript);
           appendFinalTranscript(transcript);
           setLatestFinalText(transcript);
           setLastHeardText(transcript);
+          if (detection.wakeWordDetected || detection.command !== "none") {
+            setLastDetectedCommand(detection);
+          }
           onSpeechText?.(transcript);
         } else {
           interimParts.push(transcript);
@@ -158,6 +175,10 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
       if (interimTranscriptRef.current) {
         setLatestInterimText(interimTranscriptRef.current);
         setLastHeardText(interimTranscriptRef.current);
+        const detection = detectMedexaCommand(interimTranscriptRef.current);
+        if (detection.wakeWordDetected || detection.command !== "none") {
+          setLastDetectedCommand(detection);
+        }
         onSpeechText?.(interimTranscriptRef.current);
       }
       syncTranscriptState();
@@ -199,7 +220,27 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     }
   }, [createRecognition]);
 
+  const autoStartTriggerMode = useCallback(() => {
+    if (!getRecognitionConstructor()) {
+      setIsSupported(false);
+      setTriggerPermissionStatus("unsupported");
+      return;
+    }
+
+    triggerModeRef.current = true;
+    setTriggerModeEnabled(true);
+    setTriggerPermissionStatus("requesting");
+    startListening();
+  }, [startListening]);
+
   const pauseListening = useCallback(() => {
+    if (triggerModeRef.current) {
+      shouldListenRef.current = true;
+      isPausedRef.current = false;
+      syncTranscriptState();
+      return;
+    }
+
     shouldListenRef.current = false;
     isPausedRef.current = true;
     isManuallyStoppedRef.current = false;
@@ -261,6 +302,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     setLastHeardText("");
     setLatestInterimText("");
     setLatestFinalText("");
+    setLastDetectedCommand(null);
     setCurrentChunkTranscript("");
     setTranscriptSegments([]);
   }, []);
@@ -281,9 +323,13 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     interimTranscriptRef,
     chunkTranscriptRef,
     lastProcessedChunkRef,
+    triggerModeEnabled,
+    triggerPermissionStatus,
+    lastDetectedCommand,
     isManuallyStoppedRef,
     isPausedRef,
     startListening,
+    autoStartTriggerMode,
     pauseListening,
     resumeListening,
     stopListening,
