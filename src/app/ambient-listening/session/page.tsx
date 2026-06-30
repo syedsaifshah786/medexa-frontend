@@ -1304,7 +1304,13 @@ function AmbientSessionContent() {
         },
       };
     });
-    speechSession.resumeListening();
+    console.log("[Medexa Recording] Start Recording clicked");
+    if (recordingStatus === "idle" || recordingStatus === "stopped") {
+      void speechSession.startListening();
+    } else {
+      speechSession.resumeListening();
+    }
+    console.log("[Medexa Recording] speech start called");
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
       medexaApi.startSessionTimer(sessionId);
     } else {
@@ -1813,7 +1819,18 @@ function AmbientSessionContent() {
           <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
           <span>Recording status: {recordingStatus}</span>
           <span>Speech listening: {speechSession.isListening ? "yes" : "no"}</span>
+          <span>Mic permission: {speechSession.permissionStatus}</span>
+          {speechSession.error && <span>Speech error: {speechSession.error}</span>}
           <span>Popup: {currentCptPopup?.code || "none"}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setStatusMessage("Speak now...");
+              void speechSession.startListening();
+            }}
+          >
+            Test Microphone
+          </button>
           <button
             type="button"
             onClick={() =>

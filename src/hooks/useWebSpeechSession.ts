@@ -42,6 +42,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [permissionError, setPermissionError] = useState("");
+  const [permissionStatus, setPermissionStatus] = useState<"idle" | "prompt" | "granted" | "denied" | "unsupported">("idle");
   const [triggerModeEnabled, setTriggerModeEnabled] = useState(false);
   const [triggerPermissionStatus, setTriggerPermissionStatus] = useState<"idle" | "requesting" | "listening" | "required" | "unsupported">("idle");
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -68,6 +69,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     const supported = Boolean(getRecognitionConstructor());
     setIsSupported(supported);
     if (!supported) {
+      setPermissionStatus("unsupported");
       setTriggerPermissionStatus("unsupported");
     }
 
@@ -130,26 +132,44 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      console.log("[WebSpeech] recognition started");
       setIsListening(true);
       setPermissionError("");
+      setPermissionStatus("granted");
       if (triggerModeRef.current) {
         setTriggerPermissionStatus("listening");
       }
     };
 
     recognition.onerror = (event) => {
+      console.error("[WebSpeech] error", event.error);
       if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
-        setPermissionError("Microphone permission is required for live transcription.");
+        const message =
+          event.error === "audio-capture"
+            ? "Microphone audio capture is unavailable."
+            : "Microphone permission denied";
+        setPermissionError(message);
+        setPermissionStatus("denied");
         setTriggerPermissionStatus("required");
         shouldListenRef.current = false;
         isManuallyStoppedRef.current = true;
+      } else if (event.error === "no-speech") {
+        setPermissionError("No speech detected yet. Keep speaking or try again.");
+      } else if (event.error === "network") {
+        setPermissionError("Speech recognition network error.");
+      } else if (event.error === "aborted") {
+        setPermissionError("Speech recognition was aborted.");
+      } else {
+        setPermissionError(`Speech recognition error: ${event.error}`);
       }
 
       setIsListening(false);
     };
 
     recognition.onresult = (event) => {
+      console.log("[WebSpeech] onresult fired");
       const interimParts: string[] = [];
+      const finalParts: string[] = [];
       let latestText = "";
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -163,6 +183,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
         if (result.isFinal) {
           const detection = detectMedexaCommand(transcript);
           appendFinalTranscript(transcript);
+          finalParts.push(transcript);
           setLatestFinalText(transcript);
           setLastHeardText(transcript);
           latestText = transcript;
@@ -189,22 +210,28 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       const { fullText } = syncTranscriptState();
       if (latestText) {
         console.log("[WebSpeech] latestHeardText", latestText);
+        console.log("[WebSpeech] interim", interimTranscriptRef.current);
+        console.log("[WebSpeech] final", normalizeTranscript(finalParts.join(" ")));
         console.log("[WebSpeech] liveTranscript", fullText);
+        console.log("[WebSpeech] live", fullText);
         onTranscriptUpdate?.(latestText, fullText);
       }
     };
 
     recognition.onend = () => {
+      console.log("[WebSpeech] ended");
       setIsListening(false);
 
       if (shouldListenRef.current && !isManuallyStoppedRef.current && !isPausedRef.current) {
         restartTimerRef.current = window.setTimeout(() => {
           try {
             recognition.start();
-          } catch {
-            // Browser may still be settling after an onend event.
+            setIsListening(true);
+            console.log("[WebSpeech] restarted");
+          } catch (error) {
+            console.warn("[WebSpeech] restart failed", error);
           }
-        }, 350);
+        }, 500);
       }
     };
 
@@ -212,7 +239,41 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     return recognition;
   }, [appendFinalTranscript, lang, onSpeechText, onTranscriptUpdate, syncTranscriptState]);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
+    if (!getRecognitionConstructor()) {
+      setIsSupported(false);
+      setPermissionStatus("unsupported");
+      setPermissionError("Voice recognition is supported in Chrome/Edge. Please use a supported browser.");
+      setTriggerPermissionStatus("unsupported");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPermissionStatus("unsupported");
+      setPermissionError("Microphone access is not available in this browser.");
+      return;
+    }
+
+    console.log("[WebSpeech] requesting microphone permission");
+    setPermissionStatus("prompt");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      setPermissionStatus("granted");
+      setPermissionError("");
+      console.log("[WebSpeech] microphone permission granted");
+    } catch (error) {
+      console.error("[WebSpeech] microphone permission denied", error);
+      setPermissionStatus("denied");
+      setPermissionError("Microphone permission denied");
+      setTriggerPermissionStatus("required");
+      shouldListenRef.current = false;
+      isManuallyStoppedRef.current = true;
+      setIsListening(false);
+      return;
+    }
+
     const recognition = recognitionRef.current ?? createRecognition();
 
     if (!recognition) {
@@ -225,6 +286,8 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
 
     try {
       recognition.start();
+      setIsListening(true);
+      console.log("[WebSpeech] recognition started");
     } catch {
       // start() throws if recognition is already active.
     }
@@ -321,6 +384,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     isSupported,
     isListening,
     permissionError,
+    permissionStatus,
     error: permissionError,
     liveTranscript,
     interimTranscript: latestInterimText,

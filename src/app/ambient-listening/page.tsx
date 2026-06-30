@@ -195,10 +195,29 @@ export default function AmbientListeningPage() {
   }, [speechSession.autoStartTriggerMode]);
 
   useEffect(() => {
-    if (speechSession.triggerPermissionStatus === "required" || speechSession.permissionError) {
-      setVoiceCommandMessage("Microphone permission is required for Medexa voice commands.");
+    if (speechSession.permissionStatus === "unsupported" || speechSession.triggerPermissionStatus === "unsupported") {
+      setVoiceCommandMessage("Voice recognition is supported in Chrome/Edge. Please use a supported browser.");
+      return;
     }
-  }, [speechSession.permissionError, speechSession.triggerPermissionStatus]);
+
+    if (
+      speechSession.permissionStatus === "denied" ||
+      speechSession.permissionStatus === "prompt" ||
+      speechSession.triggerPermissionStatus === "required" ||
+      speechSession.permissionError
+    ) {
+      setVoiceCommandMessage("Microphone permission is required for Medexa voice commands.");
+      return;
+    }
+
+    if (speechSession.permissionStatus === "granted") {
+      setVoiceCommandMessage("Medexa voice commands are listening.");
+    }
+  }, [
+    speechSession.permissionError,
+    speechSession.permissionStatus,
+    speechSession.triggerPermissionStatus,
+  ]);
 
   useEffect(() => {
     if (!speechSession.lastHeardText) {
