@@ -18,33 +18,41 @@ RULE_FILE_NAMES = {
     "billing_category_map": "billing_category_map.json",
 }
 
-APP_DIR = Path(__file__).resolve().parents[1]
-BACKEND_DIR = APP_DIR.parent
-RULE_DIRS = [
-    BACKEND_DIR / "data" / "rules",
-    APP_DIR.parents[1] / "backend" / "data" / "rules",
-    BACKEND_DIR / "data" / "rules" / "backend" / "data" / "rules",
-]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+RULES_DIR = BACKEND_ROOT / "data" / "rules"
+
+print("[RuleEngine] RULES_DIR:", RULES_DIR)
 
 LOCAL_CPT_FALLBACK_PHRASES = {
     "therapeutic exercise": "97110",
     "ther ex": "97110",
+    "therex": "97110",
     "range of motion": "97110",
     "rom": "97110",
     "strengthening": "97110",
+    "stretching": "97110",
     "gait training": "97116",
+    "gate training": "97116",
     "walking practice": "97116",
     "stair training": "97116",
+    "ambulation": "97116",
+    "treadmill walking": "97116",
     "manual therapy": "97140",
     "joint mobilization": "97140",
     "soft tissue mobilization": "97140",
+    "myofascial release": "97140",
+    "manual traction": "97140",
     "neuromuscular reeducation": "97112",
     "balance training": "97112",
+    "proprioception": "97112",
+    "postural training": "97112",
     "therapeutic activity": "97530",
     "functional activity": "97530",
     "transfer training": "97530",
+    "sit to stand": "97530",
     "self care": "97535",
     "adl training": "97535",
+    "activities of daily living": "97535",
 }
 
 
@@ -66,18 +74,19 @@ def _confidence_for_phrase(phrase: str) -> str:
 
 
 def _load_json_file(file_name: str) -> tuple[Any, str | None]:
-    for rule_dir in RULE_DIRS:
-        path = rule_dir / file_name
-        if not path.exists():
-            continue
+    path = RULES_DIR / file_name
+    if not path.exists():
+        warning = f"Missing rule file: {path}"
+        print("[RuleEngine]", warning)
+        return {}, warning
 
-        try:
-            with path.open("r", encoding="utf-8") as rule_file:
-                return json.load(rule_file), None
-        except (OSError, json.JSONDecodeError) as exc:
-            return {}, f"Could not load {file_name}: {exc}"
-
-    return {}, f"Missing rule file: {file_name}"
+    try:
+        with path.open("r", encoding="utf-8") as rule_file:
+            return json.load(rule_file), None
+    except (OSError, json.JSONDecodeError) as exc:
+        warning = f"Could not load {path}: {exc}"
+        print("[RuleEngine]", warning)
+        return {}, warning
 
 
 @lru_cache(maxsize=1)
@@ -88,6 +97,7 @@ def load_rules() -> tuple[dict[str, Any], list[str]]:
     for key, file_name in RULE_FILE_NAMES.items():
         data, warning = _load_json_file(file_name)
         rules[key] = data
+        print(f"[RuleEngine] {file_name} loaded:", len(data) if hasattr(data, "__len__") else 0)
         if warning:
             warnings.append(warning)
 

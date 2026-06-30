@@ -25,6 +25,8 @@ import { detectMedexaCommand } from "@/lib/voiceCommands";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
+console.log("[Frontend CPT] detector imported");
+
 const defaultInsights = [
   {
     id: "family-history",
@@ -489,6 +491,7 @@ function AmbientSessionContent() {
   const cptPopupQueueRef = useRef<CptPopupSuggestion[]>([]);
   const [cptDebugText, setCptDebugText] = useState("");
   const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
+  const [backendRulesStatus, setBackendRulesStatus] = useState("unchecked");
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -537,6 +540,32 @@ function AmbientSessionContent() {
     speechSession.autoStartTriggerMode();
     setTriggerStatus("armed");
   }, [speechSession.autoStartTriggerMode]);
+
+  useEffect(() => {
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+    if (!apiBaseUrl) {
+      setBackendRulesStatus("local fallback");
+      return;
+    }
+
+    fetch(`${apiBaseUrl.replace(/\/+$/g, "")}/debug/rules-health`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((health) => {
+        if (!health?.files) {
+          setBackendRulesStatus("unavailable");
+          return;
+        }
+
+        const cptPhraseMap = health.files["cpt_phrase_map.json"];
+        const cptRules = health.files["cpt_rules.json"];
+        setBackendRulesStatus(
+          cptPhraseMap?.exists && cptRules?.exists
+            ? `ok (${cptPhraseMap.count}/${cptRules.count})`
+            : "missing rules",
+        );
+      })
+      .catch(() => setBackendRulesStatus("unavailable"));
+  }, []);
 
   useEffect(() => {
     const localSession = getSessionById(routeSessionId);
@@ -863,6 +892,8 @@ function AmbientSessionContent() {
     const instantCptSuggestions = detectInstantCpt(transcriptForCptDetection);
     setCptDebugMatches(instantCptSuggestions);
 
+    console.log("[Frontend CPT] transcript:", transcriptForCptDetection);
+    console.log("[Frontend CPT] matches:", instantCptSuggestions);
     console.log("[Medexa CPT DEBUG] transcriptForCptDetection:", transcriptForCptDetection);
     console.log("[Medexa CPT DEBUG] matches:", instantCptSuggestions);
 
@@ -1820,6 +1851,7 @@ function AmbientSessionContent() {
           <span>Recording status: {recordingStatus}</span>
           <span>Speech listening: {speechSession.isListening ? "yes" : "no"}</span>
           <span>Mic permission: {speechSession.permissionStatus}</span>
+          <span>Backend rules: {backendRulesStatus}</span>
           {speechSession.error && <span>Speech error: {speechSession.error}</span>}
           <span>Popup: {currentCptPopup?.code || "none"}</span>
           <button
