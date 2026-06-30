@@ -267,10 +267,17 @@ default_insights = [
         "description": "Prompt patient for weekly activity level before closing intake.",
         "status": "pending",
     },
+    {
+        "id": "manual-techniques",
+        "type": "billing",
+        "label": "Billing",
+        "question": "Manual techniques detected, add CPT 97140 for the session?",
+        "description": "Manual therapy techniques were detected during the session.",
+        "status": "pending",
+    },
 ]
 
 default_suggestions = [
-    {"id": "current-live-cpt", "title": "Current Live CPT", "text": "Therapeutic Act. 97130 is in progress. CPT started at 8:05", "applied": False},
     {"id": "unit-recorded", "title": "Unit Recorded", "text": "1 unit recorded for 97110 - Therapeutic Ex. at 8:04", "applied": False},
     {"id": "modifier-59", "title": "Modifier 59 Required", "text": "Potential Bundle conflict detected for 97112 with 97110. Apply modifier?", "applied": False},
     {"id": "snf-validation", "title": "SNF Validation Alert", "text": "Section GG mobility scores differ from nursing log", "applied": False},

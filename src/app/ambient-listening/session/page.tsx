@@ -48,14 +48,17 @@ const defaultInsights = [
     tone: "protocol",
     note: "Prompt patient for weekly activity level before closing intake.",
   },
+  {
+    id: "manual-techniques",
+    tag: "Protocol Ask",
+    text: "Manual techniques detected, add CPT 97140 for the session?",
+    label: "Billing",
+    tone: "billing",
+    note: "Manual therapy techniques were detected during the session.",
+  },
 ];
 
 const defaultSuggestions = [
-  {
-    id: "current-live-cpt",
-    title: "Current Live CPT",
-    text: "Therapeutic Act. 97130 is in progress. CPT started at 8:05",
-  },
   {
     id: "unit-recorded",
     title: "Unit Recorded",
@@ -227,6 +230,16 @@ const apiLiveSuggestionToInsight = (suggestion: ApiLiveSuggestion): InsightItem 
   tone: suggestion.type === "billing" ? "billing" : "protocol",
   note: `${suggestion.title}. Requires clinician review.`,
 });
+
+const mergeWithPrototypeInsights = (items: InsightItem[]) => {
+  const prototypeIds = new Set(defaultInsights.map((item) => item.id));
+  return [...defaultInsights, ...items.filter((item) => !prototypeIds.has(item.id))];
+};
+
+const mergeWithPrototypeSuggestions = (items: SuggestionItem[]) => {
+  const prototypeIds = new Set(defaultSuggestions.map((item) => item.id));
+  return [...defaultSuggestions, ...items.filter((item) => !prototypeIds.has(item.id))];
+};
 
 const localCptTriggers = [
   { phrase: "therapeutic exercise", code: "97110", displayName: "Therapeutic Exercise" },
@@ -606,12 +619,12 @@ function AmbientSessionContent() {
       }
 
       if (apiInsights) {
-        setInsightItems(apiInsights.map(apiInsightToInsight));
+        setInsightItems(mergeWithPrototypeInsights(apiInsights.map(apiInsightToInsight)));
         setInsightStates({});
       }
 
       if (apiSuggestions) {
-        setSuggestionItems(apiSuggestions.map(apiSuggestionToSuggestion));
+        setSuggestionItems(mergeWithPrototypeSuggestions(apiSuggestions.map(apiSuggestionToSuggestion)));
         setAppliedSuggestions(
           Object.fromEntries(
             apiSuggestions.map((suggestion) => [suggestion.id, suggestion.applied]),
@@ -717,8 +730,12 @@ function AmbientSessionContent() {
 
         const backendLiveSuggestions = backendAnalysis?.live_suggestions ?? [];
         if (backendLiveSuggestions.length > 0) {
-          const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
-          const nextInsightItems = backendLiveSuggestions.map(apiLiveSuggestionToInsight);
+          const nextSuggestions = mergeWithPrototypeSuggestions(
+            backendLiveSuggestions.map(apiLiveSuggestionToSuggestion),
+          );
+          const nextInsightItems = mergeWithPrototypeInsights(
+            backendLiveSuggestions.map(apiLiveSuggestionToInsight),
+          );
           setSuggestionItems(nextSuggestions);
           setInsightItems(nextInsightItems);
           setInsightStates((states) =>
@@ -729,20 +746,26 @@ function AmbientSessionContent() {
             ),
           );
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
-          const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
-            id: `local-cpt-${suggestion.code}`,
-            title: `Suggested CPT ${suggestion.code}`,
-            text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
-          }));
+          const nextSuggestions = mergeWithPrototypeSuggestions(
+            analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
+              id: `local-cpt-${suggestion.code}`,
+              title: `Suggested CPT ${suggestion.code}`,
+              text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
+            })),
+          );
           setSuggestionItems(nextSuggestions);
-          const nextInsightItems = nextSuggestions.map((suggestion) => ({
-            id: suggestion.id,
-            tag: "Billing",
-            text: suggestion.text,
-            label: "Billing",
-            tone: "billing",
-            note: "Procedure detected from live speech. Requires clinician review.",
-          }));
+          const nextInsightItems = mergeWithPrototypeInsights(
+            nextSuggestions
+              .filter((suggestion) => suggestion.id.startsWith("local-cpt-"))
+              .map((suggestion) => ({
+                id: suggestion.id,
+                tag: "Billing",
+                text: suggestion.text,
+                label: "Billing",
+                tone: "billing",
+                note: "Procedure detected from live speech. Requires clinician review.",
+              })),
+          );
           setInsightItems(nextInsightItems);
           setInsightStates((states) =>
             Object.fromEntries(
@@ -1992,7 +2015,7 @@ function AmbientSessionContent() {
           box-sizing: border-box;
           width: min(100%, 820px);
           margin: 0 auto;
-          padding: 18px 20px 34px;
+          padding: 18px 20px 150px;
         }
 
         .patient-strip {
@@ -2331,20 +2354,22 @@ function AmbientSessionContent() {
         .live-grid,
         .session-insights-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 280px;
+          grid-template-columns: minmax(390px, 1fr) 280px;
           gap: 24px;
           align-items: start;
+          min-height: 0;
         }
 
         .insights-scroll-area {
           min-width: 0;
-          max-height: calc(100vh - 310px);
+          min-height: 0;
+          max-height: calc(100vh - 300px);
           overflow-y: auto;
           overflow-x: hidden;
           box-sizing: border-box;
           width: 100%;
           padding-right: 8px;
-          padding-bottom: 130px;
+          padding-bottom: 120px;
           scrollbar-width: thin;
           scrollbar-color: #c9d4e5 transparent;
         }
@@ -2361,6 +2386,7 @@ function AmbientSessionContent() {
         .insight-timeline {
           position: relative;
           box-sizing: border-box;
+          width: 100%;
           max-width: 390px;
           padding-left: 38px;
         }
@@ -2382,6 +2408,31 @@ function AmbientSessionContent() {
           margin: 0 0 18px;
           padding: 0;
           z-index: 1;
+        }
+
+        .timeline-item::before,
+        .insight-item::before {
+          content: "";
+          position: absolute;
+          left: -32px;
+          top: 16px;
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #001eff;
+          box-shadow: 0 0 0 4px #eef2ff;
+          z-index: 2;
+        }
+
+        .timeline-item::after,
+        .insight-item::after {
+          content: "";
+          position: absolute;
+          left: -25px;
+          top: 19px;
+          width: 24px;
+          border-top: 1px dashed #69a7ff;
+          z-index: 0;
         }
 
         .insight-item.is-ignored {
@@ -2591,6 +2642,7 @@ function AmbientSessionContent() {
         .suggestions-panel {
           box-sizing: border-box;
           width: 280px;
+          align-self: start;
           border-radius: 14px;
           background: #fff;
           padding: 14px;
