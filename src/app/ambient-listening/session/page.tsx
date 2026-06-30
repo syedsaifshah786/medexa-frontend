@@ -1362,18 +1362,18 @@ function AmbientSessionContent() {
 
         <p className="processing-text">{t("session.processingInsights")}</p>
 
-        <section className="live-grid">
-          <div className="insights-column">
+        <section className="session-insights-grid">
+          <div className="insights-scroll-area">
+            <div className="insight-timeline">
             {filteredInsights.map((item) => {
               const itemState = insightStates[item.id] ?? {};
               const isBilling = item.label === "Billing";
 
               return (
                 <article
-                  className={`insight-item ${itemState.ignored ? "is-ignored" : ""}`}
+                  className={`timeline-item insight-item ${itemState.ignored ? "is-ignored" : ""}`}
                   key={item.id}
                 >
-                  <div className="connector" />
                   <div
                     className={`insight-card ${item.tone === "protocol" ? "is-protocol" : ""} ${
                       itemState.approved ? "is-approved" : ""
@@ -1438,9 +1438,10 @@ function AmbientSessionContent() {
               );
             })}
 
-            {filteredInsights.length === 0 && (
-              <div className="empty-state">{t("session.noLiveInsights")}</div>
-            )}
+              {filteredInsights.length === 0 && (
+                <div className="empty-state">{t("session.noLiveInsights")}</div>
+              )}
+            </div>
           </div>
 
           <aside className="suggestions-panel">
@@ -2320,39 +2321,60 @@ function AmbientSessionContent() {
           color: #001eff;
         }
 
-        .live-grid {
+        .live-grid,
+        .session-insights-grid {
           display: grid;
-          grid-template-columns: minmax(0, 390px) 320px;
-          gap: 18px;
+          grid-template-columns: minmax(0, 1fr) 280px;
+          gap: 24px;
           align-items: start;
         }
 
-        .insights-column {
+        .insights-scroll-area {
           min-width: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          max-height: calc(100vh - 300px);
+          max-height: calc(100vh - 310px);
           overflow-y: auto;
+          overflow-x: hidden;
+          box-sizing: border-box;
+          width: 100%;
           padding-right: 8px;
-          padding-bottom: 120px;
+          padding-bottom: 130px;
           scrollbar-width: thin;
           scrollbar-color: #c9d4e5 transparent;
         }
 
-        .insights-column::-webkit-scrollbar {
+        .insights-scroll-area::-webkit-scrollbar {
           width: 6px;
         }
 
-        .insights-column::-webkit-scrollbar-thumb {
+        .insights-scroll-area::-webkit-scrollbar-thumb {
           border-radius: 999px;
           background: #c9d4e5;
         }
 
+        .insight-timeline {
+          position: relative;
+          box-sizing: border-box;
+          max-width: 390px;
+          padding-left: 38px;
+        }
+
+        .insight-timeline::before {
+          content: "";
+          position: absolute;
+          left: 10px;
+          top: 2px;
+          bottom: 0;
+          border-left: 1px dashed #69a7ff;
+          z-index: 0;
+        }
+
+        .timeline-item,
         .insight-item {
           position: relative;
-          min-height: 104px;
-          padding-left: 38px;
+          display: block;
+          margin: 0 0 18px;
+          padding: 0;
+          z-index: 1;
         }
 
         .insight-item.is-ignored {
@@ -2360,23 +2382,18 @@ function AmbientSessionContent() {
         }
 
         .connector {
-          position: absolute;
-          left: 10px;
-          top: 0;
-          bottom: -10px;
-          width: 22px;
-          border-left: 1px dashed #69a7ff;
-          border-bottom: 1px dashed #69a7ff;
-          border-radius: 0 0 0 10px;
+          display: none;
         }
 
         .insight-card {
+          position: relative;
           width: min(100%, 330px);
           box-sizing: border-box;
           padding: 13px 15px;
           border-radius: 10px;
           background: #fff;
           box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+          z-index: 1;
         }
 
         .insight-card.is-protocol {
@@ -2414,6 +2431,7 @@ function AmbientSessionContent() {
           align-items: center;
           justify-content: space-between;
           margin-top: 8px;
+          gap: 10px;
         }
 
         .insight-label {
@@ -2565,7 +2583,7 @@ function AmbientSessionContent() {
 
         .suggestions-panel {
           box-sizing: border-box;
-          width: 320px;
+          width: 280px;
           border-radius: 14px;
           background: #fff;
           padding: 14px;
@@ -3121,7 +3139,8 @@ function AmbientSessionContent() {
         }
 
         @media (max-width: 900px) {
-          .live-grid {
+          .live-grid,
+          .session-insights-grid {
             grid-template-columns: 1fr;
           }
 
@@ -3131,6 +3150,7 @@ function AmbientSessionContent() {
           }
 
           .suggestions-panel {
+            width: 100%;
             max-width: 520px;
           }
 
