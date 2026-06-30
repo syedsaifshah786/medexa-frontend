@@ -19,6 +19,7 @@ import {
 } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
+import { detectCptFromText } from "@/lib/cptDetector";
 import { getSessionById } from "@/lib/sessions";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
 
@@ -255,53 +256,10 @@ const mergeItemsById = <T extends { id: string }>(currentItems: T[], nextItems: 
   return Array.from(byId.values());
 };
 
-const localCptTriggers = [
-  { phrase: "therapeutic exercise", code: "97110", displayName: "Therapeutic Exercise" },
-  { phrase: "ther ex", code: "97110", displayName: "Therapeutic Exercise" },
-  { phrase: "range of motion", code: "97110", displayName: "Therapeutic Exercise" },
-  { phrase: "rom", code: "97110", displayName: "Therapeutic Exercise" },
-  { phrase: "strengthening", code: "97110", displayName: "Therapeutic Exercise" },
-  { phrase: "gait training", code: "97116", displayName: "Gait Training" },
-  { phrase: "walking practice", code: "97116", displayName: "Gait Training" },
-  { phrase: "stair training", code: "97116", displayName: "Gait Training" },
-  { phrase: "ambulation", code: "97116", displayName: "Gait Training" },
-  { phrase: "manual therapy", code: "97140", displayName: "Manual Therapy" },
-  { phrase: "joint mobilization", code: "97140", displayName: "Manual Therapy" },
-  { phrase: "soft tissue mobilization", code: "97140", displayName: "Manual Therapy" },
-  { phrase: "myofascial release", code: "97140", displayName: "Manual Therapy" },
-  { phrase: "neuromuscular reeducation", code: "97112", displayName: "Neuromuscular Reeducation" },
-  { phrase: "balance training", code: "97112", displayName: "Neuromuscular Reeducation" },
-  { phrase: "proprioception", code: "97112", displayName: "Neuromuscular Reeducation" },
-  { phrase: "therapeutic activity", code: "97530", displayName: "Therapeutic Activity" },
-  { phrase: "functional activity", code: "97530", displayName: "Therapeutic Activity" },
-  { phrase: "transfer training", code: "97530", displayName: "Therapeutic Activity" },
-  { phrase: "self care", code: "97535", displayName: "Self-Care / ADL" },
-  { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL" },
-];
-
 const detectInstantCpt = (text: string): CptPopupSuggestion[] => {
-  const normalizedText = text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const suggestionsByCode = new Map<string, CptPopupSuggestion>();
-
-  localCptTriggers.forEach((trigger) => {
-    if (!normalizedText.includes(trigger.phrase) || suggestionsByCode.has(trigger.code)) {
-      return;
-    }
-
-    suggestionsByCode.set(trigger.code, {
-      should_start: true,
-      code: trigger.code,
-      display_name: trigger.displayName,
-      reason: `Detected phrase from live transcript: ${trigger.phrase}`,
-      confidence: "high",
-    });
-  });
-
-  return Array.from(suggestionsByCode.values());
+  return detectCptFromText(text).filter((suggestion): suggestion is CptPopupSuggestion =>
+    Boolean(suggestion.should_start && suggestion.code),
+  );
 };
 
 const detectLocalCptSuggestions = detectInstantCpt;
@@ -524,10 +482,13 @@ function AmbientSessionContent() {
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
   const [cptRecords, setCptRecords] = useState<Record<string, ApiCptRecord>>({});
   const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
+  const activeCptCodeRef = useRef<string | null>(null);
   const [cptPopupQueue, setCptPopupQueue] = useState<CptPopupSuggestion[]>([]);
   const [currentCptPopup, setCurrentCptPopup] = useState<CptPopupSuggestion | null>(null);
   const currentCptPopupRef = useRef<CptPopupSuggestion | null>(null);
   const cptPopupQueueRef = useRef<CptPopupSuggestion[]>([]);
+  const [cptDebugText, setCptDebugText] = useState("");
+  const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -605,6 +566,10 @@ function AmbientSessionContent() {
   }, [recordingSeconds]);
 
   useEffect(() => {
+    activeCptCodeRef.current = activeCptCode;
+  }, [activeCptCode]);
+
+  useEffect(() => {
     window.localStorage.setItem(aiSegmentsStorageKey, JSON.stringify(aiSummarySegments));
   }, [aiSegmentsStorageKey, aiSummarySegments]);
 
@@ -633,68 +598,59 @@ function AmbientSessionContent() {
   // Acceptance flow: therapeutic exercise -> popup 97110 -> Apply; gait training while
   // 97110 is running -> popup 97116 immediately -> Apply; manual therapy while 97116 is
   // running -> popup 97140 immediately.
-  const shouldShowCptPopup = useCallback(
-    (suggestion: CptPopupSuggestion) => {
-      const now = Date.now();
-      const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] ?? 0;
-      const lastShownAt = lastShownCptAtRef.current[suggestion.code] ?? 0;
-
-      console.log("[Medexa CPT] detected", suggestion);
-      console.log("[Medexa CPT] activeCptCode", activeCptCode);
-
-      if (!suggestion.code) {
-        return false;
-      }
-
-      if (suggestion.code === activeCptCode) {
-        return false;
-      }
-
-      if (now <= rejectedUntil) {
-        return false;
-      }
-
-      if (now - lastShownAt < 30000) {
-        return false;
-      }
-
-      return true;
-    },
-    [activeCptCode],
-  );
-
   const queueOrShowCptPopup = useCallback((suggestion: CptPopupSuggestion) => {
+    if (!suggestion?.code) {
+      return;
+    }
+
     const now = Date.now();
-    if (!shouldShowCptPopup(suggestion)) {
+    const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] || 0;
+
+    if (rejectedUntil > now) {
+      console.log("[Medexa CPT DEBUG] rejected cooldown active", suggestion.code);
+      return;
+    }
+
+    const lastShownAt = lastShownCptAtRef.current[suggestion.code] || 0;
+
+    if (now - lastShownAt < 30000) {
+      console.log("[Medexa CPT DEBUG] recently shown", suggestion.code);
+      return;
+    }
+
+    if (suggestion.code === activeCptCodeRef.current) {
+      console.log("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", suggestion.code);
       return;
     }
 
     lastShownCptAtRef.current[suggestion.code] = now;
-    const openPopup = currentCptPopupRef.current;
 
-    console.log("[Medexa CPT] queueing/showing", suggestion);
-    console.log("[Medexa CPT] queue", cptPopupQueueRef.current);
+    console.log("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
+    console.log("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
+    console.log("[Medexa CPT DEBUG] show or queue popup", suggestion);
 
-    if (openPopup) {
-      setCptPopupQueue((queue) => {
-        if (queue.some((item) => item.code === suggestion.code) || openPopup.code === suggestion.code) {
-          return queue;
-        }
+    setCurrentCptPopup((current) => {
+      if (current) {
+        setCptPopupQueue((queue) => {
+          if (queue.some((item) => item.code === suggestion.code)) {
+            return queue;
+          }
 
-        const nextQueue = [...queue, suggestion];
-        cptPopupQueueRef.current = nextQueue;
-        console.log("[Medexa CPT] queue", nextQueue);
-        return nextQueue;
-      });
+          const nextQueue = [...queue, suggestion];
+          cptPopupQueueRef.current = nextQueue;
+          console.log("[Medexa CPT DEBUG] queue", nextQueue);
+          return nextQueue;
+        });
+        setCptDetectionStatus(`Detected ${suggestion.code}`);
+        return current;
+      }
+
+      currentCptPopupRef.current = suggestion;
+      console.log("[Medexa CPT DEBUG] showing popup", suggestion.code);
       setCptDetectionStatus(`Detected ${suggestion.code}`);
-      return;
-    }
-
-    currentCptPopupRef.current = suggestion;
-    console.log("[Medexa CPT] showing popup", suggestion.code);
-    setCurrentCptPopup(suggestion);
-    setCptDetectionStatus(`Detected ${suggestion.code}`);
-  }, [shouldShowCptPopup]);
+      return suggestion;
+    });
+  }, []);
 
   const enqueueCptPopups = useCallback((suggestions: ApiCptTimerSuggestion[]) => {
     const normalizedSuggestions = suggestions
@@ -711,6 +667,23 @@ function AmbientSessionContent() {
       queueOrShowCptPopup(suggestion);
     });
   }, [queueOrShowCptPopup]);
+
+  const showNextQueuedCptPopup = useCallback(() => {
+    setCptPopupQueue((queue) => {
+      const [nextPopup, ...remainingQueue] = queue;
+      cptPopupQueueRef.current = remainingQueue;
+
+      window.setTimeout(() => {
+        currentCptPopupRef.current = nextPopup ?? null;
+        setCurrentCptPopup(nextPopup ?? null);
+        if (nextPopup) {
+          console.log("[Medexa CPT DEBUG] showing popup", nextPopup.code);
+        }
+      }, 0);
+
+      return remainingQueue;
+    });
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -854,18 +827,28 @@ function AmbientSessionContent() {
   }, [activeCptCode, recordingStatus]);
 
   useEffect(() => {
-    const latestText = [lastHeardText, currentThirtySecondChunk, fullTranscript]
+    const transcriptForCptDetection = [
+      speechSession.lastHeardText,
+      speechSession.currentChunkTranscript,
+      speechSession.liveTranscript,
+      speechSession.finalTranscript,
+      fullTranscript,
+    ]
       .filter(Boolean)
       .join(" ")
       .trim();
 
-    if (recordingStatus !== "recording" || !latestText) {
+    setCptDebugText(transcriptForCptDetection);
+
+    if (recordingStatus !== "recording") {
       return;
     }
 
-    console.log("[Medexa CPT] latest text", latestText);
-    const instantCptSuggestions = detectInstantCpt(latestText);
-    console.log("[Medexa CPT] instant matches", instantCptSuggestions);
+    const instantCptSuggestions = detectInstantCpt(transcriptForCptDetection);
+    setCptDebugMatches(instantCptSuggestions);
+
+    console.log("[Medexa CPT DEBUG] transcriptForCptDetection:", transcriptForCptDetection);
+    console.log("[Medexa CPT DEBUG] matches:", instantCptSuggestions);
 
     if (instantCptSuggestions.length > 0) {
       enqueueCptPopups(instantCptSuggestions);
@@ -896,7 +879,17 @@ function AmbientSessionContent() {
         ),
       );
     }
-  }, [currentThirtySecondChunk, enqueueCptPopups, fullTranscript, lastHeardText, recordingStatus]);
+  }, [
+    currentThirtySecondChunk,
+    enqueueCptPopups,
+    fullTranscript,
+    lastHeardText,
+    recordingStatus,
+    speechSession.currentChunkTranscript,
+    speechSession.finalTranscript,
+    speechSession.lastHeardText,
+    speechSession.liveTranscript,
+  ]);
 
   const createAiSummarySegment = useCallback(
     async (endSeconds: number, providedChunkText?: string) => {
@@ -1478,6 +1471,7 @@ function AmbientSessionContent() {
     appliedCptCodesRef.current.add(suggestedCode);
     currentCptPopupRef.current = null;
     setCurrentCptPopup(null);
+    showNextQueuedCptPopup();
     setCptDetectionStatus(`Detected ${suggestedCode}`);
     setStatusMessage(`CPT ${suggestedCode} timer started.`);
     medexaApi.startCptTimer(sessionId, suggestedCode, source, reason);
@@ -1490,6 +1484,7 @@ function AmbientSessionContent() {
     }
     currentCptPopupRef.current = null;
     setCurrentCptPopup(null);
+    showNextQueuedCptPopup();
     setCptDetectionStatus("Waiting");
     setStatusMessage("Procedure suggestion rejected.");
   };
@@ -1792,6 +1787,40 @@ function AmbientSessionContent() {
           <span>{voiceTriggerLabel}</span>
           {showVoicePermissionMessage && <span>Microphone permission is required for Medexa voice trigger.</span>}
           <span>CPT Detection: {cptDetectionStatus}</span>
+        </div>
+
+        <div className="cpt-debug-strip" aria-live="polite">
+          <span>Last heard: {cptDebugText.slice(-80) || "none"}</span>
+          <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
+          <span>Popup: {currentCptPopup?.code || "none"}</span>
+          <button
+            type="button"
+            onClick={() =>
+              queueOrShowCptPopup({
+                should_start: true,
+                code: "97110",
+                display_name: "Therapeutic Exercise",
+                reason: "Manual test popup",
+                confidence: "high",
+              })
+            }
+          >
+            Test CPT Popup
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              queueOrShowCptPopup({
+                should_start: true,
+                code: "97116",
+                display_name: "Gait Training",
+                reason: "Manual test gait popup",
+                confidence: "high",
+              })
+            }
+          >
+            Test Gait CPT
+          </button>
         </div>
 
         <div className="session-status-row" aria-live="polite">
@@ -2218,7 +2247,7 @@ function AmbientSessionContent() {
       )}
 
       {currentCptPopup && (
-        <section className="procedure-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
+        <section className="procedure-popup cpt-detected-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
             <div>
@@ -2710,6 +2739,32 @@ function AmbientSessionContent() {
           border-radius: 999px;
           background: #fff;
           padding: 4px 8px;
+        }
+
+        .cpt-debug-strip {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 8px;
+          color: #344054;
+          font-size: 10px;
+        }
+
+        .cpt-debug-strip span,
+        .cpt-debug-strip button {
+          border: 1px solid #d8deea;
+          border-radius: 999px;
+          background: #fff;
+          padding: 5px 9px;
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+        }
+
+        .cpt-debug-strip button {
+          color: #001eff;
+          font-size: 10px;
+          font-weight: 800;
+          cursor: pointer;
         }
 
         .processing-text {
@@ -3506,7 +3561,7 @@ function AmbientSessionContent() {
         .procedure-popup-backdrop {
           position: fixed;
           inset: 0;
-          z-index: 4;
+          z-index: 99998;
           pointer-events: none;
           backdrop-filter: blur(1px);
           background: rgba(15, 23, 42, 0.02);
@@ -3516,7 +3571,7 @@ function AmbientSessionContent() {
           position: fixed;
           left: 50%;
           bottom: 92px;
-          z-index: 6;
+          z-index: 99999;
           width: min(calc(100vw - 32px), 720px);
           display: flex;
           align-items: center;
@@ -3531,6 +3586,14 @@ function AmbientSessionContent() {
           box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16), 0 0 0 5px rgba(17, 199, 120, 0.08);
           color: #172033;
           transform: translateX(-50%);
+        }
+
+        .cpt-detected-popup {
+          position: fixed;
+          left: 50%;
+          bottom: 110px;
+          transform: translateX(-50%);
+          z-index: 99999;
         }
 
         .procedure-popup-left {
