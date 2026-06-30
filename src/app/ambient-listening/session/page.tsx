@@ -518,6 +518,8 @@ function AmbientSessionContent() {
   const latestDetectedCptSuggestionsRef = useRef<ApiTranscriptAnalysis["cpt_suggestions"]>([]);
   const latestDetectedIcdSuggestionsRef = useRef<ApiTranscriptAnalysis["icd10_suggestions"]>([]);
   const latestNcciConflictsRef = useRef<ApiTranscriptAnalysis["ncci_conflicts"]>([]);
+  const latestHeardTextRef = useRef("");
+  const fullTranscriptRef = useRef("");
   const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
@@ -829,18 +831,32 @@ function AmbientSessionContent() {
   useEffect(() => {
     const transcriptForCptDetection = [
       speechSession.lastHeardText,
+      speechSession.interimTranscript,
       speechSession.currentChunkTranscript,
       speechSession.liveTranscript,
       speechSession.finalTranscript,
+      latestHeardTextRef.current,
+      fullTranscriptRef.current,
+      lastHeardText,
       fullTranscript,
     ]
       .filter(Boolean)
       .join(" ")
       .trim();
 
+    latestHeardTextRef.current = speechSession.lastHeardText || speechSession.interimTranscript || lastHeardText;
+    fullTranscriptRef.current = speechSession.liveTranscript || fullTranscript;
     setCptDebugText(transcriptForCptDetection);
 
     if (recordingStatus !== "recording") {
+      console.log("[Medexa CPT DEBUG] skipped because recordingStatus:", recordingStatus);
+      setCptDebugMatches([]);
+      return;
+    }
+
+    if (!transcriptForCptDetection.trim()) {
+      console.log("[Medexa CPT DEBUG] no transcript available yet");
+      setCptDebugMatches([]);
       return;
     }
 
@@ -887,6 +903,7 @@ function AmbientSessionContent() {
     recordingStatus,
     speechSession.currentChunkTranscript,
     speechSession.finalTranscript,
+    speechSession.interimTranscript,
     speechSession.lastHeardText,
     speechSession.liveTranscript,
   ]);
@@ -1263,6 +1280,8 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
+    console.log("[Medexa Recording] started");
+    console.log("[Medexa Recording] status", "recording");
     setCptTimer((timer) =>
       timer.status === "paused"
         ? createLocalCptTimer("running", timer.seconds, timer.code, timer.source, timer.reason)
@@ -1792,6 +1811,8 @@ function AmbientSessionContent() {
         <div className="cpt-debug-strip" aria-live="polite">
           <span>Last heard: {cptDebugText.slice(-80) || "none"}</span>
           <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
+          <span>Recording status: {recordingStatus}</span>
+          <span>Speech listening: {speechSession.isListening ? "yes" : "no"}</span>
           <span>Popup: {currentCptPopup?.code || "none"}</span>
           <button
             type="button"

@@ -12,6 +12,7 @@ export type TranscriptSegment = {
 type UseWebSpeechSessionOptions = {
   lang?: string;
   onSpeechText?: (text: string) => void;
+  onTranscriptUpdate?: (latestText: string, fullText: string) => void;
 };
 
 const normalizeTranscript = (text: string) => text.trim().replace(/\s+/g, " ");
@@ -24,7 +25,7 @@ const getRecognitionConstructor = () => {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 };
 
-export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpeechSessionOptions = {}) {
+export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscriptUpdate }: UseWebSpeechSessionOptions = {}) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
   const interimTranscriptRef = useRef("");
@@ -60,6 +61,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     setFinalTranscript(finalTranscriptRef.current);
     setLiveTranscript(fullText);
     setCurrentChunkTranscript(chunkText);
+    return { fullText, chunkText };
   }, []);
 
   useEffect(() => {
@@ -148,6 +150,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
 
     recognition.onresult = (event) => {
       const interimParts: string[] = [];
+      let latestText = "";
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
@@ -162,6 +165,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
           appendFinalTranscript(transcript);
           setLatestFinalText(transcript);
           setLastHeardText(transcript);
+          latestText = transcript;
           if (detection.wakeWordDetected || detection.command !== "none") {
             setLastDetectedCommand(detection);
           }
@@ -175,13 +179,19 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
       if (interimTranscriptRef.current) {
         setLatestInterimText(interimTranscriptRef.current);
         setLastHeardText(interimTranscriptRef.current);
+        latestText = interimTranscriptRef.current;
         const detection = detectMedexaCommand(interimTranscriptRef.current);
         if (detection.wakeWordDetected || detection.command !== "none") {
           setLastDetectedCommand(detection);
         }
         onSpeechText?.(interimTranscriptRef.current);
       }
-      syncTranscriptState();
+      const { fullText } = syncTranscriptState();
+      if (latestText) {
+        console.log("[WebSpeech] latestHeardText", latestText);
+        console.log("[WebSpeech] liveTranscript", fullText);
+        onTranscriptUpdate?.(latestText, fullText);
+      }
     };
 
     recognition.onend = () => {
@@ -200,7 +210,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
 
     recognitionRef.current = recognition;
     return recognition;
-  }, [appendFinalTranscript, lang, onSpeechText, syncTranscriptState]);
+  }, [appendFinalTranscript, lang, onSpeechText, onTranscriptUpdate, syncTranscriptState]);
 
   const startListening = useCallback(() => {
     const recognition = recognitionRef.current ?? createRecognition();
@@ -311,7 +321,9 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpee
     isSupported,
     isListening,
     permissionError,
+    error: permissionError,
     liveTranscript,
+    interimTranscript: latestInterimText,
     finalTranscript,
     lastHeardText,
     latestInterimText,
