@@ -29,14 +29,28 @@ class FinalizeCptTimerPayload(BaseModel):
     units: int = 0
 
 
+class FinalizeCptRecordPayload(BaseModel):
+    code: str
+    displayName: str = ""
+    seconds: int = 0
+    units: int = 0
+    status: Literal["running", "paused", "stopped"] = "stopped"
+    source: Literal["manual", "ai_suggested"] = "manual"
+    intervals: list[dict] = Field(default_factory=list)
+    reason: str = ""
+
+
 class FinalizeSessionRequest(BaseModel):
     transcript: str = ""
     total_seconds: int = 0
     cpt_timer: FinalizeCptTimerPayload = Field(default_factory=FinalizeCptTimerPayload)
+    cpt_records: list[FinalizeCptRecordPayload] = Field(default_factory=list)
     applied_suggestions: list[str] = Field(default_factory=list)
+    approved_insights: list[str] = Field(default_factory=list)
     detected_cpt_suggestions: list[dict] = Field(default_factory=list)
     detected_icd10_suggestions: list[dict] = Field(default_factory=list)
     ncci_conflicts: list[dict] = Field(default_factory=list)
+    soap_draft: dict = Field(default_factory=dict)
 
 
 class SoapNotesPayload(BaseModel):
@@ -77,8 +91,11 @@ class SessionMetaPayload(BaseModel):
 
 class TranscriptChunkAnalysisRequest(BaseModel):
     chunk_text: str
+    full_transcript: str = ""
     start_time: str
     end_time: str
+    existing_cpt_codes: list[str] = Field(default_factory=list)
+    active_cpt_code: str | None = None
 
 
 class DebugDetectRequest(BaseModel):

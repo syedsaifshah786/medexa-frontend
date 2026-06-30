@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import {
@@ -10,7 +11,7 @@ import {
   useSessionDocumentation,
 } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
-import { medexaApi } from "@/lib/api";
+import { medexaApi, type ApiFinalizeSessionResponse } from "@/lib/api";
 
 function Field({
   label,
@@ -110,25 +111,60 @@ function NoteCard({
 }
 
 export default function SoapNotesPage() {
+  return (
+    <Suspense fallback={null}>
+      <SoapNotesContent />
+    </Suspense>
+  );
+}
+
+function SoapNotesContent() {
+  const searchParams = useSearchParams();
   const [headerSearch, setHeaderSearch] = useState("");
   const { soapData, updateSoapData } = useSessionDocumentation();
   const [draftData, setDraftData] = useState(defaultSoapData);
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
+  const [billingSummary, setBillingSummary] = useState<ApiFinalizeSessionResponse["billing_summary"] | null>(null);
   const { t } = useLanguage();
 
   useEffect(() => {
-    const activeSessionId = getActiveSessionId();
+    const querySessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
+    const activeSessionId = querySessionId || getActiveSessionId();
     setSessionId(activeSessionId);
 
     let isMounted = true;
 
     const loadSoapNotes = async () => {
-      const apiSoapData = await medexaApi.soapNotes(activeSessionId);
+      if (!activeSessionId) {
+        return;
+      }
+
+      const apiSoapData = await medexaApi.getSoapNote(activeSessionId);
 
       if (isMounted && apiSoapData) {
-        updateSoapData(apiSoapData);
+        const { billing_summary: nextBillingSummary, summary: _summary, ...soapNote } = apiSoapData;
+        setBillingSummary(nextBillingSummary ?? null);
+        updateSoapData(soapNote);
+        return;
+      }
+
+      const storedSoapNote = window.localStorage.getItem(`medexa_soap_note_${activeSessionId}`);
+
+      if (!isMounted || !storedSoapNote) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(storedSoapNote) as typeof defaultSoapData & {
+          billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
+        };
+        const { billing_summary: nextBillingSummary, ...soapNote } = parsed;
+        setBillingSummary(nextBillingSummary ?? null);
+        updateSoapData(soapNote);
+      } catch {
+        window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
       }
     };
 
@@ -137,7 +173,7 @@ export default function SoapNotesPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!editingSection) {
@@ -197,6 +233,11 @@ export default function SoapNotesPage() {
     visibleSections.objective ||
     visibleSections.assessment ||
     visibleSections.plan;
+  const billingRecords = billingSummary?.cpt_records ?? [];
+  const billingUnits =
+    billingRecords.length > 0
+      ? billingRecords.reduce((total, record) => total + record.units, 0)
+      : billingSummary?.units ?? 0;
 
   return (
     <main className="ambient-page">
@@ -220,10 +261,10 @@ export default function SoapNotesPage() {
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              {t("common.duration")}: <strong dir="ltr">52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">{billingSummary ? `${Math.floor(billingSummary.total_seconds / 60)}:${String(billingSummary.total_seconds % 60).padStart(2, "0")}` : "52:22"}</strong>
             </p>
             <p>
-              {t("session.units")}: <strong dir="ltr">3</strong>
+              {t("session.units")}: <strong dir="ltr">{billingUnits || 3}</strong>
             </p>
           </div>
         </section>
@@ -487,6 +528,33 @@ export default function SoapNotesPage() {
                 )}
               </div>
             </NoteCard>
+          )}
+
+          {billingSummary && (
+            <section className="note-card billing-summary-card">
+              <div className="note-heading">
+                <h2>Billing / CPT Summary</h2>
+              </div>
+              <div className="billing-summary-list">
+                {billingRecords.length > 0 ? (
+                  billingRecords.map((record) => (
+                    <div className="billing-summary-row" key={record.code}>
+                      <strong dir="ltr">{record.code}</strong>
+                      <span>{record.displayName}</span>
+                      <span dir="ltr">{Math.floor(record.seconds / 60)}:{String(record.seconds % 60).padStart(2, "0")}</span>
+                      <span>{record.units} {record.units === 1 ? "unit" : "units"}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="billing-summary-row">
+                    <strong dir="ltr">{billingSummary.cpt_code ?? "No CPT applied"}</strong>
+                    <span>Requires clinician review</span>
+                    <span dir="ltr">{Math.floor((billingSummary.cpt_seconds ?? 0) / 60)}:{String((billingSummary.cpt_seconds ?? 0) % 60).padStart(2, "0")}</span>
+                    <span>{billingSummary.units ?? 0} units</span>
+                  </div>
+                )}
+              </div>
+            </section>
           )}
         </section>
       </section>
@@ -914,6 +982,28 @@ export default function SoapNotesPage() {
           padding: 24px;
           text-align: center;
           font-size: 13px;
+        }
+
+        .billing-summary-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .billing-summary-row {
+          display: grid;
+          grid-template-columns: 90px minmax(180px, 1fr) 90px 90px;
+          gap: 12px;
+          align-items: center;
+          border: 1px solid #e7edf5;
+          border-radius: 8px;
+          padding: 12px 14px;
+          color: #344054;
+          font-size: 12px;
+        }
+
+        .billing-summary-row strong {
+          color: #001eff;
         }
 
         @media (max-width: 760px) {

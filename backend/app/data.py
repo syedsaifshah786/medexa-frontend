@@ -348,6 +348,7 @@ timer_states = {session["id"]: timer_state_from_elapsed(session["id"]) for sessi
 insights_by_session = {session["id"]: [item.copy() for item in default_insights] for session in sessions}
 suggestions_by_session = {session["id"]: [item.copy() for item in default_suggestions] for session in sessions}
 soap_notes_by_session = {session["id"]: default_soap_notes.copy() for session in sessions}
+generated_soap_session_ids: set[str] = set()
 billing_by_session = {session["id"]: {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()} for session in sessions}
 summaries_by_session = {session["id"]: default_summary.copy() for session in sessions}
 claims_by_session = {session["id"]: {"patientMeta": default_claim["patientMeta"].copy(), "cptItems": [item.copy() for item in default_claim["cptItems"]], "diagnosisCodes": [item.copy() for item in default_claim["diagnosisCodes"]], "claimStatus": default_claim["claimStatus"]} for session in sessions}

@@ -10,6 +10,7 @@ import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import {
   apiSessionToUpcomingSession,
   medexaApi,
+  type ApiCptRecord,
   type ApiCptTimerSuggestion,
   type ApiInsight,
   type ApiLiveSuggestion,
@@ -108,6 +109,11 @@ type AiSummarySegment = {
   transcriptExcerpt: string;
   analysis: ClinicalAnalysis;
   status: "Generated";
+};
+
+type CptPopupSuggestion = ApiCptTimerSuggestion & {
+  code: string;
+  display_name: string | null;
 };
 
 const INITIAL_RECORDING_SECONDS = 0;
@@ -241,6 +247,14 @@ const mergeWithPrototypeSuggestions = (items: SuggestionItem[]) => {
   return [...defaultSuggestions, ...items.filter((item) => !prototypeIds.has(item.id))];
 };
 
+const mergeItemsById = <T extends { id: string }>(currentItems: T[], nextItems: T[]) => {
+  const byId = new Map(currentItems.map((item) => [item.id, item]));
+  nextItems.forEach((item) => {
+    byId.set(item.id, { ...byId.get(item.id), ...item });
+  });
+  return Array.from(byId.values());
+};
+
 const localCptTriggers = [
   { phrase: "therapeutic exercise", code: "97110", displayName: "Therapeutic Exercise" },
   { phrase: "ther ex", code: "97110", displayName: "Therapeutic Exercise" },
@@ -262,21 +276,25 @@ const localCptTriggers = [
   { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL Training" },
 ];
 
-const detectLocalCptSuggestion = (text: string): ApiCptTimerSuggestion | null => {
+const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
   const normalizedText = text.toLowerCase();
-  const match = localCptTriggers.find((trigger) => normalizedText.includes(trigger.phrase));
+  const suggestionsByCode = new Map<string, CptPopupSuggestion>();
 
-  if (!match) {
-    return null;
-  }
+  localCptTriggers.forEach((trigger) => {
+    if (!normalizedText.includes(trigger.phrase) || suggestionsByCode.has(trigger.code)) {
+      return;
+    }
 
-  return {
-    should_start: true,
-    code: match.code,
-    display_name: match.displayName,
-    reason: `Transcript mentions ${match.phrase}. Start CPT record only if clinician approves.`,
-    confidence: "medium",
-  };
+    suggestionsByCode.set(trigger.code, {
+      should_start: true,
+      code: trigger.code,
+      display_name: trigger.displayName,
+      reason: `Transcript mentions ${trigger.phrase}. Start CPT record only if clinician approves.`,
+      confidence: "medium",
+    });
+  });
+
+  return Array.from(suggestionsByCode.values());
 };
 
 const apiAnalysisToClinicalAnalysis = (backendAnalysis: ApiTranscriptAnalysis): ClinicalAnalysis => ({
@@ -316,7 +334,7 @@ const apiAnalysisToClinicalAnalysis = (backendAnalysis: ApiTranscriptAnalysis): 
   soapUpdate: backendAnalysis.soap_update,
   billingHints: backendAnalysis.billing_hints,
   confidence: backendAnalysis.confidence,
-  disclaimer: backendAnalysis.disclaimer ?? "AI-generated suggestions require clinician review before use.",
+  disclaimer: backendAnalysis.disclaimer ?? "AI-assisted suggestions require clinician review.",
 });
 
 function SlideToApprove({
@@ -495,7 +513,10 @@ function AmbientSessionContent() {
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
-  const [cptTimerSuggestion, setCptTimerSuggestion] = useState<ApiCptTimerSuggestion | null>(null);
+  const [cptRecords, setCptRecords] = useState<Record<string, ApiCptRecord>>({});
+  const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
+  const [cptPopupQueue, setCptPopupQueue] = useState<CptPopupSuggestion[]>([]);
+  const [currentCptPopup, setCurrentCptPopup] = useState<CptPopupSuggestion | null>(null);
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -516,6 +537,8 @@ function AmbientSessionContent() {
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
+  const detectedCptCodesRef = useRef<Set<string>>(new Set());
+  const appliedCptCodesRef = useRef<Set<string>>(new Set());
   const lastTriggerAtRef = useRef(0);
   const lastTriggerCommandRef = useRef("");
   const triggerCooldownMs = 3000;
@@ -573,6 +596,49 @@ function AmbientSessionContent() {
   }, [aiSegmentsStorageKey, aiSummarySegments]);
 
   useEffect(() => {
+    if (currentCptPopup || cptPopupQueue.length === 0) {
+      return;
+    }
+
+    const [nextPopup, ...remainingQueue] = cptPopupQueue;
+    setCurrentCptPopup(nextPopup);
+    setCptPopupQueue(remainingQueue);
+  }, [cptPopupQueue, currentCptPopup]);
+
+  const enqueueCptPopups = useCallback((suggestions: ApiCptTimerSuggestion[]) => {
+    const now = Date.now();
+    const normalizedSuggestions = suggestions
+      .filter((suggestion): suggestion is CptPopupSuggestion =>
+        Boolean(suggestion.should_start && suggestion.code),
+      )
+      .map((suggestion) => ({
+        ...suggestion,
+        code: suggestion.code,
+        display_name: suggestion.display_name ?? null,
+      }));
+
+    normalizedSuggestions.forEach((suggestion) => {
+      const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] ?? 0;
+
+      if (
+        appliedCptCodesRef.current.has(suggestion.code) ||
+        detectedCptCodesRef.current.has(suggestion.code) ||
+        now <= rejectedUntil
+      ) {
+        return;
+      }
+
+      detectedCptCodesRef.current.add(suggestion.code);
+      setCptPopupQueue((queue) =>
+        queue.some((item) => item.code === suggestion.code) || currentCptPopup?.code === suggestion.code
+          ? queue
+          : [...queue, suggestion],
+      );
+      setCptDetectionStatus(`Detected ${suggestion.code}`);
+    });
+  }, [currentCptPopup]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadSession = async () => {
@@ -616,6 +682,21 @@ function AmbientSessionContent() {
                 apiTimerState.cpt_timer.reason,
               ),
         );
+        if (apiTimerState.cpt_timer.code) {
+          setActiveCptCode(apiTimerState.cpt_timer.status === "running" ? apiTimerState.cpt_timer.code : null);
+          setCptRecords({
+            [apiTimerState.cpt_timer.code]: {
+              code: apiTimerState.cpt_timer.code,
+              displayName: apiTimerState.cpt_timer.code,
+              seconds: apiTimerState.cpt_timer.seconds,
+              units: apiTimerState.cpt_timer.units,
+              status: apiTimerState.cpt_timer.status === "running" ? "running" : "stopped",
+              source: apiTimerState.cpt_timer.source ?? "manual",
+              intervals: [],
+              reason: apiTimerState.cpt_timer.reason ?? "",
+            },
+          });
+        }
       }
 
       if (apiInsights) {
@@ -668,12 +749,28 @@ function AmbientSessionContent() {
           ? createLocalCptTimer("running", timer.seconds + 1, timer.code, timer.source, timer.reason)
           : timer,
       );
+      setCptRecords((records) => {
+        if (!activeCptCode || !records[activeCptCode] || records[activeCptCode].status !== "running") {
+          return records;
+        }
+
+        const activeRecord = records[activeCptCode];
+        const nextSeconds = activeRecord.seconds + 1;
+        return {
+          ...records,
+          [activeCptCode]: {
+            ...activeRecord,
+            seconds: nextSeconds,
+            units: cptUnitsFromSeconds(nextSeconds),
+          },
+        };
+      });
     }, 1000);
 
     return () => {
       window.clearInterval(timerId);
     };
-  }, [recordingStatus]);
+  }, [activeCptCode, recordingStatus]);
 
   const createAiSummarySegment = useCallback(
     async (endSeconds: number, providedChunkText?: string) => {
@@ -694,14 +791,17 @@ function AmbientSessionContent() {
         const endTime = formatDuration(endSeconds);
         const backendAnalysis = await medexaApi.analyzeTranscriptChunk(sessionId, {
           chunk_text: chunkText,
+          full_transcript: fullTranscript,
           start_time: startTime,
           end_time: endTime,
+          existing_cpt_codes: Object.keys(cptRecords),
+          active_cpt_code: activeCptCode,
         });
         const analysis: ClinicalAnalysis = backendAnalysis
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
 
-        latestDetectedCptSuggestionsRef.current = backendAnalysis?.cpt_suggestions ?? analysis.cptSuggestions.map((suggestion) => ({
+        const detectedCptSuggestions = backendAnalysis?.cpt_suggestions ?? analysis.cptSuggestions.map((suggestion) => ({
           code: suggestion.code,
           label: suggestion.label,
           display_name: suggestion.displayName,
@@ -712,13 +812,23 @@ function AmbientSessionContent() {
           reason: suggestion.reason,
           confidence: suggestion.confidence,
         }));
-        latestDetectedIcdSuggestionsRef.current = backendAnalysis?.icd10_suggestions ?? analysis.icd10Suggestions.map((suggestion) => ({
+        latestDetectedCptSuggestionsRef.current = mergeItemsById(
+          (latestDetectedCptSuggestionsRef.current ?? []).map((suggestion) => ({ id: suggestion.code, ...suggestion })),
+          detectedCptSuggestions.map((suggestion) => ({ id: suggestion.code, ...suggestion })),
+        ).map(({ id: _id, ...suggestion }) => suggestion);
+
+        const detectedIcdSuggestions = backendAnalysis?.icd10_suggestions ?? analysis.icd10Suggestions.map((suggestion) => ({
           phrase: suggestion.phrase,
           code: suggestion.code,
           reason: suggestion.reason,
           confidence: suggestion.confidence,
         }));
-        latestNcciConflictsRef.current = backendAnalysis?.ncci_conflicts ?? analysis.ncciConflicts.map((conflict) => ({
+        latestDetectedIcdSuggestionsRef.current = mergeItemsById(
+          (latestDetectedIcdSuggestionsRef.current ?? []).map((suggestion) => ({ id: `${suggestion.code}-${suggestion.phrase}`, ...suggestion })),
+          detectedIcdSuggestions.map((suggestion) => ({ id: `${suggestion.code}-${suggestion.phrase}`, ...suggestion })),
+        ).map(({ id: _id, ...suggestion }) => suggestion);
+
+        const detectedNcciConflicts = backendAnalysis?.ncci_conflicts ?? analysis.ncciConflicts.map((conflict) => ({
           cpt_a: conflict.cptA,
           cpt_b: conflict.cptB,
           conflict_type: conflict.conflictType,
@@ -727,35 +837,25 @@ function AmbientSessionContent() {
           explanation: conflict.explanation,
           severity: conflict.severity,
         }));
+        latestNcciConflictsRef.current = mergeItemsById(
+          (latestNcciConflictsRef.current ?? []).map((conflict) => ({ id: `${conflict.cpt_a}-${conflict.cpt_b}`, ...conflict })),
+          detectedNcciConflicts.map((conflict) => ({ id: `${conflict.cpt_a}-${conflict.cpt_b}`, ...conflict })),
+        ).map(({ id: _id, ...conflict }) => conflict);
 
         const backendLiveSuggestions = backendAnalysis?.live_suggestions ?? [];
         if (backendLiveSuggestions.length > 0) {
-          const nextSuggestions = mergeWithPrototypeSuggestions(
-            backendLiveSuggestions.map(apiLiveSuggestionToSuggestion),
-          );
-          const nextInsightItems = mergeWithPrototypeInsights(
-            backendLiveSuggestions.map(apiLiveSuggestionToInsight),
-          );
-          setSuggestionItems(nextSuggestions);
-          setInsightItems(nextInsightItems);
-          setInsightStates((states) =>
-            Object.fromEntries(
-              nextInsightItems
-                .filter((item) => states[item.id]?.approved)
-                .map((item) => [item.id, { approved: true }]),
-            ),
-          );
+          const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
+          const nextInsightItems = backendLiveSuggestions.map(apiLiveSuggestionToInsight);
+          setSuggestionItems((items) => mergeItemsById(items, nextSuggestions));
+          setInsightItems((items) => mergeItemsById(items, nextInsightItems));
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
-          const nextSuggestions = mergeWithPrototypeSuggestions(
-            analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
+          const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
               id: `local-cpt-${suggestion.code}`,
               title: `Suggested CPT ${suggestion.code}`,
               text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
-            })),
-          );
-          setSuggestionItems(nextSuggestions);
-          const nextInsightItems = mergeWithPrototypeInsights(
-            nextSuggestions
+            }));
+          setSuggestionItems((items) => mergeItemsById(items, nextSuggestions));
+          const nextInsightItems = nextSuggestions
               .filter((suggestion) => suggestion.id.startsWith("local-cpt-"))
               .map((suggestion) => ({
                 id: suggestion.id,
@@ -764,54 +864,29 @@ function AmbientSessionContent() {
                 label: "Billing",
                 tone: "billing",
                 note: "Procedure detected from live speech. Requires clinician review.",
-              })),
-          );
-          setInsightItems(nextInsightItems);
-          setInsightStates((states) =>
-            Object.fromEntries(
-              nextInsightItems
-                .filter((item) => states[item.id]?.approved)
-                .map((item) => [item.id, { approved: true }]),
-            ),
-          );
+              }));
+          setInsightItems((items) => mergeItemsById(items, nextInsightItems));
         }
 
-        const backendCpt = backendAnalysis?.cpt_timer_suggestion?.should_start
-          ? backendAnalysis.cpt_timer_suggestion
-          : backendAnalysis?.cpt_suggestions?.find((suggestion) =>
-              suggestion.confidence === "high" || suggestion.confidence === "medium",
-            )
-            ? {
+        const backendCptSuggestions = backendAnalysis?.cpt_timer_suggestions?.length
+          ? backendAnalysis.cpt_timer_suggestions
+          : backendAnalysis?.cpt_timer_suggestion?.should_start
+            ? [backendAnalysis.cpt_timer_suggestion]
+            : (backendAnalysis?.cpt_suggestions ?? [])
+                .filter((suggestion) => suggestion.confidence === "high" || suggestion.confidence === "medium")
+                .map((suggestion) => ({
                 should_start: true,
-                code: backendAnalysis.cpt_suggestions.find((suggestion) =>
-                  suggestion.confidence === "high" || suggestion.confidence === "medium",
-                )?.code ?? null,
-                display_name: backendAnalysis.cpt_suggestions.find((suggestion) =>
-                  suggestion.confidence === "high" || suggestion.confidence === "medium",
-                )?.display_name ?? null,
-                reason: backendAnalysis.cpt_suggestions.find((suggestion) =>
-                  suggestion.confidence === "high" || suggestion.confidence === "medium",
-                )?.reason ?? "Procedure detected from transcript.",
-                confidence: backendAnalysis.cpt_suggestions.find((suggestion) =>
-                  suggestion.confidence === "high" || suggestion.confidence === "medium",
-                )?.confidence ?? "medium",
-              }
-            : null;
-        const localCpt = !backendAnalysis ? detectLocalCptSuggestion(chunkText) : null;
-        const nextCptSuggestion = backendCpt ?? localCpt;
-        const nextCptCode = nextCptSuggestion?.code;
-        const rejectedUntil = nextCptCode ? rejectedCptPopupRef.current[nextCptCode] ?? 0 : 0;
+                code: suggestion.code,
+                display_name: suggestion.display_name,
+                reason: suggestion.reason,
+                confidence: suggestion.confidence,
+              }));
+        const localCptSuggestions = !backendAnalysis ? detectLocalCptSuggestions(chunkText) : [];
+        const nextCptSuggestions = backendCptSuggestions.length > 0 ? backendCptSuggestions : localCptSuggestions;
 
-        if (
-          recordingStatus === "recording" &&
-          cptTimer.status !== "running" &&
-          nextCptSuggestion?.should_start &&
-          nextCptCode &&
-          Date.now() > rejectedUntil
-        ) {
-          setCptTimerSuggestion(nextCptSuggestion);
-          setCptDetectionStatus(`Detected ${nextCptCode}`);
-        } else if (!nextCptSuggestion?.should_start) {
+        if (recordingStatus === "recording" && nextCptSuggestions.length > 0) {
+          enqueueCptPopups(nextCptSuggestions);
+        } else if (nextCptSuggestions.length === 0) {
           setCptDetectionStatus("Waiting");
         }
 
@@ -834,7 +909,7 @@ function AmbientSessionContent() {
         isGeneratingSegmentRef.current = false;
       }
     },
-    [consumeCurrentChunkTranscript, cptTimer.status, recordingStatus, sessionId],
+    [activeCptCode, consumeCurrentChunkTranscript, cptRecords, enqueueCptPopups, fullTranscript, recordingStatus, sessionId],
   );
 
   useEffect(() => {
@@ -965,9 +1040,15 @@ function AmbientSessionContent() {
     speechSession.resetTranscript();
     setAiSummarySegments([]);
     setGeneratedSoapSuggestions([]);
-    setCptTimerSuggestion(null);
+    setCptPopupQueue([]);
+    setCurrentCptPopup(null);
+    setCptRecords({});
+    setActiveCptCode(null);
     setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
+    detectedCptCodesRef.current = new Set();
+    appliedCptCodesRef.current = new Set();
+    rejectedCptPopupRef.current = {};
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
@@ -982,6 +1063,19 @@ function AmbientSessionContent() {
           ? createLocalCptTimer("paused", timer.seconds, timer.code, timer.source, timer.reason)
           : timer,
       );
+      setCptRecords((records) => {
+        if (!activeCptCode || !records[activeCptCode]) {
+          return records;
+        }
+
+        return {
+          ...records,
+          [activeCptCode]: {
+            ...records[activeCptCode],
+            status: "paused",
+          },
+        };
+      });
       speechSession.pauseListening();
       medexaApi.pauseSessionTimer(sessionId);
       medexaApi.updateSessionState(sessionId, {
@@ -1009,6 +1103,19 @@ function AmbientSessionContent() {
         ? createLocalCptTimer("running", timer.seconds, timer.code, timer.source, timer.reason)
         : timer,
     );
+    setCptRecords((records) => {
+      if (!activeCptCode || !records[activeCptCode] || records[activeCptCode].status !== "paused") {
+        return records;
+      }
+
+      return {
+        ...records,
+        [activeCptCode]: {
+          ...records[activeCptCode],
+          status: "running",
+        },
+      };
+    });
     speechSession.resumeListening();
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
       medexaApi.startSessionTimer(sessionId);
@@ -1035,9 +1142,35 @@ function AmbientSessionContent() {
     const appliedSuggestionNotes = suggestionItems
       .filter((item) => appliedSuggestions[item.id])
       .map((item) => item.text);
+    const approvedInsightNotes = insightItems
+      .filter((item) => insightStates[item.id]?.approved && !insightStates[item.id]?.ignored)
+      .map((item) => item.note || item.text);
+    const finalizedCptRecordsMap: Record<string, ApiCptRecord> = { ...cptRecords };
+
+    if (finalCptTimer.code) {
+      const existingRecord = finalizedCptRecordsMap[finalCptTimer.code];
+      finalizedCptRecordsMap[finalCptTimer.code] = {
+        code: finalCptTimer.code,
+        displayName: existingRecord?.displayName || finalCptTimer.code,
+        seconds: finalCptTimer.seconds,
+        units: finalCptTimer.units,
+        status: "stopped",
+        source: finalCptTimer.source ?? existingRecord?.source ?? "manual",
+        intervals: existingRecord?.intervals ?? [],
+        reason: finalCptTimer.reason ?? existingRecord?.reason ?? "",
+      };
+    }
+
+    const finalizedCptRecords = Object.values(finalizedCptRecordsMap).map((record) => ({
+      ...record,
+      status: "stopped" as const,
+      units: cptUnitsFromSeconds(record.seconds),
+    }));
 
     setRecordingStatus("stopped");
     setCptTimer(finalCptTimer);
+    setCptRecords(Object.fromEntries(finalizedCptRecords.map((record) => [record.code, record])));
+    setActiveCptCode(null);
     setShowStopConfirm(false);
     speechSession.stopListening();
     await createAiSummarySegment(recordingSecondsRef.current);
@@ -1051,7 +1184,7 @@ function AmbientSessionContent() {
     });
     const localSoapData = saveSoapDocumentation();
     const finalizePayload = {
-      transcript: fullTranscript,
+      transcript: speechSession.finalTranscriptRef.current || fullTranscript,
       total_seconds: recordingSeconds,
       cpt_timer: {
         active: false,
@@ -1059,10 +1192,13 @@ function AmbientSessionContent() {
         seconds: finalCptTimer.seconds,
         units: finalCptTimer.units,
       },
+      cpt_records: finalizedCptRecords,
       applied_suggestions: appliedSuggestionNotes,
+      approved_insights: approvedInsightNotes,
       detected_cpt_suggestions: latestDetectedCptSuggestionsRef.current ?? [],
       detected_icd10_suggestions: latestDetectedIcdSuggestionsRef.current ?? [],
       ncci_conflicts: latestNcciConflictsRef.current ?? [],
+      soap_draft: localSoapData,
     };
     const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
 
@@ -1078,9 +1214,10 @@ function AmbientSessionContent() {
 
   const startCptTimerFromSuggestion = (
     source: "manual" | "ai_suggested" = "manual",
-    suggestion = cptTimerSuggestion,
+    suggestion = currentCptPopup,
   ) => {
     const suggestedCode = suggestion?.code || selectedSession.cpt || "97110";
+    const displayName = suggestion?.display_name || suggestedCode;
     const reason =
       suggestion?.reason ||
       (source === "ai_suggested"
@@ -1088,24 +1225,67 @@ function AmbientSessionContent() {
         : "Clinician manually started CPT timing.");
 
     setCptTimer(createLocalCptTimer("running", 0, suggestedCode, source, reason));
-    setCptTimerSuggestion(null);
+    setCptRecords((records) => {
+      const pausedRecords = Object.fromEntries(
+        Object.entries(records).map(([code, record]) => [
+          code,
+          record.status === "running" ? { ...record, status: "paused" as const } : record,
+        ]),
+      );
+      const existingRecord = pausedRecords[suggestedCode];
+
+      return {
+        ...pausedRecords,
+        [suggestedCode]: {
+          code: suggestedCode,
+          displayName,
+          seconds: existingRecord?.seconds ?? 0,
+          units: existingRecord?.units ?? 0,
+          status: "running",
+          source,
+          intervals: [
+            ...(existingRecord?.intervals ?? []),
+            { start: new Date().toISOString() },
+          ],
+          reason,
+        },
+      };
+    });
+    setActiveCptCode(suggestedCode);
+    appliedCptCodesRef.current.add(suggestedCode);
+    setCurrentCptPopup(null);
     setCptDetectionStatus(`Detected ${suggestedCode}`);
     setStatusMessage(`CPT ${suggestedCode} timer started.`);
     medexaApi.startCptTimer(sessionId, suggestedCode, source, reason);
   };
 
   const rejectCptSuggestion = () => {
-    const rejectedCode = cptTimerSuggestion?.code;
+    const rejectedCode = currentCptPopup?.code;
     if (rejectedCode) {
-      rejectedCptPopupRef.current[rejectedCode] = Date.now() + 45000;
+      rejectedCptPopupRef.current[rejectedCode] = Date.now() + 30000;
+      detectedCptCodesRef.current.delete(rejectedCode);
     }
-    setCptTimerSuggestion(null);
+    setCurrentCptPopup(null);
     setCptDetectionStatus("Waiting");
     setStatusMessage("Procedure suggestion rejected.");
   };
 
   const stopCptTimer = () => {
     setCptTimer((timer) => createLocalCptTimer("stopped", timer.seconds, timer.code, timer.source, timer.reason));
+    setCptRecords((records) => {
+      if (!activeCptCode || !records[activeCptCode]) {
+        return records;
+      }
+
+      return {
+        ...records,
+        [activeCptCode]: {
+          ...records[activeCptCode],
+          status: "stopped",
+        },
+      };
+    });
+    setActiveCptCode(null);
     medexaApi.stopCptTimer(sessionId);
   };
 
@@ -1234,7 +1414,7 @@ function AmbientSessionContent() {
   const formattedRecordingDuration = formatDuration(recordingSeconds);
   const sessionUnits = recordingStatus === "idle" ? 0 : cptUnitsFromSeconds(recordingSeconds);
   const cptUnits = cptTimer.units;
-  const cptCode = cptTimer.code || cptTimerSuggestion?.code || selectedSession.cpt || "97110";
+  const cptCode = cptTimer.code || currentCptPopup?.code || selectedSession.cpt || "97110";
   const nextCptUnit = cptUnits + 1;
   const primaryBannerTitle =
     cptTimer.status === "running" || cptTimer.status === "paused"
@@ -1800,11 +1980,11 @@ function AmbientSessionContent() {
         </div>
       )}
 
-      {recordingStatus === "recording" && cptTimer.status !== "running" && cptTimerSuggestion?.should_start && (
+      {recordingStatus === "recording" && currentCptPopup?.should_start && (
         <div className="procedure-popup-backdrop" aria-hidden="true" />
       )}
 
-      {recordingStatus === "recording" && cptTimer.status !== "running" && cptTimerSuggestion?.should_start && (
+      {recordingStatus === "recording" && currentCptPopup?.should_start && (
         <section className="procedure-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
@@ -1812,8 +1992,8 @@ function AmbientSessionContent() {
               <p>Procedure Detected</p>
               <h2>Starting a therapy procedure?</h2>
               <span>
-                Procedure for {cptTimerSuggestion.code || cptCode}
-                {cptTimerSuggestion.display_name ? ` - ${cptTimerSuggestion.display_name}` : ""} detected. Start CPT record for the session?
+                Procedure for {currentCptPopup.code || cptCode}
+                {currentCptPopup.display_name ? ` - ${currentCptPopup.display_name}` : ""} detected. Start CPT record for the session?
               </span>
               <small>Suggested CPT. Requires clinician review.</small>
             </div>
@@ -1822,7 +2002,7 @@ function AmbientSessionContent() {
             <button type="button" onClick={rejectCptSuggestion}>
               Reject
             </button>
-            <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested", cptTimerSuggestion)}>
+            <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested", currentCptPopup)}>
               Apply
             </button>
           </div>

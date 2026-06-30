@@ -135,22 +135,41 @@ export type ApiTranscriptAnalysis = {
   confidence: ClinicalAnalysis["confidence"];
   disclaimer?: string;
   cpt_timer_suggestion?: ApiCptTimerSuggestion;
+  cpt_timer_suggestions?: ApiCptTimerSuggestion[];
   live_suggestions?: ApiLiveSuggestion[];
+};
+
+export type ApiCptRecord = {
+  code: string;
+  displayName: string;
+  seconds: number;
+  units: number;
+  status: "running" | "paused" | "stopped";
+  source: "manual" | "ai_suggested";
+  intervals: Array<{
+    start: string;
+    end?: string;
+    seconds?: number;
+  }>;
+  reason?: string;
 };
 
 export type ApiFinalizeSessionPayload = {
   transcript: string;
   total_seconds: number;
-  cpt_timer: {
+  cpt_timer?: {
     active: boolean;
     code: string | null;
     seconds: number;
     units: number;
   };
+  cpt_records?: ApiCptRecord[];
   applied_suggestions: string[];
+  approved_insights?: string[];
   detected_cpt_suggestions: ApiTranscriptAnalysis["cpt_suggestions"];
   detected_icd10_suggestions: ApiTranscriptAnalysis["icd10_suggestions"];
   ncci_conflicts: ApiTranscriptAnalysis["ncci_conflicts"];
+  soap_draft?: unknown;
 };
 
 export type ApiFinalizeSessionResponse = {
@@ -159,11 +178,17 @@ export type ApiFinalizeSessionResponse = {
   summary: string;
   billing_summary: {
     total_seconds: number;
-    cpt_code: string | null;
-    cpt_seconds: number;
-    units: number;
+    cpt_code?: string | null;
+    cpt_seconds?: number;
+    units?: number;
+    cpt_records?: ApiCptRecord[];
   };
   redirect_url: string;
+};
+
+export type ApiSoapNoteResponse = SoapData & {
+  summary?: string;
+  billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
 };
 
 export type ApiAudioTranscriptionAnalysis = ApiTranscriptAnalysis & {
@@ -328,8 +353,11 @@ export const medexaApi = {
     sessionId: string,
     body: {
       chunk_text: string;
+      full_transcript?: string;
       start_time: string;
       end_time: string;
+      existing_cpt_codes?: string[];
+      active_cpt_code?: string | null;
     },
   ) =>
     request<ApiTranscriptAnalysis>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
@@ -342,7 +370,7 @@ export const medexaApi = {
       body,
     }),
   getSoapNote: (sessionId: string) =>
-    request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}`),
+    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}`),
   transcribeAudio: async (sessionId: string, file: File) => {
     if (!API_BASE_URL) {
       return null;
@@ -386,7 +414,7 @@ export const medexaApi = {
       method: "POST",
     }),
   soapNotes: (sessionId: string) =>
-    request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}`),
+    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}`),
   updateSoapNotes: (sessionId: string, body: SoapData) =>
     request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}`, {
       method: "PUT",

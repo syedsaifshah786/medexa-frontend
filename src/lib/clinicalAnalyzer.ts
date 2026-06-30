@@ -188,6 +188,6 @@ export function analyzeClinicalTranscript(transcript: string): ClinicalAnalysis 
     },
     billingHints: hints.length > 0 ? hints : ["No specific CPT or billing relevance detected in this segment"],
     confidence,
-    disclaimer: "AI-generated suggestions require clinician review before use.",
+    disclaimer: "AI-assisted suggestions require clinician review.",
   };
 }

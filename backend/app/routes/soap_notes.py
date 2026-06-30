@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app import data
 from app.schemas import SoapNotesPayload
@@ -9,6 +9,8 @@ router = APIRouter(prefix="/soap-notes", tags=["soap-notes"])
 @router.get("/{session_id}")
 def get_soap_notes(session_id: str) -> dict:
     data.ensure_session(session_id)
+    if session_id not in data.generated_soap_session_ids:
+        raise HTTPException(status_code=404, detail="SOAP note not generated for this session")
     return data.soap_notes_by_session[session_id]
 
 
@@ -16,6 +18,7 @@ def get_soap_notes(session_id: str) -> dict:
 def update_soap_notes(session_id: str, payload: SoapNotesPayload) -> dict:
     data.ensure_session(session_id)
     data.soap_notes_by_session[session_id] = payload.model_dump()
+    data.generated_soap_session_ids.add(session_id)
     return data.soap_notes_by_session[session_id]
 
 
@@ -51,6 +54,7 @@ def generate_soap_notes(session_id: str) -> dict:
         },
     }
     data.soap_notes_by_session[session_id] = generated
+    data.generated_soap_session_ids.add(session_id)
     data.summaries_by_session[session_id]["summary"] = " ".join(
         [
             generated["subjective"]["chiefComplaint"],

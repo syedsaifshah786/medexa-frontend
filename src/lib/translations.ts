@@ -299,7 +299,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     "session.unsupported": "Unsupported",
     "session.webSpeechUnsupported": "Web Speech is not supported in this browser. Please use Chrome or Edge.",
     "session.microphoneRequired": "Microphone permission is required for live transcription.",
-    "session.aiDisclaimer": "AI-generated suggestions require clinician review before use.",
+    "session.aiDisclaimer": "AI-assisted suggestions require clinician review.",
     "session.speechStatus": "Speech Status",
     "session.generateTestSummary": "Generate Test Summary",
     "session.transcriptPlaceholder": "Speech will appear here while recording is active.",

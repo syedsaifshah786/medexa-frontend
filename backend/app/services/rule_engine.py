@@ -7,7 +7,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
-DISCLAIMER = "AI-generated suggestions require clinician review before use."
+DISCLAIMER = "AI-assisted suggestions require clinician review."
 
 RULE_FILE_NAMES = {
     "icd10_phrase_map": "icd10_phrase_map.json",
@@ -197,16 +197,22 @@ def suggest_cpt_codes(text: str) -> list[dict]:
     matches = find_phrase_matches(text, rules.get("cpt_phrase_map", {}))
     matched_phrases_by_code = _category_matches_by_code(text)
     normalized = normalize_text(text)
+    first_position_by_code: dict[str, int] = {}
 
     for match in matches:
         code = str(match["value"])
         matched_phrases_by_code.setdefault(code, set()).add(match["phrase"])
+        phrase_position = normalized.find(normalize_text(match["phrase"]))
+        if phrase_position >= 0:
+            first_position_by_code[code] = min(first_position_by_code.get(code, phrase_position), phrase_position)
 
     for phrase, code in LOCAL_CPT_FALLBACK_PHRASES.items():
         if phrase in normalized:
             matched_phrases_by_code.setdefault(code, set()).add(phrase)
+            phrase_position = normalized.find(phrase)
+            first_position_by_code[code] = min(first_position_by_code.get(code, phrase_position), phrase_position)
 
-    return enrich_cpt_suggestions(
+    suggestions = enrich_cpt_suggestions(
         [
             {
                 "code": code,
@@ -215,6 +221,7 @@ def suggest_cpt_codes(text: str) -> list[dict]:
             for code, phrases in matched_phrases_by_code.items()
         ]
     )
+    return sorted(suggestions, key=lambda suggestion: first_position_by_code.get(suggestion["code"], 10**9))
 
 
 def enrich_cpt_suggestions(cpt_codes: list) -> list[dict]:
@@ -398,6 +405,16 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         if clean_text
         else "low"
     )
+    cpt_timer_suggestions = [
+        {
+            "should_start": True,
+            "code": suggestion["code"],
+            "display_name": suggestion["display_name"],
+            "reason": suggestion["reason"],
+            "confidence": suggestion["confidence"],
+        }
+        for suggestion in cpt_suggestions
+    ]
     cpt_timer_suggestion = {
         "should_start": False,
         "code": None,
@@ -406,15 +423,8 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         "confidence": "low",
     }
 
-    if cpt_suggestions:
-        first_cpt = cpt_suggestions[0]
-        cpt_timer_suggestion = {
-            "should_start": True,
-            "code": first_cpt["code"],
-            "display_name": first_cpt["display_name"],
-            "reason": first_cpt["reason"],
-            "confidence": first_cpt["confidence"],
-        }
+    if cpt_timer_suggestions:
+        cpt_timer_suggestion = cpt_timer_suggestions[0]
 
     live_suggestions: list[dict] = []
     for suggestion in cpt_suggestions[:3]:
@@ -479,6 +489,7 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         "confidence": confidence,
         "disclaimer": DISCLAIMER,
         "cpt_timer_suggestion": cpt_timer_suggestion,
+        "cpt_timer_suggestions": cpt_timer_suggestions,
         "live_suggestions": live_suggestions,
         "rule_warnings": rule_warnings,
         "rules_loaded": any(bool(rules.get(key)) for key in RULE_FILE_NAMES),
