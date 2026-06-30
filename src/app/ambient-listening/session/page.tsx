@@ -2,7 +2,7 @@
 
 import { type ChangeEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
@@ -12,6 +12,7 @@ import {
   medexaApi,
   type ApiCptTimerSuggestion,
   type ApiInsight,
+  type ApiLiveSuggestion,
   type ApiSuggestion,
   type ApiTranscriptAnalysis,
 } from "@/lib/api";
@@ -205,6 +206,53 @@ const apiSuggestionToSuggestion = (suggestion: ApiSuggestion): SuggestionItem =>
   title: suggestion.title,
   text: suggestion.text,
 });
+
+const apiLiveSuggestionToSuggestion = (suggestion: ApiLiveSuggestion): SuggestionItem => ({
+  id: suggestion.id,
+  title: suggestion.title,
+  text: suggestion.description,
+});
+
+const apiLiveSuggestionToInsight = (suggestion: ApiLiveSuggestion): InsightItem => ({
+  id: suggestion.id,
+  tag:
+    suggestion.type === "billing"
+      ? "Billing"
+      : suggestion.type === "protocol"
+        ? "Protocol Ask"
+        : "Detected",
+  text: suggestion.description,
+  label: suggestion.type === "billing" ? "Billing" : "AI-assisted suggestion",
+  tone: suggestion.type === "billing" ? "billing" : "protocol",
+  note: `${suggestion.title}. Requires clinician review.`,
+});
+
+const localCptTriggers = [
+  { phrase: "therapeutic exercise", code: "97110", displayName: "Therapeutic Exercise" },
+  { phrase: "range of motion", code: "97110", displayName: "Therapeutic Exercise" },
+  { phrase: "strengthening", code: "97110", displayName: "Therapeutic Exercise" },
+  { phrase: "gait training", code: "97116", displayName: "Gait Training" },
+  { phrase: "manual therapy", code: "97140", displayName: "Manual Therapy" },
+  { phrase: "neuromuscular reeducation", code: "97112", displayName: "Neuromuscular Reeducation" },
+  { phrase: "therapeutic activity", code: "97530", displayName: "Therapeutic Activity" },
+];
+
+const detectLocalCptSuggestion = (text: string): ApiCptTimerSuggestion | null => {
+  const normalizedText = text.toLowerCase();
+  const match = localCptTriggers.find((trigger) => normalizedText.includes(trigger.phrase));
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    should_start: true,
+    code: match.code,
+    display_name: match.displayName,
+    reason: `Transcript mentions ${match.phrase}. Start CPT record only if clinician approves.`,
+    confidence: "medium",
+  };
+};
 
 const apiAnalysisToClinicalAnalysis = (backendAnalysis: ApiTranscriptAnalysis): ClinicalAnalysis => ({
   summary: backendAnalysis.summary,
@@ -414,9 +462,11 @@ export default function AmbientSessionPage() {
 
 function AmbientSessionContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
+  const [ignoredSuggestions, setIgnoredSuggestions] = useState<Record<string, boolean>>({});
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
@@ -438,6 +488,10 @@ function AmbientSessionContent() {
   const lastAnalyzedSecondRef = useRef(0);
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
+  const rejectedCptPopupRef = useRef<Record<string, number>>({});
+  const latestDetectedCptSuggestionsRef = useRef<ApiTranscriptAnalysis["cpt_suggestions"]>([]);
+  const latestDetectedIcdSuggestionsRef = useRef<ApiTranscriptAnalysis["icd10_suggestions"]>([]);
+  const latestNcciConflictsRef = useRef<ApiTranscriptAnalysis["ncci_conflicts"]>([]);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
   const speechSession = useWebSpeechSession();
@@ -612,19 +666,91 @@ function AmbientSessionContent() {
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
 
-        if (backendAnalysis?.cpt_timer_suggestion?.should_start) {
-          setCptTimerSuggestion(backendAnalysis.cpt_timer_suggestion);
-        } else if (!backendAnalysis) {
-          const localCptSuggestion = analysis.cptSuggestions[0];
-          if (localCptSuggestion) {
-            setCptTimerSuggestion({
-              should_start: true,
-              code: localCptSuggestion.code,
-              display_name: localCptSuggestion.displayName,
-              reason: localCptSuggestion.reason,
-              confidence: localCptSuggestion.confidence,
-            });
-          }
+        latestDetectedCptSuggestionsRef.current = backendAnalysis?.cpt_suggestions ?? analysis.cptSuggestions.map((suggestion) => ({
+          code: suggestion.code,
+          label: suggestion.label,
+          display_name: suggestion.displayName,
+          descriptor: suggestion.descriptor,
+          matched_phrases: suggestion.matchedPhrases,
+          documentation_requirements: suggestion.documentationRequirements,
+          billing_caveats: suggestion.billingCaveats,
+          reason: suggestion.reason,
+          confidence: suggestion.confidence,
+        }));
+        latestDetectedIcdSuggestionsRef.current = backendAnalysis?.icd10_suggestions ?? analysis.icd10Suggestions.map((suggestion) => ({
+          phrase: suggestion.phrase,
+          code: suggestion.code,
+          reason: suggestion.reason,
+          confidence: suggestion.confidence,
+        }));
+        latestNcciConflictsRef.current = backendAnalysis?.ncci_conflicts ?? analysis.ncciConflicts.map((conflict) => ({
+          cpt_a: conflict.cptA,
+          cpt_b: conflict.cptB,
+          conflict_type: conflict.conflictType,
+          body_region_sensitive: conflict.bodyRegionSensitive,
+          modifier_59_possible: conflict.modifier59Possible,
+          explanation: conflict.explanation,
+          severity: conflict.severity,
+        }));
+
+        const backendLiveSuggestions = backendAnalysis?.live_suggestions ?? [];
+        if (backendLiveSuggestions.length > 0) {
+          const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
+          setSuggestionItems(nextSuggestions);
+          setInsightItems(backendLiveSuggestions.map(apiLiveSuggestionToInsight));
+        } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
+          const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
+            id: `local-cpt-${suggestion.code}`,
+            title: `Suggested CPT ${suggestion.code}`,
+            text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
+          }));
+          setSuggestionItems(nextSuggestions);
+          setInsightItems(
+            nextSuggestions.map((suggestion) => ({
+              id: suggestion.id,
+              tag: "Billing",
+              text: suggestion.text,
+              label: "Billing",
+              tone: "billing",
+              note: "Procedure detected from live speech. Requires clinician review.",
+            })),
+          );
+        }
+
+        const backendCpt = backendAnalysis?.cpt_timer_suggestion?.should_start
+          ? backendAnalysis.cpt_timer_suggestion
+          : backendAnalysis?.cpt_suggestions?.find((suggestion) =>
+              suggestion.confidence === "high" || suggestion.confidence === "medium",
+            )
+            ? {
+                should_start: true,
+                code: backendAnalysis.cpt_suggestions.find((suggestion) =>
+                  suggestion.confidence === "high" || suggestion.confidence === "medium",
+                )?.code ?? null,
+                display_name: backendAnalysis.cpt_suggestions.find((suggestion) =>
+                  suggestion.confidence === "high" || suggestion.confidence === "medium",
+                )?.display_name ?? null,
+                reason: backendAnalysis.cpt_suggestions.find((suggestion) =>
+                  suggestion.confidence === "high" || suggestion.confidence === "medium",
+                )?.reason ?? "Procedure detected from transcript.",
+                confidence: backendAnalysis.cpt_suggestions.find((suggestion) =>
+                  suggestion.confidence === "high" || suggestion.confidence === "medium",
+                )?.confidence ?? "medium",
+              }
+            : null;
+        const localCpt = !backendAnalysis ? detectLocalCptSuggestion(chunkText) : null;
+        const nextCptSuggestion = backendCpt ?? localCpt;
+        const nextCptCode = nextCptSuggestion?.code;
+        const rejectedUntil = nextCptCode ? rejectedCptPopupRef.current[nextCptCode] ?? 0 : 0;
+
+        if (
+          recordingStatus === "recording" &&
+          cptTimer.status !== "running" &&
+          nextCptSuggestion?.should_start &&
+          nextCptCode &&
+          Date.now() > rejectedUntil
+        ) {
+          setCptTimerSuggestion(nextCptSuggestion);
         }
 
         const segment: AiSummarySegment = {
@@ -646,7 +772,7 @@ function AmbientSessionContent() {
         isGeneratingSegmentRef.current = false;
       }
     },
-    [consumeCurrentChunkTranscript, sessionId],
+    [consumeCurrentChunkTranscript, cptTimer.status, recordingStatus, sessionId],
   );
 
   useEffect(() => {
@@ -665,13 +791,14 @@ function AmbientSessionContent() {
 
   const filteredSuggestions = useMemo(() => {
     if (!query) {
-      return suggestionItems;
+      return suggestionItems.filter((item) => !ignoredSuggestions[item.id]);
     }
 
     return suggestionItems.filter((item) =>
+      !ignoredSuggestions[item.id] &&
       [item.title, item.text].join(" ").toLowerCase().includes(query),
     );
-  }, [query, suggestionItems]);
+  }, [ignoredSuggestions, query, suggestionItems]);
 
   const saveSoapDocumentation = (
     nextInsightStates = insightStates,
@@ -728,6 +855,7 @@ function AmbientSessionContent() {
 
     updateSoapData(generatedSoapData);
     setStatusMessage(t("session.soapSaved"));
+    return generatedSoapData;
   };
 
   const updateInsight = (id: string, nextState: InsightState, message: string) => {
@@ -763,11 +891,20 @@ function AmbientSessionContent() {
     saveSoapDocumentation(insightStates, nextAppliedSuggestions);
   };
 
+  const handleSuggestionIgnore = (id: string) => {
+    setIgnoredSuggestions((suggestions) => ({
+      ...suggestions,
+      [id]: true,
+    }));
+    setStatusMessage("Suggestion ignored.");
+  };
+
   const resetAiSession = () => {
     speechSession.resetTranscript();
     setAiSummarySegments([]);
     setGeneratedSoapSuggestions([]);
     setCptTimerSuggestion(null);
+    setIgnoredSuggestions({});
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
@@ -827,16 +964,20 @@ function AmbientSessionContent() {
     }
   };
 
-  const confirmStop = () => {
+  const confirmStop = async () => {
+    const finalCptTimer =
+      cptTimer.status === "running" || cptTimer.status === "paused"
+        ? createLocalCptTimer("stopped", cptTimer.seconds, cptTimer.code, cptTimer.source, cptTimer.reason)
+        : cptTimer;
+    const appliedSuggestionNotes = suggestionItems
+      .filter((item) => appliedSuggestions[item.id])
+      .map((item) => item.text);
+
     setRecordingStatus("stopped");
-    setCptTimer((timer) =>
-      timer.status === "running" || timer.status === "paused"
-        ? createLocalCptTimer("stopped", timer.seconds, timer.code, timer.source, timer.reason)
-        : timer,
-    );
+    setCptTimer(finalCptTimer);
     setShowStopConfirm(false);
     speechSession.stopListening();
-    void createAiSummarySegment(recordingSecondsRef.current);
+    await createAiSummarySegment(recordingSecondsRef.current);
     medexaApi.stopSessionTimer(sessionId);
     if (cptTimer.status === "running" || cptTimer.status === "paused") {
       medexaApi.stopCptTimer(sessionId);
@@ -845,18 +986,40 @@ function AmbientSessionContent() {
       status: "stopped",
       elapsedSeconds: recordingSeconds,
     });
-    saveSoapDocumentation();
-    medexaApi.generateSoapNotes(sessionId).then((generatedSoapData) => {
-      if (generatedSoapData) {
-        updateSoapData(generatedSoapData);
-      }
-    });
+    const localSoapData = saveSoapDocumentation();
+    const finalizePayload = {
+      transcript: fullTranscript,
+      total_seconds: recordingSeconds,
+      cpt_timer: {
+        active: false,
+        code: finalCptTimer.code,
+        seconds: finalCptTimer.seconds,
+        units: finalCptTimer.units,
+      },
+      applied_suggestions: appliedSuggestionNotes,
+      detected_cpt_suggestions: latestDetectedCptSuggestionsRef.current ?? [],
+      detected_icd10_suggestions: latestDetectedIcdSuggestionsRef.current ?? [],
+      ncci_conflicts: latestNcciConflictsRef.current ?? [],
+    };
+    const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
+
+    if (finalized?.soap_note) {
+      updateSoapData(finalized.soap_note);
+      router.push(finalized.redirect_url || `/soap-notes?sessionId=${sessionId}`);
+      return;
+    }
+
+    window.localStorage.setItem(`medexa_soap_note_${sessionId}`, JSON.stringify(localSoapData));
+    router.push(`/soap-notes?sessionId=${sessionId}`);
   };
 
-  const startCptTimerFromSuggestion = (source: "manual" | "ai_suggested" = "manual") => {
-    const suggestedCode = cptTimerSuggestion?.code || selectedSession.cpt || "97110";
+  const startCptTimerFromSuggestion = (
+    source: "manual" | "ai_suggested" = "manual",
+    suggestion = cptTimerSuggestion,
+  ) => {
+    const suggestedCode = suggestion?.code || selectedSession.cpt || "97110";
     const reason =
-      cptTimerSuggestion?.reason ||
+      suggestion?.reason ||
       (source === "ai_suggested"
         ? "Transcript indicates a medically billable activity."
         : "Clinician manually started CPT timing.");
@@ -865,6 +1028,15 @@ function AmbientSessionContent() {
     setCptTimerSuggestion(null);
     setStatusMessage(`CPT ${suggestedCode} timer started.`);
     medexaApi.startCptTimer(sessionId, suggestedCode, source, reason);
+  };
+
+  const rejectCptSuggestion = () => {
+    const rejectedCode = cptTimerSuggestion?.code;
+    if (rejectedCode) {
+      rejectedCptPopupRef.current[rejectedCode] = Date.now() + 45000;
+    }
+    setCptTimerSuggestion(null);
+    setStatusMessage("Procedure suggestion rejected.");
   };
 
   const stopCptTimer = () => {
@@ -956,10 +1128,11 @@ function AmbientSessionContent() {
           : "Medexa is listening";
   const primaryBannerSubtext =
     cptTimer.status === "running" || cptTimer.status === "paused"
-      ? `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`
+      ? "Say Stop Recording..."
       : recordingStatus === "idle"
         ? "Ready to start at 00:00"
         : "Say Stop Recording...";
+  const cptElapsedUnitText = `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`;
   const cptNextUnitText =
     cptTimer.status === "running" || cptTimer.status === "paused" || cptTimer.status === "stopped"
       ? `Unit ${nextCptUnit} at ${formatDuration(cptTimer.nextUnitAtSeconds)} • +${formatDuration(cptTimer.secondsLeftToNextUnit)} left`
@@ -1047,7 +1220,15 @@ function AmbientSessionContent() {
             </div>
           </div>
           <div className="recording-right">
-            <p>Session units: <b>{sessionUnits}</b></p>
+            <p>
+              {cptTimer.status === "running" || cptTimer.status === "paused" ? (
+                <b dir="ltr">{cptElapsedUnitText}</b>
+              ) : (
+                <>
+                  Session units: <b>{sessionUnits}</b>
+                </>
+              )}
+            </p>
             <strong dir="ltr">{cptNextUnitText}</strong>
           </div>
         </section>
@@ -1064,17 +1245,6 @@ function AmbientSessionContent() {
             <button type="button" className="secondary" onClick={stopCptTimer}>
               Stop CPT Timer
             </button>
-          )}
-          {cptTimerSuggestion?.should_start && cptTimer.status !== "running" && (
-            <div className="cpt-suggestion" role="status">
-              <span>
-                CPT {cptTimerSuggestion.code || cptCode} suggested
-                {cptTimerSuggestion.display_name ? `: ${cptTimerSuggestion.display_name}` : ""}
-              </span>
-              <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested")}>
-                Start
-              </button>
-            </div>
           )}
         </div>
 
@@ -1169,7 +1339,7 @@ function AmbientSessionContent() {
           <aside className="suggestions-panel">
             <div className="suggestions-heading">
               <h2>{t("session.suggestions")}</h2>
-              <span>3</span>
+              <span>{filteredSuggestions.length}</span>
             </div>
 
             <div className="suggestions-list">
@@ -1192,6 +1362,13 @@ function AmbientSessionContent() {
                       onClick={() => handleSuggestionApply(item.id)}
                     >
                       {isApplied ? `✓ ${t("common.applied")}` : `✓ ${t("common.apply")}`}
+                    </button>
+                    <button
+                      type="button"
+                      className="ignore-suggestion"
+                      onClick={() => handleSuggestionIgnore(item.id)}
+                    >
+                      Ignore
                     </button>
                   </article>
                 );
@@ -1483,6 +1660,35 @@ function AmbientSessionContent() {
             </div>
           </div>
         </div>
+      )}
+
+      {recordingStatus === "recording" && cptTimer.status !== "running" && cptTimerSuggestion?.should_start && (
+        <div className="procedure-popup-backdrop" aria-hidden="true" />
+      )}
+
+      {recordingStatus === "recording" && cptTimer.status !== "running" && cptTimerSuggestion?.should_start && (
+        <section className="procedure-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
+          <div className="procedure-popup-left">
+            <span className="procedure-popup-dot" aria-hidden="true" />
+            <div>
+              <p>Procedure Detected</p>
+              <h2>Starting a therapy procedure?</h2>
+              <span>
+                Procedure for {cptTimerSuggestion.code || cptCode}
+                {cptTimerSuggestion.display_name ? ` - ${cptTimerSuggestion.display_name}` : ""} detected. Start CPT record for the session?
+              </span>
+              <small>Suggested CPT. Requires clinician review.</small>
+            </div>
+          </div>
+          <div className="procedure-popup-actions">
+            <button type="button" onClick={rejectCptSuggestion}>
+              Reject
+            </button>
+            <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested", cptTimerSuggestion)}>
+              Apply
+            </button>
+          </div>
+        </section>
       )}
 
       <style>{`
@@ -2293,7 +2499,7 @@ function AmbientSessionContent() {
         }
 
         .suggestion-card button {
-          display: block;
+          display: inline-flex;
           margin: 10px 0 0 auto;
           border: 0;
           background: transparent;
@@ -2304,6 +2510,11 @@ function AmbientSessionContent() {
 
         .suggestion-card button.is-applied {
           color: #087c4a;
+        }
+
+        .suggestion-card .ignore-suggestion {
+          margin-left: 12px;
+          color: #667085;
         }
 
         .empty-state {
@@ -2663,6 +2874,111 @@ function AmbientSessionContent() {
           color: #fff;
         }
 
+        .procedure-popup-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 4;
+          pointer-events: none;
+          backdrop-filter: blur(1.5px);
+          background: rgba(15, 23, 42, 0.03);
+        }
+
+        .procedure-popup {
+          position: fixed;
+          left: 50%;
+          bottom: 92px;
+          z-index: 6;
+          width: min(calc(100vw - 32px), 720px);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 20px;
+          box-sizing: border-box;
+          padding: 18px 20px;
+          border: 1px solid rgba(17, 199, 120, 0.72);
+          border-radius: 18px;
+          background: #081322;
+          box-shadow: 0 18px 48px rgba(8, 19, 34, 0.32), 0 0 0 5px rgba(17, 199, 120, 0.09);
+          color: #fff;
+          transform: translateX(-50%);
+        }
+
+        .procedure-popup-left {
+          display: flex;
+          align-items: flex-start;
+          gap: 13px;
+          min-width: 0;
+        }
+
+        .procedure-popup-dot {
+          width: 10px;
+          height: 10px;
+          flex: 0 0 auto;
+          margin-top: 4px;
+          border-radius: 50%;
+          background: #11c778;
+          box-shadow: 0 0 0 7px rgba(17, 199, 120, 0.14);
+        }
+
+        .procedure-popup p,
+        .procedure-popup h2,
+        .procedure-popup span,
+        .procedure-popup small {
+          margin: 0;
+        }
+
+        .procedure-popup p {
+          color: #5cffaa;
+          font-size: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+        }
+
+        .procedure-popup h2 {
+          margin-top: 5px;
+          font-size: 17px;
+          line-height: 1.2;
+        }
+
+        .procedure-popup span,
+        .procedure-popup small {
+          display: block;
+          margin-top: 6px;
+          color: #d7e2ef;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+
+        .procedure-popup small {
+          color: #97a6b8;
+          font-size: 11px;
+        }
+
+        .procedure-popup-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex: 0 0 auto;
+        }
+
+        .procedure-popup-actions button {
+          height: 36px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          color: #fff;
+          padding: 0 15px;
+          font-size: 12px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .procedure-popup-actions button:last-child {
+          border-color: #11c778;
+          background: #11c778;
+          color: #06121f;
+        }
+
         @media (max-width: 900px) {
           .live-grid {
             grid-template-columns: 1fr;
@@ -2714,6 +3030,16 @@ function AmbientSessionContent() {
 
           .recording-right {
             text-align: left;
+          }
+
+          .procedure-popup {
+            bottom: 104px;
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .procedure-popup-actions {
+            justify-content: flex-end;
           }
         }
       `}</style>

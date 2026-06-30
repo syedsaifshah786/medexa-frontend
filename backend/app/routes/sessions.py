@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app import data
-from app.schemas import CptTimerStartRequest, StartSessionRequest, SessionStateUpdate
+from app.schemas import CptTimerStartRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -217,6 +217,90 @@ def stop_cpt_timer(session_id: str) -> dict:
         ),
     )
     return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/finalize-session")
+def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
+    data.ensure_session(session_id)
+    session = data.get_session(session_id)
+    transcript_excerpt = " ".join(payload.transcript.split())[:420]
+    cpt_codes = [
+        f"{item.get('code')} {item.get('display_name', '')}".strip()
+        for item in payload.detected_cpt_suggestions
+        if item.get("code")
+    ]
+    icd_codes = [
+        f"{item.get('code')} from phrase '{item.get('phrase')}'"
+        for item in payload.detected_icd10_suggestions
+        if item.get("code")
+    ]
+    ncci_notes = [
+        item.get("explanation", "NCCI conflict requires clinician billing review.")
+        for item in payload.ncci_conflicts
+    ]
+    applied_notes = "; ".join(payload.applied_suggestions[:6])
+    cpt_code = payload.cpt_timer.code
+    cpt_seconds = payload.cpt_timer.seconds
+    cpt_units = payload.cpt_timer.units
+    cpt_minutes = f"{cpt_seconds // 60}:{str(cpt_seconds % 60).zfill(2)}"
+
+    soap_note = {
+        "subjective": {
+            "chiefComplaint": transcript_excerpt
+            or f"{session['patientName']} participated in the {session['careType'].lower()} encounter.",
+            "painScale": "Requires clinician review",
+            "duration": f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}",
+        },
+        "objective": {
+            "observationNotes": " ".join(
+                [
+                    f"AI-assisted session draft for {session['patientName']}.",
+                    f"Suggested CPT timing: {cpt_code or 'None'} for {cpt_minutes}, {cpt_units} unit(s).",
+                    f"Applied suggestions: {applied_notes or 'None'}.",
+                ]
+            ),
+            "rangeOfMotion": "Requires clinician review",
+            "affect": "Requires clinician review",
+            "vitalSigns": "Requires clinician review",
+        },
+        "assessment": {
+            "diagnosisSummary": " ".join(
+                [
+                    "AI-assisted suggestion requiring clinician review.",
+                    f"ICD suggestions: {', '.join(icd_codes[:4]) or 'None detected'}.",
+                    f"CPT suggestions: {', '.join(cpt_codes[:4]) or 'None detected'}.",
+                    f"NCCI warnings: {' '.join(ncci_notes[:3]) or 'None detected'}.",
+                ]
+            ),
+            "primaryDiagnosisCode": session["icd"],
+            "severity": "Requires clinician review",
+        },
+        "plan": {
+            "followUpPlan": "Clinician should review transcript-derived SOAP content, suggested CPT/ICD codes, units, and billing alerts before signing or billing.",
+        },
+    }
+    summary = " ".join(
+        [
+            soap_note["subjective"]["chiefComplaint"],
+            soap_note["objective"]["observationNotes"],
+            soap_note["assessment"]["diagnosisSummary"],
+            soap_note["plan"]["followUpPlan"],
+        ]
+    )
+    data.soap_notes_by_session[session_id] = soap_note
+    data.summaries_by_session[session_id]["summary"] = summary
+    return {
+        "session_id": session_id,
+        "soap_note": soap_note,
+        "summary": summary,
+        "billing_summary": {
+            "total_seconds": payload.total_seconds,
+            "cpt_code": cpt_code,
+            "cpt_seconds": cpt_seconds,
+            "units": cpt_units,
+        },
+        "redirect_url": f"/soap-notes?sessionId={session_id}",
+    }
 
 
 @router.get("/{session_id}/insights")

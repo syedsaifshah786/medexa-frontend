@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StartSessionRequest(BaseModel):
@@ -20,6 +20,23 @@ class CptTimerStartRequest(BaseModel):
     code: str
     source: Literal["manual", "ai_suggested"] = "manual"
     reason: str = ""
+
+
+class FinalizeCptTimerPayload(BaseModel):
+    active: bool = False
+    code: str | None = None
+    seconds: int = 0
+    units: int = 0
+
+
+class FinalizeSessionRequest(BaseModel):
+    transcript: str = ""
+    total_seconds: int = 0
+    cpt_timer: FinalizeCptTimerPayload = Field(default_factory=FinalizeCptTimerPayload)
+    applied_suggestions: list[str] = Field(default_factory=list)
+    detected_cpt_suggestions: list[dict] = Field(default_factory=list)
+    detected_icd10_suggestions: list[dict] = Field(default_factory=list)
+    ncci_conflicts: list[dict] = Field(default_factory=list)
 
 
 class SoapNotesPayload(BaseModel):

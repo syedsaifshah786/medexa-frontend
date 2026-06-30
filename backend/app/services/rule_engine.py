@@ -389,6 +389,55 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
             "confidence": first_cpt["confidence"],
         }
 
+    live_suggestions: list[dict] = []
+    for suggestion in cpt_suggestions[:3]:
+        live_suggestions.append(
+            {
+                "id": f"cpt-{suggestion['code']}",
+                "type": "billing",
+                "title": f"Suggested CPT {suggestion['code']}",
+                "description": f"{suggestion['display_name']} detected. {suggestion['reason']} Requires clinician review.",
+                "action_label": "Apply",
+                "status": "pending",
+            }
+        )
+
+    for suggestion in icd10_suggestions[:2]:
+        live_suggestions.append(
+            {
+                "id": f"icd-{suggestion['code']}-{normalize_text(suggestion['phrase']).replace(' ', '-')[:24]}",
+                "type": "detected",
+                "title": f"AI-assisted ICD suggestion {suggestion['code']}",
+                "description": f"Phrase '{suggestion['phrase']}' may support {suggestion['code']}. Requires clinician review.",
+                "action_label": "Apply",
+                "status": "pending",
+            }
+        )
+
+    for conflict in ncci_conflicts[:3]:
+        live_suggestions.append(
+            {
+                "id": f"ncci-{conflict['cpt_a']}-{conflict['cpt_b']}",
+                "type": "alert",
+                "title": "Modifier 59 Required",
+                "description": conflict["explanation"],
+                "action_label": "Apply",
+                "status": "pending",
+            }
+        )
+
+    if symptoms:
+        live_suggestions.append(
+            {
+                "id": f"protocol-review-{normalize_text(symptoms[0]).replace(' ', '-')[:24]}",
+                "type": "protocol",
+                "title": "Protocol Ask",
+                "description": f"Clarify functional impact for {symptoms[0].lower()} before closing the note.",
+                "action_label": "Apply",
+                "status": "pending",
+            }
+        )
+
     return {
         "summary": summary,
         "possible_clinical_impressions": impressions or ["No specific possible clinical impression detected from this segment"],
@@ -403,6 +452,7 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         "confidence": confidence,
         "disclaimer": DISCLAIMER,
         "cpt_timer_suggestion": cpt_timer_suggestion,
+        "live_suggestions": live_suggestions,
         "rule_warnings": rule_warnings,
         "rules_loaded": any(bool(rules.get(key)) for key in RULE_FILE_NAMES),
     }

@@ -86,6 +86,15 @@ export type ApiCptTimerSuggestion = {
   confidence: CptSuggestion["confidence"] | "low" | "medium" | "high";
 };
 
+export type ApiLiveSuggestion = {
+  id: string;
+  type: "billing" | "protocol" | "detected" | "alert";
+  title: string;
+  description: string;
+  action_label: string;
+  status: "pending" | "applied" | "ignored";
+};
+
 export type ApiTranscriptAnalysis = {
   summary: string;
   possible_clinical_impressions?: string[];
@@ -126,6 +135,35 @@ export type ApiTranscriptAnalysis = {
   confidence: ClinicalAnalysis["confidence"];
   disclaimer?: string;
   cpt_timer_suggestion?: ApiCptTimerSuggestion;
+  live_suggestions?: ApiLiveSuggestion[];
+};
+
+export type ApiFinalizeSessionPayload = {
+  transcript: string;
+  total_seconds: number;
+  cpt_timer: {
+    active: boolean;
+    code: string | null;
+    seconds: number;
+    units: number;
+  };
+  applied_suggestions: string[];
+  detected_cpt_suggestions: ApiTranscriptAnalysis["cpt_suggestions"];
+  detected_icd10_suggestions: ApiTranscriptAnalysis["icd10_suggestions"];
+  ncci_conflicts: ApiTranscriptAnalysis["ncci_conflicts"];
+};
+
+export type ApiFinalizeSessionResponse = {
+  session_id: string;
+  soap_note: SoapData;
+  summary: string;
+  billing_summary: {
+    total_seconds: number;
+    cpt_code: string | null;
+    cpt_seconds: number;
+    units: number;
+  };
+  redirect_url: string;
 };
 
 export type ApiAudioTranscriptionAnalysis = ApiTranscriptAnalysis & {
@@ -298,6 +336,13 @@ export const medexaApi = {
       method: "POST",
       body,
     }),
+  finalizeSession: (sessionId: string, body: ApiFinalizeSessionPayload) =>
+    request<ApiFinalizeSessionResponse>(`/sessions/${encodeURIComponent(sessionId)}/finalize-session`, {
+      method: "POST",
+      body,
+    }),
+  getSoapNote: (sessionId: string) =>
+    request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}`),
   transcribeAudio: async (sessionId: string, file: File) => {
     if (!API_BASE_URL) {
       return null;
