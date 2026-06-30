@@ -331,19 +331,27 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
     llm_payload = payload.model_dump()
     generated = generate_soap_with_llm(llm_payload)
     soap_note = {
+        "chief_complaint": generated.get("chief_complaint", generated["subjective"]),
+        "pain_scale": generated.get("pain_scale", "Requires clinician review"),
+        "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
+        "observation_notes": generated.get("observation_notes", generated["objective"]),
+        "range_of_motion": generated.get("range_of_motion", "Requires clinician review"),
+        "affect": generated.get("affect", "Requires clinician review"),
+        "vital_signs": generated.get("vital_signs", "Requires clinician review"),
+        "diagnosis_summary": generated.get("diagnosis_summary", generated["assessment"]),
         "subjective": {
-            "chiefComplaint": generated["subjective"],
-            "painScale": "Requires clinician review",
-            "duration": f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}",
+            "chiefComplaint": generated.get("chief_complaint", generated["subjective"]),
+            "painScale": generated.get("pain_scale", "Requires clinician review"),
+            "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
         },
         "objective": {
-            "observationNotes": generated["objective"],
-            "rangeOfMotion": "Requires clinician review",
-            "affect": "Requires clinician review",
-            "vitalSigns": "Requires clinician review",
+            "observationNotes": generated.get("observation_notes", generated["objective"]),
+            "rangeOfMotion": generated.get("range_of_motion", "Requires clinician review"),
+            "affect": generated.get("affect", "Requires clinician review"),
+            "vitalSigns": generated.get("vital_signs", "Requires clinician review"),
         },
         "assessment": {
-            "diagnosisSummary": generated["assessment"],
+            "diagnosisSummary": generated.get("diagnosis_summary", generated["assessment"]),
             "primaryDiagnosisCode": "Requires clinician review",
             "severity": "Requires clinician review",
         },

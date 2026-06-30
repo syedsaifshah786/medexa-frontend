@@ -118,7 +118,29 @@ export default function SoapNotesPage() {
   );
 }
 
-const normalizeSoapResponse = (data: ApiSoapNoteResponse): typeof defaultSoapData => {
+const emptySoapData: typeof defaultSoapData = {
+  subjective: {
+    chiefComplaint: "",
+    painScale: "",
+    duration: "",
+  },
+  objective: {
+    observationNotes: "",
+    rangeOfMotion: "",
+    affect: "",
+    vitalSigns: "",
+  },
+  assessment: {
+    diagnosisSummary: "",
+    primaryDiagnosisCode: "",
+    severity: "",
+  },
+  plan: {
+    followUpPlan: "",
+  },
+};
+
+const normalizeSoapResponse = (data: ApiSoapNoteResponse, fallback = defaultSoapData): typeof defaultSoapData => {
   const subjective = typeof data.subjective === "object" && data.subjective ? data.subjective : null;
   const objective = typeof data.objective === "object" && data.objective ? data.objective : null;
   const assessment = typeof data.assessment === "object" && data.assessment ? data.assessment : null;
@@ -129,31 +151,31 @@ const normalizeSoapResponse = (data: ApiSoapNoteResponse): typeof defaultSoapDat
       chiefComplaint:
         subjective?.chiefComplaint ??
         data.chief_complaint ??
-        (typeof data.subjective === "string" ? data.subjective : defaultSoapData.subjective.chiefComplaint),
-      painScale: subjective?.painScale ?? data.pain_scale ?? defaultSoapData.subjective.painScale,
-      duration: subjective?.duration ?? data.duration ?? defaultSoapData.subjective.duration,
+        (typeof data.subjective === "string" ? data.subjective : fallback.subjective.chiefComplaint),
+      painScale: subjective?.painScale ?? data.pain_scale ?? fallback.subjective.painScale,
+      duration: subjective?.duration ?? data.duration ?? fallback.subjective.duration,
     },
     objective: {
       observationNotes:
         objective?.observationNotes ??
         data.observation_notes ??
-        (typeof data.objective === "string" ? data.objective : defaultSoapData.objective.observationNotes),
-      rangeOfMotion: objective?.rangeOfMotion ?? data.range_of_motion ?? defaultSoapData.objective.rangeOfMotion,
-      affect: objective?.affect ?? data.affect ?? defaultSoapData.objective.affect,
-      vitalSigns: objective?.vitalSigns ?? data.vital_signs ?? defaultSoapData.objective.vitalSigns,
+        (typeof data.objective === "string" ? data.objective : fallback.objective.observationNotes),
+      rangeOfMotion: objective?.rangeOfMotion ?? data.range_of_motion ?? fallback.objective.rangeOfMotion,
+      affect: objective?.affect ?? data.affect ?? fallback.objective.affect,
+      vitalSigns: objective?.vitalSigns ?? data.vital_signs ?? fallback.objective.vitalSigns,
     },
     assessment: {
       diagnosisSummary:
         assessment?.diagnosisSummary ??
         data.diagnosis_summary ??
-        (typeof data.assessment === "string" ? data.assessment : defaultSoapData.assessment.diagnosisSummary),
-      primaryDiagnosisCode: assessment?.primaryDiagnosisCode ?? "Requires clinician review",
-      severity: assessment?.severity ?? "Requires clinician review",
+        (typeof data.assessment === "string" ? data.assessment : fallback.assessment.diagnosisSummary),
+      primaryDiagnosisCode: assessment?.primaryDiagnosisCode ?? fallback.assessment.primaryDiagnosisCode,
+      severity: assessment?.severity ?? fallback.assessment.severity,
     },
     plan: {
       followUpPlan:
         plan?.followUpPlan ??
-        (typeof data.plan === "string" ? data.plan : defaultSoapData.plan.followUpPlan),
+        (typeof data.plan === "string" ? data.plan : fallback.plan.followUpPlan),
     },
   };
 };
@@ -167,12 +189,14 @@ function SoapNotesContent() {
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const [billingSummary, setBillingSummary] = useState<ApiFinalizeSessionResponse["billing_summary"] | null>(null);
+  const [missingSessionSoap, setMissingSessionSoap] = useState(false);
   const { t } = useLanguage();
 
   useEffect(() => {
     const querySessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
     const activeSessionId = querySessionId || getActiveSessionId();
     setSessionId(activeSessionId);
+    setMissingSessionSoap(false);
 
     let isMounted = true;
 
@@ -186,13 +210,21 @@ function SoapNotesContent() {
       if (isMounted && apiSoapData) {
         const { billing_summary: nextBillingSummary } = apiSoapData;
         setBillingSummary(nextBillingSummary ?? null);
-        updateSoapData(normalizeSoapResponse(apiSoapData));
+        updateSoapData(normalizeSoapResponse(apiSoapData, querySessionId ? emptySoapData : defaultSoapData));
         return;
       }
 
       const storedSoapNote = window.localStorage.getItem(`medexa_soap_note_${activeSessionId}`);
 
-      if (!isMounted || !storedSoapNote) {
+      if (!isMounted) {
+        return;
+      }
+
+      if (!storedSoapNote) {
+        if (querySessionId) {
+          updateSoapData(emptySoapData);
+          setMissingSessionSoap(true);
+        }
         return;
       }
 
@@ -202,9 +234,13 @@ function SoapNotesContent() {
         };
         const { billing_summary: nextBillingSummary } = parsed;
         setBillingSummary(nextBillingSummary ?? null);
-        updateSoapData(normalizeSoapResponse(parsed));
+        updateSoapData(normalizeSoapResponse(parsed, querySessionId ? emptySoapData : defaultSoapData));
       } catch {
         window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
+        if (querySessionId) {
+          updateSoapData(emptySoapData);
+          setMissingSessionSoap(true);
+        }
       }
     };
 
@@ -323,11 +359,15 @@ function SoapNotesContent() {
         <section className="notes-stack">
           {statusMessage && <div className="status-message">{statusMessage}</div>}
 
-          {!hasVisibleSections && (
+          {missingSessionSoap && (
+            <div className="empty-state">No SOAP note generated for this session.</div>
+          )}
+
+          {!missingSessionSoap && !hasVisibleSections && (
             <div className="empty-state">{t("soap.noSections")}</div>
           )}
 
-          {visibleSections.subjective && (
+          {!missingSessionSoap && visibleSections.subjective && (
             <NoteCard
               title={t("soap.subjective")}
               isEditing={editingSection === "subjective"}
@@ -393,7 +433,7 @@ function SoapNotesContent() {
             </NoteCard>
           )}
 
-          {visibleSections.objective && (
+          {!missingSessionSoap && visibleSections.objective && (
             <NoteCard
               title={t("soap.objective")}
               isEditing={editingSection === "objective"}
@@ -470,7 +510,7 @@ function SoapNotesContent() {
             </NoteCard>
           )}
 
-          {visibleSections.assessment && (
+          {!missingSessionSoap && visibleSections.assessment && (
             <NoteCard
               title={t("soap.assessment")}
               isEditing={editingSection === "assessment"}
@@ -539,7 +579,7 @@ function SoapNotesContent() {
             </NoteCard>
           )}
 
-          {visibleSections.plan && (
+          {!missingSessionSoap && visibleSections.plan && (
             <NoteCard
               title={t("soap.plan")}
               isEditing={editingSection === "plan"}
@@ -570,7 +610,7 @@ function SoapNotesContent() {
             </NoteCard>
           )}
 
-          {billingSummary && (
+          {!missingSessionSoap && billingSummary && (
             <section className="note-card billing-summary-card">
               <div className="note-heading">
                 <h2>Billing / CPT Summary</h2>

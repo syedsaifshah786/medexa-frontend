@@ -10,7 +10,14 @@ router = APIRouter(prefix="/sessions", tags=["session-transcript-analysis"])
 @router.post("/{session_id}/analyze-transcript-chunk")
 def analyze_session_transcript_chunk(session_id: str, payload: TranscriptChunkAnalysisRequest) -> dict:
     data.ensure_session(session_id)
-    analysis = analyze_transcript_chunk(payload.chunk_text, payload.start_time, payload.end_time)
+    analysis_text = " ".join(
+        dict.fromkeys(
+            part.strip()
+            for part in [payload.full_transcript, payload.chunk_text]
+            if part and part.strip()
+        )
+    )
+    analysis = analyze_transcript_chunk(analysis_text or payload.chunk_text, payload.start_time, payload.end_time)
     detected_codes = [item.get("code") for item in analysis.get("cpt_suggestions", []) if item.get("code")]
     all_codes = [
         {"code": code}

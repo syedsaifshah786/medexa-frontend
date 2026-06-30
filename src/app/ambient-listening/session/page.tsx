@@ -264,16 +264,19 @@ const localCptTriggers = [
   { phrase: "gait training", code: "97116", displayName: "Gait Training" },
   { phrase: "walking practice", code: "97116", displayName: "Gait Training" },
   { phrase: "stair training", code: "97116", displayName: "Gait Training" },
+  { phrase: "ambulation", code: "97116", displayName: "Gait Training" },
   { phrase: "manual therapy", code: "97140", displayName: "Manual Therapy" },
   { phrase: "joint mobilization", code: "97140", displayName: "Manual Therapy" },
   { phrase: "soft tissue mobilization", code: "97140", displayName: "Manual Therapy" },
+  { phrase: "myofascial release", code: "97140", displayName: "Manual Therapy" },
   { phrase: "neuromuscular reeducation", code: "97112", displayName: "Neuromuscular Reeducation" },
   { phrase: "balance training", code: "97112", displayName: "Neuromuscular Reeducation" },
+  { phrase: "proprioception", code: "97112", displayName: "Neuromuscular Reeducation" },
   { phrase: "therapeutic activity", code: "97530", displayName: "Therapeutic Activity" },
   { phrase: "functional activity", code: "97530", displayName: "Therapeutic Activity" },
   { phrase: "transfer training", code: "97530", displayName: "Therapeutic Activity" },
-  { phrase: "self care", code: "97535", displayName: "Self-Care / ADL Training" },
-  { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL Training" },
+  { phrase: "self care", code: "97535", displayName: "Self-Care / ADL" },
+  { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL" },
 ];
 
 const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
@@ -540,6 +543,7 @@ function AmbientSessionContent() {
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
   const detectedCptCodesRef = useRef<Set<string>>(new Set());
   const appliedCptCodesRef = useRef<Set<string>>(new Set());
+  const lastShownCptAtRef = useRef<Record<string, number>>({});
   const lastTriggerAtRef = useRef(0);
   const lastTriggerCommandRef = useRef("");
   const triggerCooldownMs = 3000;
@@ -621,16 +625,19 @@ function AmbientSessionContent() {
 
     normalizedSuggestions.forEach((suggestion) => {
       const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] ?? 0;
+      const lastShownAt = lastShownCptAtRef.current[suggestion.code] ?? 0;
 
       if (
-        appliedCptCodesRef.current.has(suggestion.code) ||
-        detectedCptCodesRef.current.has(suggestion.code) ||
-        now <= rejectedUntil
+        suggestion.code === activeCptCode ||
+        now <= rejectedUntil ||
+        now - lastShownAt < 30000
       ) {
         return;
       }
 
       detectedCptCodesRef.current.add(suggestion.code);
+      lastShownCptAtRef.current[suggestion.code] = now;
+      console.log("[Medexa] CPT detected", suggestion);
       setCptPopupQueue((queue) =>
         queue.some((item) => item.code === suggestion.code) || currentCptPopup?.code === suggestion.code
           ? queue
@@ -638,7 +645,7 @@ function AmbientSessionContent() {
       );
       setCptDetectionStatus(`Detected ${suggestion.code}`);
     });
-  }, [currentCptPopup]);
+  }, [activeCptCode, currentCptPopup]);
 
   useEffect(() => {
     let isMounted = true;
@@ -778,6 +785,45 @@ function AmbientSessionContent() {
     };
   }, [activeCptCode, recordingStatus]);
 
+  useEffect(() => {
+    if (recordingStatus !== "recording" || !lastHeardText.trim()) {
+      return;
+    }
+
+    console.log("[Medexa] latest transcript", lastHeardText);
+    const instantCptSuggestions = detectLocalCptSuggestions(lastHeardText);
+
+    if (instantCptSuggestions.length > 0) {
+      enqueueCptPopups(instantCptSuggestions);
+      const localSuggestionItems = instantCptSuggestions.map((suggestion) => ({
+        id: `instant-cpt-${suggestion.code}`,
+        title: `Suggested CPT ${suggestion.code}`,
+        text: `${suggestion.display_name ?? suggestion.code} detected from live speech. ${suggestion.reason} Requires clinician review.`,
+      }));
+      const localInsightItems = instantCptSuggestions.map((suggestion) => ({
+        id: `instant-cpt-${suggestion.code}`,
+        tag: "Billing",
+        text: `Suggested CPT ${suggestion.code} - ${suggestion.display_name ?? suggestion.code}. Apply to start CPT timer.`,
+        label: "Billing",
+        tone: "billing",
+        note: `${suggestion.reason} Requires clinician review.`,
+      }));
+
+      setSuggestionItems((items) =>
+        mergeItemsById(
+          items.filter((item) => !defaultSuggestions.some((defaultItem) => defaultItem.id === item.id)),
+          localSuggestionItems,
+        ),
+      );
+      setInsightItems((items) =>
+        mergeItemsById(
+          items.filter((item) => !defaultInsights.some((defaultItem) => defaultItem.id === item.id)),
+          localInsightItems,
+        ),
+      );
+    }
+  }, [enqueueCptPopups, lastHeardText, recordingStatus]);
+
   const createAiSummarySegment = useCallback(
     async (endSeconds: number, providedChunkText?: string) => {
       if (isGeneratingSegmentRef.current) {
@@ -809,6 +855,7 @@ function AmbientSessionContent() {
             .filter((item) => appliedSuggestions[item.id])
             .map((item) => item.text),
         });
+        console.log("[Medexa] backend analysis", backendAnalysis);
         const analysis: ClinicalAnalysis = backendAnalysis
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
@@ -1272,10 +1319,20 @@ function AmbientSessionContent() {
       ncci_conflicts: latestNcciConflictsRef.current ?? [],
       soap_draft: localSoapData,
     };
+    console.log("[Medexa] finalizing SOAP", finalizePayload);
     const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
+    console.log("[Medexa] SOAP saved", finalized);
 
     if (finalized?.soap_note) {
       updateSoapData(finalized.soap_note);
+      window.localStorage.setItem(
+        `medexa_soap_note_${sessionId}`,
+        JSON.stringify({
+          ...finalized.soap_note,
+          billing_summary: finalized.billing_summary,
+          summary: finalized.summary,
+        }),
+      );
       router.push(finalized.redirect_url || `/soap-notes?sessionId=${sessionId}`);
       return;
     }
@@ -1790,7 +1847,11 @@ function AmbientSessionContent() {
               })}
 
               {filteredSuggestions.length === 0 && (
-                <div className="empty-state compact">{t("session.noSuggestions")}</div>
+                <div className="empty-state compact">
+                  {recordingStatus === "recording"
+                    ? "Listening for clinical and billing suggestions..."
+                    : t("session.noSuggestions")}
+                </div>
               )}
             </div>
           </aside>
