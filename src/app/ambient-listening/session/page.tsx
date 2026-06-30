@@ -580,21 +580,28 @@ function AmbientSessionContent() {
       }
 
       if (apiState) {
-        setRecordingStatus(apiState.status);
-        setRecordingSeconds(apiState.elapsedSeconds);
+        const loadedStatus = apiState.status === "recording" || apiState.status === "paused" ? "idle" : apiState.status;
+        setRecordingStatus(loadedStatus);
+        setRecordingSeconds(loadedStatus === "idle" ? INITIAL_RECORDING_SECONDS : apiState.elapsedSeconds);
       }
 
       if (apiTimerState) {
-        setRecordingStatus(apiTimerState.recording_status);
-        setRecordingSeconds(apiTimerState.total_seconds);
+        const loadedStatus =
+          apiTimerState.recording_status === "recording" || apiTimerState.recording_status === "paused"
+            ? "idle"
+            : apiTimerState.recording_status;
+        setRecordingStatus(loadedStatus);
+        setRecordingSeconds(loadedStatus === "idle" ? INITIAL_RECORDING_SECONDS : apiTimerState.total_seconds);
         setCptTimer(
-          createLocalCptTimer(
-            apiTimerState.cpt_timer.status,
-            apiTimerState.cpt_timer.seconds,
-            apiTimerState.cpt_timer.code,
-            apiTimerState.cpt_timer.source,
-            apiTimerState.cpt_timer.reason,
-          ),
+          loadedStatus === "idle"
+            ? createLocalCptTimer()
+            : createLocalCptTimer(
+                apiTimerState.cpt_timer.status,
+                apiTimerState.cpt_timer.seconds,
+                apiTimerState.cpt_timer.code,
+                apiTimerState.cpt_timer.source,
+                apiTimerState.cpt_timer.reason,
+              ),
         );
       }
 
@@ -1210,7 +1217,7 @@ function AmbientSessionContent() {
     cptTimer.status === "running" || cptTimer.status === "paused"
       ? `CPT ${cptCode} ${cptTimer.status === "paused" ? "paused" : "in progress.."}`
       : recordingStatus === "idle"
-        ? "Ready to record"
+        ? "Medexa is ready"
       : recordingStatus === "paused"
         ? "Medexa is paused"
         : recordingStatus === "stopped"
@@ -1220,7 +1227,7 @@ function AmbientSessionContent() {
     cptTimer.status === "running" || cptTimer.status === "paused"
       ? "Say Stop Recording..."
       : recordingStatus === "idle"
-        ? "Ready to start at 00:00"
+        ? "Say Hey Medexa start recording or press Start Recording."
         : "Say Stop Recording...";
   const cptElapsedUnitText = `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`;
   const cptNextUnitText =
@@ -1233,8 +1240,8 @@ function AmbientSessionContent() {
       : recordingStatus === "paused"
         ? t("common.resume")
         : recordingStatus === "stopped"
-          ? t("common.start")
-          : t("common.start");
+          ? "Start Recording"
+          : "Start Recording";
   const listeningStatus = !speechSession.isSupported
     ? t("session.unsupported")
     : recordingStatus === "recording" && speechSession.isListening
