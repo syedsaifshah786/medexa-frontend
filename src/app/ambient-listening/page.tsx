@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import { apiSessionToUpcomingSession, medexaApi, type ApiTranscript } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
+import { detectMedexaCommand } from "@/lib/voiceCommands";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
@@ -114,10 +116,14 @@ export default function AmbientListeningPage() {
   const [isSessionsModalOpen, setIsSessionsModalOpen] = useState(false);
   const [sessionMessage, setSessionMessage] = useState("");
   const [sessionStatusDetail, setSessionStatusDetail] = useState("");
+  const [voiceCommandMessage, setVoiceCommandMessage] = useState("");
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
   const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
   const { selectedDoctor } = useSelectedDoctor();
   const { t } = useLanguage();
+  const speechSession = useWebSpeechSession();
+  const lastVoiceCommandRef = useRef("");
+  const lastVoiceCommandAtRef = useRef(0);
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
   const doctorFirstName = selectedDoctor.name.replace(/^Dr\.\s+/, "").split(" ")[0];
@@ -171,6 +177,53 @@ export default function AmbientListeningPage() {
     });
   }, [normalizedHeaderSearch, sessionItems]);
 
+  const startSessionFromVoice = (session: UpcomingSession) => {
+    setSessionMessage(`${t("ambient.openingSession")} ${session.name}`);
+    setVoiceCommandMessage("Medexa voice command detected.");
+    setActiveSessionId(session.id);
+    medexaApi.startSession({
+      patient_id: session.id,
+      patientName: session.name,
+      therapist_id: selectedDoctor.name,
+      session_type: session.careType,
+    });
+    router.push(`/ambient-listening/session?sessionId=${session.id}&autoStartRecording=1&source=voice`);
+  };
+
+  useEffect(() => {
+    speechSession.autoStartTriggerMode();
+  }, [speechSession.autoStartTriggerMode]);
+
+  useEffect(() => {
+    if (speechSession.triggerPermissionStatus === "required" || speechSession.permissionError) {
+      setVoiceCommandMessage("Microphone permission is required for Medexa voice commands.");
+    }
+  }, [speechSession.permissionError, speechSession.triggerPermissionStatus]);
+
+  useEffect(() => {
+    if (!speechSession.lastHeardText) {
+      return;
+    }
+
+    const detection = detectMedexaCommand(speechSession.lastHeardText);
+    if (detection.command !== "start_session" && detection.command !== "start_recording") {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      lastVoiceCommandRef.current === detection.phrase &&
+      now - lastVoiceCommandAtRef.current < 5000
+    ) {
+      return;
+    }
+
+    lastVoiceCommandRef.current = detection.phrase;
+    lastVoiceCommandAtRef.current = now;
+    const nextSession = filteredSessions[0] ?? sessionItems[0] ?? sessions[0];
+    startSessionFromVoice(nextSession);
+  }, [filteredSessions, sessionItems, speechSession.lastHeardText]);
+
   const openSession = (session: UpcomingSession) => {
     if (sessionDragRef.current.moved) {
       return;
@@ -184,7 +237,7 @@ export default function AmbientListeningPage() {
       therapist_id: selectedDoctor.name,
       session_type: session.careType,
     });
-    router.push(`/ambient-listening/session?id=${session.id}`);
+    router.push(`/ambient-listening/session?sessionId=${session.id}`);
   };
 
   const startNewSession = () => {
@@ -195,7 +248,7 @@ export default function AmbientListeningPage() {
       therapist_id: selectedDoctor.name,
       session_type: "Therapeutic Therapy Session",
     });
-    router.push("/ambient-listening/session?id=new-session");
+    router.push("/ambient-listening/session?sessionId=new-session");
   };
 
   const showSessionStatus = (session: UpcomingSession) => {
@@ -383,10 +436,11 @@ export default function AmbientListeningPage() {
             </div>
           </div>
 
-          {(sessionMessage || sessionStatusDetail) && (
+          {(sessionMessage || sessionStatusDetail || voiceCommandMessage) && (
             <div className="session-feedback" aria-live="polite">
               {sessionMessage && <strong>{sessionMessage}</strong>}
               {sessionStatusDetail && <span>{sessionStatusDetail}</span>}
+              {voiceCommandMessage && <span>{voiceCommandMessage}</span>}
             </div>
           )}
 

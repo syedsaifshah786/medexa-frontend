@@ -57,6 +57,42 @@ def _detect_trigger_command(text: str) -> dict:
     }
 
 
+def _timer_response(session_id: str) -> dict:
+    state = data.timer_states[session_id].copy()
+    state["cpt_records"] = list(data.cpt_records_by_session.get(session_id, {}).values())
+    return state
+
+
+def _close_active_cpt_record(session_id: str, end_second: int) -> None:
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"]
+    code = cpt_timer.get("code")
+    if not code:
+        return
+
+    records = data.cpt_records_by_session.setdefault(session_id, {})
+    record = records.get(code) or {
+        "code": code,
+        "displayName": code,
+        "seconds": 0,
+        "units": 0,
+        "status": "stopped",
+        "source": cpt_timer.get("source") or "manual",
+        "reason": cpt_timer.get("reason") or "",
+        "intervals": [],
+    }
+    record["seconds"] = cpt_timer.get("seconds", record.get("seconds", 0))
+    record["units"] = data.cpt_units_from_seconds(record["seconds"])
+    record["status"] = "stopped"
+    record["source"] = cpt_timer.get("source") or record.get("source") or "manual"
+    record["reason"] = cpt_timer.get("reason") or record.get("reason") or ""
+    if record["intervals"]:
+        last_interval = record["intervals"][-1]
+        if last_interval.get("endSecond") is None:
+            last_interval["endSecond"] = end_second
+    records[code] = record
+
+
 @router.get("")
 def list_sessions() -> list[dict]:
     return data.sessions
@@ -104,7 +140,7 @@ def update_state(session_id: str, payload: SessionStateUpdate) -> dict:
 @router.get("/{session_id}/timer-state")
 def get_timer_state(session_id: str) -> dict:
     data.ensure_session(session_id)
-    return data.timer_states[session_id]
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/timer-state/start")
@@ -118,7 +154,7 @@ def start_timer_state(session_id: str) -> dict:
         cpt_timer if cpt_timer["status"] != "idle" else data.cpt_timer_from_elapsed(),
     )
     data.session_states[session_id] = data.state_from_elapsed("recording", 0)
-    return data.timer_states[session_id]
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/timer-state/pause")
@@ -141,7 +177,7 @@ def pause_timer_state(session_id: str) -> dict:
         cpt_timer,
     )
     data.session_states[session_id] = data.state_from_elapsed("paused", state["total_seconds"])
-    return data.timer_states[session_id]
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/timer-state/resume")
@@ -164,7 +200,7 @@ def resume_timer_state(session_id: str) -> dict:
         cpt_timer,
     )
     data.session_states[session_id] = data.state_from_elapsed("recording", state["total_seconds"])
-    return data.timer_states[session_id]
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/timer-state/stop")
@@ -187,13 +223,14 @@ def stop_timer_state(session_id: str) -> dict:
         cpt_timer,
     )
     data.session_states[session_id] = data.state_from_elapsed("stopped", state["total_seconds"])
-    return data.timer_states[session_id]
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/cpt-timer/start")
 def start_cpt_timer(session_id: str, payload: CptTimerStartRequest) -> dict:
     data.ensure_session(session_id)
     state = data.timer_states[session_id]
+    _close_active_cpt_record(session_id, state["total_seconds"])
     cpt_timer = data.cpt_timer_from_elapsed(
         "running",
         0,
@@ -207,7 +244,17 @@ def start_cpt_timer(session_id: str, payload: CptTimerStartRequest) -> dict:
         state["total_seconds"],
         cpt_timer,
     )
-    return data.timer_states[session_id]
+    data.cpt_records_by_session.setdefault(session_id, {})[payload.code] = {
+        "code": payload.code,
+        "displayName": payload.code,
+        "seconds": 0,
+        "units": 0,
+        "status": "running",
+        "source": payload.source,
+        "reason": payload.reason,
+        "intervals": [{"startSecond": state["total_seconds"]}],
+    }
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/cpt-timer/pause")
@@ -227,7 +274,8 @@ def pause_cpt_timer(session_id: str) -> dict:
             cpt_timer.get("reason"),
         ),
     )
-    return data.timer_states[session_id]
+    _close_active_cpt_record(session_id, state["total_seconds"])
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/cpt-timer/resume")
@@ -247,7 +295,13 @@ def resume_cpt_timer(session_id: str) -> dict:
             cpt_timer.get("reason"),
         ),
     )
-    return data.timer_states[session_id]
+    code = cpt_timer.get("code")
+    if code:
+        record = data.cpt_records_by_session.setdefault(session_id, {}).get(code)
+        if record:
+            record["status"] = "running"
+            record.setdefault("intervals", []).append({"startSecond": state["total_seconds"]})
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/cpt-timer/stop")
@@ -267,7 +321,8 @@ def stop_cpt_timer(session_id: str) -> dict:
             cpt_timer.get("reason"),
         ),
     )
-    return data.timer_states[session_id]
+    _close_active_cpt_record(session_id, state["total_seconds"])
+    return _timer_response(session_id)
 
 
 @router.post("/{session_id}/finalize-session")

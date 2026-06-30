@@ -1,4 +1,5 @@
 export type MedexaCommand =
+  | "start_session"
   | "start_recording"
   | "stop_recording"
   | "pause"
@@ -30,6 +31,16 @@ const wakeWordPatterns = [
 ];
 
 const commandPatterns: Array<{ command: Exclude<MedexaCommand, "none">; phrases: string[] }> = [
+  {
+    command: "start_session",
+    phrases: [
+      "hey medexa start a session",
+      "medexa start a session",
+      "hey medexa start session",
+      "medexa start session",
+      "start a new session",
+    ],
+  },
   {
     command: "start_recording",
     phrases: ["medexa start recording", "hey medexa start recording", "medexa begin session", "medexa start session", "start recording"],

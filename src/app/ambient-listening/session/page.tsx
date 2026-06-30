@@ -521,7 +521,8 @@ function AmbientSessionContent() {
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const routeSessionId = searchParams.get("id") ?? searchParams.get("session") ?? "";
+  const routeSessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? searchParams.get("session") ?? "";
+  const shouldAutoStartRecording = searchParams.get("autoStartRecording") === "1" && searchParams.get("source") === "voice";
   const localRouteSession = getSessionById(routeSessionId);
   const sessionId = routeSessionId || localRouteSession.id;
   const [selectedSession, setSelectedSession] = useState(localRouteSession);
@@ -545,6 +546,7 @@ function AmbientSessionContent() {
   const latestDetectedCptSuggestionsRef = useRef<ApiTranscriptAnalysis["cpt_suggestions"]>([]);
   const latestDetectedIcdSuggestionsRef = useRef<ApiTranscriptAnalysis["icd10_suggestions"]>([]);
   const latestNcciConflictsRef = useRef<ApiTranscriptAnalysis["ncci_conflicts"]>([]);
+  const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
   const speechSession = useWebSpeechSession();
@@ -682,7 +684,11 @@ function AmbientSessionContent() {
                 apiTimerState.cpt_timer.reason,
               ),
         );
-        if (apiTimerState.cpt_timer.code) {
+        if (apiTimerState.cpt_records?.length) {
+          setCptRecords(Object.fromEntries(apiTimerState.cpt_records.map((record) => [record.code, record])));
+          const runningRecord = apiTimerState.cpt_records.find((record) => record.status === "running");
+          setActiveCptCode(runningRecord?.code ?? null);
+        } else if (apiTimerState.cpt_timer.code) {
           setActiveCptCode(apiTimerState.cpt_timer.status === "running" ? apiTimerState.cpt_timer.code : null);
           setCptRecords({
             [apiTimerState.cpt_timer.code]: {
@@ -796,6 +802,12 @@ function AmbientSessionContent() {
           end_time: endTime,
           existing_cpt_codes: Object.keys(cptRecords),
           active_cpt_code: activeCptCode,
+          approved_insights: insightItems
+            .filter((item) => insightStates[item.id]?.approved && !insightStates[item.id]?.ignored)
+            .map((item) => item.note || item.text),
+          applied_suggestions: suggestionItems
+            .filter((item) => appliedSuggestions[item.id])
+            .map((item) => item.text),
         });
         const analysis: ClinicalAnalysis = backendAnalysis
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
@@ -846,15 +858,30 @@ function AmbientSessionContent() {
         if (backendLiveSuggestions.length > 0) {
           const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
           const nextInsightItems = backendLiveSuggestions.map(apiLiveSuggestionToInsight);
-          setSuggestionItems((items) => mergeItemsById(items, nextSuggestions));
-          setInsightItems((items) => mergeItemsById(items, nextInsightItems));
+          setSuggestionItems((items) =>
+            mergeItemsById(
+              items.filter((item) => !defaultSuggestions.some((defaultItem) => defaultItem.id === item.id)),
+              nextSuggestions,
+            ),
+          );
+          setInsightItems((items) =>
+            mergeItemsById(
+              items.filter((item) => !defaultInsights.some((defaultItem) => defaultItem.id === item.id)),
+              nextInsightItems,
+            ),
+          );
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
           const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
               id: `local-cpt-${suggestion.code}`,
               title: `Suggested CPT ${suggestion.code}`,
               text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
             }));
-          setSuggestionItems((items) => mergeItemsById(items, nextSuggestions));
+          setSuggestionItems((items) =>
+            mergeItemsById(
+              items.filter((item) => !defaultSuggestions.some((defaultItem) => defaultItem.id === item.id)),
+              nextSuggestions,
+            ),
+          );
           const nextInsightItems = nextSuggestions
               .filter((suggestion) => suggestion.id.startsWith("local-cpt-"))
               .map((suggestion) => ({
@@ -865,7 +892,12 @@ function AmbientSessionContent() {
                 tone: "billing",
                 note: "Procedure detected from live speech. Requires clinician review.",
               }));
-          setInsightItems((items) => mergeItemsById(items, nextInsightItems));
+          setInsightItems((items) =>
+            mergeItemsById(
+              items.filter((item) => !defaultInsights.some((defaultItem) => defaultItem.id === item.id)),
+              nextInsightItems,
+            ),
+          );
         }
 
         const backendCptSuggestions = backendAnalysis?.cpt_timer_suggestions?.length
@@ -909,7 +941,19 @@ function AmbientSessionContent() {
         isGeneratingSegmentRef.current = false;
       }
     },
-    [activeCptCode, consumeCurrentChunkTranscript, cptRecords, enqueueCptPopups, fullTranscript, recordingStatus, sessionId],
+    [
+      activeCptCode,
+      appliedSuggestions,
+      consumeCurrentChunkTranscript,
+      cptRecords,
+      enqueueCptPopups,
+      fullTranscript,
+      insightItems,
+      insightStates,
+      recordingStatus,
+      sessionId,
+      suggestionItems,
+    ],
   );
 
   useEffect(() => {
@@ -1044,6 +1088,8 @@ function AmbientSessionContent() {
     setCurrentCptPopup(null);
     setCptRecords({});
     setActiveCptCode(null);
+    setSuggestionItems([]);
+    setInsightItems([]);
     setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
     detectedCptCodesRef.current = new Set();
@@ -1073,6 +1119,11 @@ function AmbientSessionContent() {
           [activeCptCode]: {
             ...records[activeCptCode],
             status: "paused",
+            intervals: records[activeCptCode].intervals.map((interval, index, intervals) =>
+              index === intervals.length - 1 && interval.endSecond === undefined
+                ? { ...interval, endSecond: recordingSecondsRef.current }
+                : interval,
+            ),
           },
         };
       });
@@ -1113,6 +1164,10 @@ function AmbientSessionContent() {
         [activeCptCode]: {
           ...records[activeCptCode],
           status: "running",
+          intervals: [
+            ...records[activeCptCode].intervals,
+            { startSecond: recordingSecondsRef.current },
+          ],
         },
       };
     });
@@ -1127,6 +1182,17 @@ function AmbientSessionContent() {
       elapsedSeconds: recordingStatus === "stopped" ? INITIAL_RECORDING_SECONDS : recordingSeconds,
     });
   };
+
+  useEffect(() => {
+    if (!shouldAutoStartRecording || autoStartHandledRef.current || recordingStatus !== "idle") {
+      return;
+    }
+
+    autoStartHandledRef.current = true;
+    window.setTimeout(() => {
+      handlePrimaryRecordingControl();
+    }, 250);
+  }, [recordingStatus, shouldAutoStartRecording]);
 
   const requestStop = () => {
     if (recordingStatus === "recording" || recordingStatus === "paused") {
@@ -1149,6 +1215,11 @@ function AmbientSessionContent() {
 
     if (finalCptTimer.code) {
       const existingRecord = finalizedCptRecordsMap[finalCptTimer.code];
+      const closedIntervals = (existingRecord?.intervals ?? []).map((interval, index, intervals) =>
+        index === intervals.length - 1 && interval.endSecond === undefined
+          ? { ...interval, endSecond: recordingSecondsRef.current }
+          : interval,
+      );
       finalizedCptRecordsMap[finalCptTimer.code] = {
         code: finalCptTimer.code,
         displayName: existingRecord?.displayName || finalCptTimer.code,
@@ -1156,7 +1227,7 @@ function AmbientSessionContent() {
         units: finalCptTimer.units,
         status: "stopped",
         source: finalCptTimer.source ?? existingRecord?.source ?? "manual",
-        intervals: existingRecord?.intervals ?? [],
+        intervals: closedIntervals,
         reason: finalCptTimer.reason ?? existingRecord?.reason ?? "",
       };
     }
@@ -1193,6 +1264,7 @@ function AmbientSessionContent() {
         units: finalCptTimer.units,
       },
       cpt_records: finalizedCptRecords,
+      active_cpt_code: activeCptCode,
       applied_suggestions: appliedSuggestionNotes,
       approved_insights: approvedInsightNotes,
       detected_cpt_suggestions: latestDetectedCptSuggestionsRef.current ?? [],
@@ -1208,7 +1280,16 @@ function AmbientSessionContent() {
       return;
     }
 
-    window.localStorage.setItem(`medexa_soap_note_${sessionId}`, JSON.stringify(localSoapData));
+    window.localStorage.setItem(
+      `medexa_soap_note_${sessionId}`,
+      JSON.stringify({
+        ...localSoapData,
+        billing_summary: {
+          total_seconds: recordingSeconds,
+          cpt_records: finalizedCptRecords,
+        },
+      }),
+    );
     router.push(`/soap-notes?sessionId=${sessionId}`);
   };
 
@@ -1226,26 +1307,37 @@ function AmbientSessionContent() {
 
     setCptTimer(createLocalCptTimer("running", 0, suggestedCode, source, reason));
     setCptRecords((records) => {
-      const pausedRecords = Object.fromEntries(
+      const nextStartSecond = recordingSecondsRef.current;
+      const stoppedRecords = Object.fromEntries(
         Object.entries(records).map(([code, record]) => [
           code,
-          record.status === "running" ? { ...record, status: "paused" as const } : record,
+          record.status === "running"
+            ? {
+                ...record,
+                status: "stopped" as const,
+                intervals: record.intervals.map((interval, index, intervals) =>
+                  index === intervals.length - 1 && interval.endSecond === undefined
+                    ? { ...interval, endSecond: nextStartSecond }
+                    : interval,
+                ),
+              }
+            : record,
         ]),
       );
-      const existingRecord = pausedRecords[suggestedCode];
+      const existingRecord = stoppedRecords[suggestedCode];
 
       return {
-        ...pausedRecords,
+        ...stoppedRecords,
         [suggestedCode]: {
           code: suggestedCode,
           displayName,
-          seconds: existingRecord?.seconds ?? 0,
-          units: existingRecord?.units ?? 0,
+          seconds: 0,
+          units: 0,
           status: "running",
           source,
           intervals: [
             ...(existingRecord?.intervals ?? []),
-            { start: new Date().toISOString() },
+            { startSecond: nextStartSecond },
           ],
           reason,
         },
@@ -1282,6 +1374,11 @@ function AmbientSessionContent() {
         [activeCptCode]: {
           ...records[activeCptCode],
           status: "stopped",
+          intervals: records[activeCptCode].intervals.map((interval, index, intervals) =>
+            index === intervals.length - 1 && interval.endSecond === undefined
+              ? { ...interval, endSecond: recordingSecondsRef.current }
+              : interval,
+          ),
         },
       };
     });

@@ -76,6 +76,7 @@ export type ApiTimerState = {
   recording_status: ApiRecordingState["status"];
   total_seconds: number;
   cpt_timer: ApiCptTimerState;
+  cpt_records?: ApiCptRecord[];
 };
 
 export type ApiCptTimerSuggestion = {
@@ -147,9 +148,8 @@ export type ApiCptRecord = {
   status: "running" | "paused" | "stopped";
   source: "manual" | "ai_suggested";
   intervals: Array<{
-    start: string;
-    end?: string;
-    seconds?: number;
+    startSecond: number;
+    endSecond?: number;
   }>;
   reason?: string;
 };
@@ -164,6 +164,7 @@ export type ApiFinalizeSessionPayload = {
     units: number;
   };
   cpt_records?: ApiCptRecord[];
+  active_cpt_code?: string | null;
   applied_suggestions: string[];
   approved_insights?: string[];
   detected_cpt_suggestions: ApiTranscriptAnalysis["cpt_suggestions"];
@@ -186,7 +187,19 @@ export type ApiFinalizeSessionResponse = {
   redirect_url: string;
 };
 
-export type ApiSoapNoteResponse = SoapData & {
+export type ApiSoapNoteResponse = Partial<SoapData> & {
+  chief_complaint?: string;
+  pain_scale?: string;
+  duration?: string;
+  subjective?: SoapData["subjective"] | string;
+  objective?: SoapData["objective"] | string;
+  assessment?: SoapData["assessment"] | string;
+  plan?: SoapData["plan"] | string;
+  diagnosis_summary?: string;
+  observation_notes?: string;
+  range_of_motion?: string;
+  affect?: string;
+  vital_signs?: string;
   summary?: string;
   billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
 };
@@ -358,6 +371,8 @@ export const medexaApi = {
       end_time: string;
       existing_cpt_codes?: string[];
       active_cpt_code?: string | null;
+      approved_insights?: string[];
+      applied_suggestions?: string[];
     },
   ) =>
     request<ApiTranscriptAnalysis>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {

@@ -11,7 +11,7 @@ import {
   useSessionDocumentation,
 } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
-import { medexaApi, type ApiFinalizeSessionResponse } from "@/lib/api";
+import { medexaApi, type ApiFinalizeSessionResponse, type ApiSoapNoteResponse } from "@/lib/api";
 
 function Field({
   label,
@@ -118,6 +118,46 @@ export default function SoapNotesPage() {
   );
 }
 
+const normalizeSoapResponse = (data: ApiSoapNoteResponse): typeof defaultSoapData => {
+  const subjective = typeof data.subjective === "object" && data.subjective ? data.subjective : null;
+  const objective = typeof data.objective === "object" && data.objective ? data.objective : null;
+  const assessment = typeof data.assessment === "object" && data.assessment ? data.assessment : null;
+  const plan = typeof data.plan === "object" && data.plan ? data.plan : null;
+
+  return {
+    subjective: {
+      chiefComplaint:
+        subjective?.chiefComplaint ??
+        data.chief_complaint ??
+        (typeof data.subjective === "string" ? data.subjective : defaultSoapData.subjective.chiefComplaint),
+      painScale: subjective?.painScale ?? data.pain_scale ?? defaultSoapData.subjective.painScale,
+      duration: subjective?.duration ?? data.duration ?? defaultSoapData.subjective.duration,
+    },
+    objective: {
+      observationNotes:
+        objective?.observationNotes ??
+        data.observation_notes ??
+        (typeof data.objective === "string" ? data.objective : defaultSoapData.objective.observationNotes),
+      rangeOfMotion: objective?.rangeOfMotion ?? data.range_of_motion ?? defaultSoapData.objective.rangeOfMotion,
+      affect: objective?.affect ?? data.affect ?? defaultSoapData.objective.affect,
+      vitalSigns: objective?.vitalSigns ?? data.vital_signs ?? defaultSoapData.objective.vitalSigns,
+    },
+    assessment: {
+      diagnosisSummary:
+        assessment?.diagnosisSummary ??
+        data.diagnosis_summary ??
+        (typeof data.assessment === "string" ? data.assessment : defaultSoapData.assessment.diagnosisSummary),
+      primaryDiagnosisCode: assessment?.primaryDiagnosisCode ?? "Requires clinician review",
+      severity: assessment?.severity ?? "Requires clinician review",
+    },
+    plan: {
+      followUpPlan:
+        plan?.followUpPlan ??
+        (typeof data.plan === "string" ? data.plan : defaultSoapData.plan.followUpPlan),
+    },
+  };
+};
+
 function SoapNotesContent() {
   const searchParams = useSearchParams();
   const [headerSearch, setHeaderSearch] = useState("");
@@ -144,9 +184,9 @@ function SoapNotesContent() {
       const apiSoapData = await medexaApi.getSoapNote(activeSessionId);
 
       if (isMounted && apiSoapData) {
-        const { billing_summary: nextBillingSummary, summary: _summary, ...soapNote } = apiSoapData;
+        const { billing_summary: nextBillingSummary } = apiSoapData;
         setBillingSummary(nextBillingSummary ?? null);
-        updateSoapData(soapNote);
+        updateSoapData(normalizeSoapResponse(apiSoapData));
         return;
       }
 
@@ -157,12 +197,12 @@ function SoapNotesContent() {
       }
 
       try {
-        const parsed = JSON.parse(storedSoapNote) as typeof defaultSoapData & {
+        const parsed = JSON.parse(storedSoapNote) as ApiSoapNoteResponse & {
           billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
         };
-        const { billing_summary: nextBillingSummary, ...soapNote } = parsed;
+        const { billing_summary: nextBillingSummary } = parsed;
         setBillingSummary(nextBillingSummary ?? null);
-        updateSoapData(soapNote);
+        updateSoapData(normalizeSoapResponse(parsed));
       } catch {
         window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
       }

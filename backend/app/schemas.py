@@ -45,6 +45,7 @@ class FinalizeSessionRequest(BaseModel):
     total_seconds: int = 0
     cpt_timer: FinalizeCptTimerPayload = Field(default_factory=FinalizeCptTimerPayload)
     cpt_records: list[FinalizeCptRecordPayload] = Field(default_factory=list)
+    active_cpt_code: str | None = None
     applied_suggestions: list[str] = Field(default_factory=list)
     approved_insights: list[str] = Field(default_factory=list)
     detected_cpt_suggestions: list[dict] = Field(default_factory=list)
@@ -96,6 +97,8 @@ class TranscriptChunkAnalysisRequest(BaseModel):
     end_time: str
     existing_cpt_codes: list[str] = Field(default_factory=list)
     active_cpt_code: str | None = None
+    approved_insights: list[str] = Field(default_factory=list)
+    applied_suggestions: list[str] = Field(default_factory=list)
 
 
 class DebugDetectRequest(BaseModel):

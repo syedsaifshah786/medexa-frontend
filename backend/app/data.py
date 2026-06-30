@@ -345,6 +345,7 @@ default_claim = {
 
 session_states = {session["id"]: state_from_elapsed() for session in sessions}
 timer_states = {session["id"]: timer_state_from_elapsed(session["id"]) for session in sessions}
+cpt_records_by_session = {session["id"]: {} for session in sessions}
 insights_by_session = {session["id"]: [item.copy() for item in default_insights] for session in sessions}
 suggestions_by_session = {session["id"]: [item.copy() for item in default_suggestions] for session in sessions}
 soap_notes_by_session = {session["id"]: default_soap_notes.copy() for session in sessions}
@@ -368,6 +369,7 @@ def ensure_session(session_id: str) -> None:
     sessions.append(base)
     session_states[session_id] = state_from_elapsed()
     timer_states[session_id] = timer_state_from_elapsed(session_id)
+    cpt_records_by_session[session_id] = {}
     insights_by_session[session_id] = [item.copy() for item in default_insights]
     suggestions_by_session[session_id] = [item.copy() for item in default_suggestions]
     soap_notes_by_session[session_id] = default_soap_notes.copy()
