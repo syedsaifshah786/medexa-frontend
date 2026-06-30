@@ -10,6 +10,7 @@ import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import {
   apiSessionToUpcomingSession,
   medexaApi,
+  type ApiCptTimerSuggestion,
   type ApiInsight,
   type ApiSuggestion,
   type ApiTranscriptAnalysis,
@@ -81,6 +82,20 @@ type SuggestionItem = (typeof defaultSuggestions)[number];
 
 type RecordingStatus = "idle" | "recording" | "paused" | "stopped";
 
+type CptTimerStatus = "idle" | "running" | "paused" | "stopped";
+
+type LocalCptTimer = {
+  active: boolean;
+  code: string | null;
+  seconds: number;
+  units: number;
+  nextUnitAtSeconds: number;
+  secondsLeftToNextUnit: number;
+  status: CptTimerStatus;
+  source?: "manual" | "ai_suggested" | null;
+  reason?: string | null;
+};
+
 type AiSummarySegment = {
   id: string;
   startTime: string;
@@ -91,13 +106,69 @@ type AiSummarySegment = {
 };
 
 const INITIAL_RECORDING_SECONDS = 0;
-const BILLABLE_UNIT_SECONDS = 8 * 60;
 
 const formatDuration = (totalSeconds: number) => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
 
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+};
+
+const cptUnitsFromSeconds = (totalSeconds: number) => {
+  if (totalSeconds < 8 * 60) {
+    return 0;
+  }
+
+  if (totalSeconds < 23 * 60) {
+    return 1;
+  }
+
+  if (totalSeconds < 38 * 60) {
+    return 2;
+  }
+
+  if (totalSeconds < 53 * 60) {
+    return 3;
+  }
+
+  if (totalSeconds < 68 * 60) {
+    return 4;
+  }
+
+  return 5 + Math.floor((totalSeconds - 68 * 60) / (15 * 60));
+};
+
+const nextCptUnitAt = (totalSeconds: number) => {
+  const thresholds = [8 * 60, 23 * 60, 38 * 60, 53 * 60, 68 * 60];
+  const nextThreshold = thresholds.find((threshold) => totalSeconds < threshold);
+
+  if (nextThreshold) {
+    return nextThreshold;
+  }
+
+  return 68 * 60 + (Math.floor((totalSeconds - 68 * 60) / (15 * 60)) + 1) * 15 * 60;
+};
+
+const createLocalCptTimer = (
+  status: CptTimerStatus = "idle",
+  seconds = 0,
+  code: string | null = null,
+  source: LocalCptTimer["source"] = null,
+  reason: string | null = null,
+): LocalCptTimer => {
+  const nextUnitAtSeconds = nextCptUnitAt(seconds);
+
+  return {
+    active: status === "running",
+    code,
+    seconds,
+    units: cptUnitsFromSeconds(seconds),
+    nextUnitAtSeconds,
+    secondsLeftToNextUnit: Math.max(nextUnitAtSeconds - seconds, 0),
+    status,
+    source,
+    reason,
+  };
 };
 
 const summarizeBillingCaveats = (billingCaveats: Record<string, unknown>) =>
@@ -348,6 +419,8 @@ function AmbientSessionContent() {
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
+  const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
+  const [cptTimerSuggestion, setCptTimerSuggestion] = useState<ApiCptTimerSuggestion | null>(null);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const routeSessionId = searchParams.get("id") ?? searchParams.get("session") ?? "";
@@ -413,9 +486,10 @@ function AmbientSessionContent() {
     let isMounted = true;
 
     const loadSession = async () => {
-      const [apiSession, apiState, apiInsights, apiSuggestions] = await Promise.all([
+      const [apiSession, apiState, apiTimerState, apiInsights, apiSuggestions] = await Promise.all([
         medexaApi.session(sessionId),
         medexaApi.sessionState(sessionId),
+        medexaApi.getTimerState(sessionId),
         medexaApi.insights(sessionId),
         medexaApi.suggestions(sessionId),
       ]);
@@ -431,6 +505,20 @@ function AmbientSessionContent() {
       if (apiState) {
         setRecordingStatus(apiState.status);
         setRecordingSeconds(apiState.elapsedSeconds);
+      }
+
+      if (apiTimerState) {
+        setRecordingStatus(apiTimerState.recording_status);
+        setRecordingSeconds(apiTimerState.total_seconds);
+        setCptTimer(
+          createLocalCptTimer(
+            apiTimerState.cpt_timer.status,
+            apiTimerState.cpt_timer.seconds,
+            apiTimerState.cpt_timer.code,
+            apiTimerState.cpt_timer.source,
+            apiTimerState.cpt_timer.reason,
+          ),
+        );
       }
 
       if (apiInsights) {
@@ -486,6 +574,11 @@ function AmbientSessionContent() {
 
     const timerId = window.setInterval(() => {
       setRecordingSeconds((seconds) => seconds + 1);
+      setCptTimer((timer) =>
+        timer.status === "running"
+          ? createLocalCptTimer("running", timer.seconds + 1, timer.code, timer.source, timer.reason)
+          : timer,
+      );
     }, 1000);
 
     return () => {
@@ -518,6 +611,21 @@ function AmbientSessionContent() {
         const analysis: ClinicalAnalysis = backendAnalysis
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
+
+        if (backendAnalysis?.cpt_timer_suggestion?.should_start) {
+          setCptTimerSuggestion(backendAnalysis.cpt_timer_suggestion);
+        } else if (!backendAnalysis) {
+          const localCptSuggestion = analysis.cptSuggestions[0];
+          if (localCptSuggestion) {
+            setCptTimerSuggestion({
+              should_start: true,
+              code: localCptSuggestion.code,
+              display_name: localCptSuggestion.displayName,
+              reason: localCptSuggestion.reason,
+              confidence: localCptSuggestion.confidence,
+            });
+          }
+        }
 
         const segment: AiSummarySegment = {
           id: `${sessionId}-${endSeconds}-${Date.now()}`,
@@ -659,6 +767,7 @@ function AmbientSessionContent() {
     speechSession.resetTranscript();
     setAiSummarySegments([]);
     setGeneratedSoapSuggestions([]);
+    setCptTimerSuggestion(null);
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
@@ -668,7 +777,13 @@ function AmbientSessionContent() {
 
     if (recordingStatus === "recording") {
       setRecordingStatus("paused");
+      setCptTimer((timer) =>
+        timer.status === "running"
+          ? createLocalCptTimer("paused", timer.seconds, timer.code, timer.source, timer.reason)
+          : timer,
+      );
       speechSession.pauseListening();
+      medexaApi.pauseSessionTimer(sessionId);
       medexaApi.updateSessionState(sessionId, {
         status: "paused",
         elapsedSeconds: recordingSeconds,
@@ -678,15 +793,28 @@ function AmbientSessionContent() {
 
     if (recordingStatus === "stopped") {
       setRecordingSeconds(INITIAL_RECORDING_SECONDS);
+      setCptTimer(createLocalCptTimer());
       resetAiSession();
     }
 
     if (recordingStatus === "idle") {
+      setRecordingSeconds(INITIAL_RECORDING_SECONDS);
+      setCptTimer(createLocalCptTimer());
       resetAiSession();
     }
 
     setRecordingStatus("recording");
+    setCptTimer((timer) =>
+      timer.status === "paused"
+        ? createLocalCptTimer("running", timer.seconds, timer.code, timer.source, timer.reason)
+        : timer,
+    );
     speechSession.resumeListening();
+    if (recordingStatus === "idle" || recordingStatus === "stopped") {
+      medexaApi.startSessionTimer(sessionId);
+    } else {
+      medexaApi.resumeSessionTimer(sessionId);
+    }
     medexaApi.updateSessionState(sessionId, {
       status: "recording",
       elapsedSeconds: recordingStatus === "stopped" ? INITIAL_RECORDING_SECONDS : recordingSeconds,
@@ -701,9 +829,18 @@ function AmbientSessionContent() {
 
   const confirmStop = () => {
     setRecordingStatus("stopped");
+    setCptTimer((timer) =>
+      timer.status === "running" || timer.status === "paused"
+        ? createLocalCptTimer("stopped", timer.seconds, timer.code, timer.source, timer.reason)
+        : timer,
+    );
     setShowStopConfirm(false);
     speechSession.stopListening();
     void createAiSummarySegment(recordingSecondsRef.current);
+    medexaApi.stopSessionTimer(sessionId);
+    if (cptTimer.status === "running" || cptTimer.status === "paused") {
+      medexaApi.stopCptTimer(sessionId);
+    }
     medexaApi.updateSessionState(sessionId, {
       status: "stopped",
       elapsedSeconds: recordingSeconds,
@@ -714,6 +851,25 @@ function AmbientSessionContent() {
         updateSoapData(generatedSoapData);
       }
     });
+  };
+
+  const startCptTimerFromSuggestion = (source: "manual" | "ai_suggested" = "manual") => {
+    const suggestedCode = cptTimerSuggestion?.code || selectedSession.cpt || "97110";
+    const reason =
+      cptTimerSuggestion?.reason ||
+      (source === "ai_suggested"
+        ? "Transcript indicates a medically billable activity."
+        : "Clinician manually started CPT timing.");
+
+    setCptTimer(createLocalCptTimer("running", 0, suggestedCode, source, reason));
+    setCptTimerSuggestion(null);
+    setStatusMessage(`CPT ${suggestedCode} timer started.`);
+    medexaApi.startCptTimer(sessionId, suggestedCode, source, reason);
+  };
+
+  const stopCptTimer = () => {
+    setCptTimer((timer) => createLocalCptTimer("stopped", timer.seconds, timer.code, timer.source, timer.reason));
+    medexaApi.stopCptTimer(sessionId);
   };
 
   const handleGenerateTestSummary = () => {
@@ -783,24 +939,31 @@ function AmbientSessionContent() {
       : recordingStatus === "paused"
         ? t("session.recordingPaused")
         : t("session.readyToRecord");
-  const recordingCardText =
-    recordingStatus === "stopped"
-      ? t("session.recordingSaved")
-      : recordingStatus === "paused"
-        ? t("session.recordingPaused")
-        : recordingStatus === "idle"
-          ? t("session.pressPlay")
-        : (
-            <>
-              {t("session.sayStopRecording")}
-            </>
-          );
   const formattedRecordingDuration = formatDuration(recordingSeconds);
-  const recordedUnits = Math.floor(recordingSeconds / BILLABLE_UNIT_SECONDS);
-  const nextUnit = recordedUnits + 1;
-  const nextUnitTargetSeconds = nextUnit * BILLABLE_UNIT_SECONDS;
-  const secondsUntilNextUnit = nextUnitTargetSeconds - recordingSeconds;
-  const unitLabel = recordedUnits === 1 ? "Unit" : "Units";
+  const sessionUnits = recordingStatus === "idle" ? 0 : cptUnitsFromSeconds(recordingSeconds);
+  const cptUnits = cptTimer.units;
+  const cptCode = cptTimer.code || cptTimerSuggestion?.code || selectedSession.cpt || "97110";
+  const nextCptUnit = cptUnits + 1;
+  const primaryBannerTitle =
+    cptTimer.status === "running" || cptTimer.status === "paused"
+      ? `CPT ${cptCode} ${cptTimer.status === "paused" ? "paused" : "in progress.."}`
+      : recordingStatus === "idle"
+        ? "Ready to record"
+      : recordingStatus === "paused"
+        ? "Medexa is paused"
+        : recordingStatus === "stopped"
+          ? "Medexa stopped listening"
+          : "Medexa is listening";
+  const primaryBannerSubtext =
+    cptTimer.status === "running" || cptTimer.status === "paused"
+      ? `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`
+      : recordingStatus === "idle"
+        ? "Ready to start at 00:00"
+        : "Say Stop Recording...";
+  const cptNextUnitText =
+    cptTimer.status === "running" || cptTimer.status === "paused" || cptTimer.status === "stopped"
+      ? `Unit ${nextCptUnit} at ${formatDuration(cptTimer.nextUnitAtSeconds)} • +${formatDuration(cptTimer.secondsLeftToNextUnit)} left`
+      : "CPT units: 0";
   const primaryControlLabel =
     recordingStatus === "recording"
       ? t("common.pause")
@@ -816,6 +979,7 @@ function AmbientSessionContent() {
       : recordingStatus === "recording" || recordingStatus === "paused"
         ? t("session.paused")
         : t("common.stopped");
+  const showBottomControl = true;
 
   return (
     <main className="session-page">
@@ -866,26 +1030,53 @@ function AmbientSessionContent() {
 
         <section className="recording-card">
           <div className="recording-left">
-            <span className="wave-bars" aria-hidden="true">
+            <span
+              className={`wave-bars ${recordingStatus === "recording" ? "is-animating" : ""}`}
+              aria-hidden="true"
+            >
               <i />
               <i />
               <i />
               <i />
               <i />
             </span>
+            <span className={`listening-dot is-${recordingStatus}`} aria-hidden="true" />
             <div>
-              <div className="timer-line">
-                <strong>{formattedRecordingDuration}</strong>
-                <span>/ {recordedUnits} {unitLabel}</span>
-              </div>
-              <p>{recordingCardText}</p>
+              <h2>{primaryBannerTitle}</h2>
+              <p>{primaryBannerSubtext}</p>
             </div>
           </div>
           <div className="recording-right">
-            <p>{t("session.unitAt")} {nextUnit} at <b dir="ltr">{formatDuration(nextUnitTargetSeconds)}</b></p>
-            <strong dir="ltr">+{formatDuration(secondsUntilNextUnit)} {t("session.left")}</strong>
+            <p>Session units: <b>{sessionUnits}</b></p>
+            <strong dir="ltr">{cptNextUnitText}</strong>
           </div>
         </section>
+
+        <div className="cpt-action-row">
+          <button
+            type="button"
+            onClick={() => startCptTimerFromSuggestion("manual")}
+            disabled={recordingStatus !== "recording" || cptTimer.status === "running"}
+          >
+            Start CPT Timer
+          </button>
+          {cptTimer.status === "running" && (
+            <button type="button" className="secondary" onClick={stopCptTimer}>
+              Stop CPT Timer
+            </button>
+          )}
+          {cptTimerSuggestion?.should_start && cptTimer.status !== "running" && (
+            <div className="cpt-suggestion" role="status">
+              <span>
+                CPT {cptTimerSuggestion.code || cptCode} suggested
+                {cptTimerSuggestion.display_name ? `: ${cptTimerSuggestion.display_name}` : ""}
+              </span>
+              <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested")}>
+                Start
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="session-status-row" aria-live="polite">
           <p className={`recording-status is-${recordingStatus}`}>{recordingStatusText}</p>
@@ -1252,7 +1443,11 @@ function AmbientSessionContent() {
         </section>
       </section>
 
-      <div className="recording-controls" aria-label="Recording controls">
+      {showBottomControl && <div className="recording-controls" aria-label="Recording controls">
+        <div className="control-timer">
+          <strong dir="ltr">{formattedRecordingDuration}</strong>
+          <span>Total Duration</span>
+        </div>
         <button
           type="button"
           className="pause-icon"
@@ -1261,7 +1456,7 @@ function AmbientSessionContent() {
         >
           {recordingStatus === "recording" ? "||" : "▶"}
         </button>
-        <span>{primaryControlLabel}</span>
+        <span className="control-label">{primaryControlLabel}</span>
         <button
           type="button"
           className={`stop-icon ${recordingStatus === "stopped" ? "is-stopped" : ""}`}
@@ -1271,8 +1466,8 @@ function AmbientSessionContent() {
         >
           <span />
         </button>
-        <span>{recordingStatus === "stopped" ? t("common.stopped") : t("common.stop")}</span>
-      </div>
+        <span className="control-label">{recordingStatus === "stopped" ? t("common.stopped") : t("common.stop")}</span>
+      </div>}
 
       {showStopConfirm && (
         <div className="stop-confirm" role="dialog" aria-modal="true" aria-labelledby="stop-title">
@@ -1587,6 +1782,7 @@ function AmbientSessionContent() {
           height: 10px;
           border-radius: 999px;
           background: #001eff;
+          transform-origin: center;
         }
 
         .wave-bars i:nth-child(2),
@@ -1596,6 +1792,66 @@ function AmbientSessionContent() {
 
         .wave-bars i:nth-child(3) {
           height: 18px;
+        }
+
+        .wave-bars.is-animating i {
+          animation: wave-pulse 0.78s ease-in-out infinite;
+        }
+
+        .wave-bars.is-animating i:nth-child(2) {
+          animation-delay: 0.1s;
+        }
+
+        .wave-bars.is-animating i:nth-child(3) {
+          animation-delay: 0.2s;
+        }
+
+        .wave-bars.is-animating i:nth-child(4) {
+          animation-delay: 0.3s;
+        }
+
+        .wave-bars.is-animating i:nth-child(5) {
+          animation-delay: 0.4s;
+        }
+
+        @keyframes wave-pulse {
+          0%,
+          100% {
+            transform: scaleY(0.58);
+            opacity: 0.62;
+          }
+
+          50% {
+            transform: scaleY(1.25);
+            opacity: 1;
+          }
+        }
+
+        .listening-dot {
+          width: 9px;
+          height: 9px;
+          flex: 0 0 auto;
+          border-radius: 50%;
+          background: #11c778;
+          box-shadow: 0 0 0 5px rgba(17, 199, 120, 0.12);
+        }
+
+        .listening-dot.is-paused {
+          background: #f3a409;
+          box-shadow: 0 0 0 5px rgba(243, 164, 9, 0.12);
+        }
+
+        .listening-dot.is-idle,
+        .listening-dot.is-stopped {
+          background: #a5adba;
+          box-shadow: 0 0 0 5px rgba(165, 173, 186, 0.12);
+        }
+
+        .recording-left h2 {
+          margin: 0;
+          color: #172033;
+          font-size: 14px;
+          font-weight: 800;
         }
 
         .timer-line {
@@ -1637,6 +1893,49 @@ function AmbientSessionContent() {
           margin-top: 6px;
           color: #001eff;
           font-size: 12px;
+        }
+
+        .cpt-action-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 12px;
+          flex-wrap: wrap;
+        }
+
+        .cpt-action-row > button,
+        .cpt-suggestion button {
+          border: 0;
+          border-radius: 999px;
+          background: #0800d8;
+          color: #fff;
+          padding: 9px 14px;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .cpt-action-row > button.secondary {
+          border: 1px solid #d8deea;
+          background: #fff;
+          color: #172033;
+        }
+
+        .cpt-action-row > button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
+        .cpt-suggestion {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid #cfd8ff;
+          border-radius: 999px;
+          background: #f7f8ff;
+          padding: 5px 6px 5px 12px;
+          color: #172033;
+          font-size: 11px;
         }
 
         .processing-text {
@@ -2024,7 +2323,7 @@ function AmbientSessionContent() {
         }
 
         .speech-ai-grid {
-          display: grid;
+          display: none;
           grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
           gap: 18px;
           margin-top: 22px;
@@ -2238,11 +2537,12 @@ function AmbientSessionContent() {
           transform: translateX(-50%);
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 9px 12px;
+          gap: 14px;
+          min-width: 340px;
+          padding: 10px 14px 10px 18px;
           border-radius: 999px;
           background: #fff;
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+          box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
         }
 
         .recording-controls button {
@@ -2260,10 +2560,30 @@ function AmbientSessionContent() {
           font-weight: 700;
         }
 
+        .control-timer {
+          display: flex;
+          flex-direction: column;
+          min-width: 78px;
+          padding-right: 8px;
+        }
+
+        .control-timer strong {
+          color: #001eff;
+          font-size: 20px;
+          line-height: 1;
+        }
+
+        .control-timer span,
+        .recording-controls .control-label {
+          color: #667085;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
         .pause-icon,
         .stop-icon {
-          width: 32px;
-          height: 32px;
+          width: 38px;
+          height: 38px;
           display: flex;
           align-items: center;
           justify-content: center;

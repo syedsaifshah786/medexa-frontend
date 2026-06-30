@@ -371,6 +371,23 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         if clean_text
         else "low"
     )
+    cpt_timer_suggestion = {
+        "should_start": False,
+        "code": None,
+        "display_name": None,
+        "reason": "",
+        "confidence": "low",
+    }
+
+    if cpt_suggestions:
+        first_cpt = cpt_suggestions[0]
+        cpt_timer_suggestion = {
+            "should_start": True,
+            "code": first_cpt["code"],
+            "display_name": first_cpt["display_name"],
+            "reason": first_cpt["reason"],
+            "confidence": first_cpt["confidence"],
+        }
 
     return {
         "summary": summary,
@@ -385,6 +402,7 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         "billing_hints": billing_hints or ["No specific CPT or billing relevance detected in this segment"],
         "confidence": confidence,
         "disclaimer": DISCLAIMER,
+        "cpt_timer_suggestion": cpt_timer_suggestion,
         "rule_warnings": rule_warnings,
         "rules_loaded": any(bool(rules.get(key)) for key in RULE_FILE_NAMES),
     }

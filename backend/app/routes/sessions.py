@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app import data
-from app.schemas import StartSessionRequest, SessionStateUpdate
+from app.schemas import CptTimerStartRequest, StartSessionRequest, SessionStateUpdate
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -40,7 +40,183 @@ def update_state(session_id: str, payload: SessionStateUpdate) -> dict:
     if elapsed is None:
         elapsed = data.session_states[session_id]["elapsedSeconds"]
     data.session_states[session_id] = data.state_from_elapsed(payload.status, elapsed)
+    timer_state = data.timer_states[session_id]
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        payload.status,
+        elapsed,
+        timer_state["cpt_timer"],
+    )
     return data.session_states[session_id]
+
+
+@router.get("/{session_id}/timer-state")
+def get_timer_state(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/timer-state/start")
+def start_timer_state(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    cpt_timer = data.timer_states[session_id]["cpt_timer"]
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        "recording",
+        0,
+        cpt_timer if cpt_timer["status"] != "idle" else data.cpt_timer_from_elapsed(),
+    )
+    data.session_states[session_id] = data.state_from_elapsed("recording", 0)
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/timer-state/pause")
+def pause_timer_state(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"].copy()
+    if cpt_timer["status"] == "running":
+        cpt_timer = data.cpt_timer_from_elapsed(
+            "paused",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        )
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        "paused",
+        state["total_seconds"],
+        cpt_timer,
+    )
+    data.session_states[session_id] = data.state_from_elapsed("paused", state["total_seconds"])
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/timer-state/resume")
+def resume_timer_state(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"].copy()
+    if cpt_timer["status"] == "paused":
+        cpt_timer = data.cpt_timer_from_elapsed(
+            "running",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        )
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        "recording",
+        state["total_seconds"],
+        cpt_timer,
+    )
+    data.session_states[session_id] = data.state_from_elapsed("recording", state["total_seconds"])
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/timer-state/stop")
+def stop_timer_state(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"].copy()
+    if cpt_timer["status"] in {"running", "paused"}:
+        cpt_timer = data.cpt_timer_from_elapsed(
+            "stopped",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        )
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        "stopped",
+        state["total_seconds"],
+        cpt_timer,
+    )
+    data.session_states[session_id] = data.state_from_elapsed("stopped", state["total_seconds"])
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/cpt-timer/start")
+def start_cpt_timer(session_id: str, payload: CptTimerStartRequest) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = data.cpt_timer_from_elapsed(
+        "running",
+        0,
+        payload.code,
+        payload.source,
+        payload.reason,
+    )
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        state["recording_status"],
+        state["total_seconds"],
+        cpt_timer,
+    )
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/cpt-timer/pause")
+def pause_cpt_timer(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"]
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        state["recording_status"],
+        state["total_seconds"],
+        data.cpt_timer_from_elapsed(
+            "paused",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        ),
+    )
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/cpt-timer/resume")
+def resume_cpt_timer(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"]
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        state["recording_status"],
+        state["total_seconds"],
+        data.cpt_timer_from_elapsed(
+            "running",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        ),
+    )
+    return data.timer_states[session_id]
+
+
+@router.post("/{session_id}/cpt-timer/stop")
+def stop_cpt_timer(session_id: str) -> dict:
+    data.ensure_session(session_id)
+    state = data.timer_states[session_id]
+    cpt_timer = state["cpt_timer"]
+    data.timer_states[session_id] = data.timer_state_from_elapsed(
+        session_id,
+        state["recording_status"],
+        state["total_seconds"],
+        data.cpt_timer_from_elapsed(
+            "stopped",
+            cpt_timer["seconds"],
+            cpt_timer["code"],
+            cpt_timer.get("source"),
+            cpt_timer.get("reason"),
+        ),
+    )
+    return data.timer_states[session_id]
 
 
 @router.get("/{session_id}/insights")

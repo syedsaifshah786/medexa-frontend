@@ -1,6 +1,64 @@
 BILLABLE_UNIT_SECONDS = 8 * 60
 
 
+def cpt_units_from_seconds(elapsed_seconds: int) -> int:
+    if elapsed_seconds < 8 * 60:
+        return 0
+    if elapsed_seconds < 23 * 60:
+        return 1
+    if elapsed_seconds < 38 * 60:
+        return 2
+    if elapsed_seconds < 53 * 60:
+        return 3
+    if elapsed_seconds < 68 * 60:
+        return 4
+    return 4 + ((elapsed_seconds - 68 * 60) // (15 * 60)) + 1
+
+
+def next_cpt_unit_at(elapsed_seconds: int) -> int:
+    thresholds = [8 * 60, 23 * 60, 38 * 60, 53 * 60, 68 * 60]
+    for threshold in thresholds:
+        if elapsed_seconds < threshold:
+            return threshold
+    extra_units = ((elapsed_seconds - 68 * 60) // (15 * 60)) + 1
+    return 68 * 60 + extra_units * 15 * 60
+
+
+def cpt_timer_from_elapsed(
+    status: str = "idle",
+    elapsed_seconds: int = 0,
+    code: str | None = None,
+    source: str | None = None,
+    reason: str | None = None,
+) -> dict:
+    next_unit_at_seconds = next_cpt_unit_at(elapsed_seconds)
+    return {
+        "active": status == "running",
+        "code": code,
+        "seconds": elapsed_seconds,
+        "units": cpt_units_from_seconds(elapsed_seconds),
+        "next_unit_at_seconds": next_unit_at_seconds,
+        "seconds_left_to_next_unit": max(next_unit_at_seconds - elapsed_seconds, 0),
+        "status": status,
+        "source": source,
+        "reason": reason,
+    }
+
+
+def timer_state_from_elapsed(
+    session_id: str,
+    recording_status: str = "idle",
+    total_seconds: int = 0,
+    cpt_timer: dict | None = None,
+) -> dict:
+    return {
+        "session_id": session_id,
+        "recording_status": recording_status,
+        "total_seconds": total_seconds,
+        "cpt_timer": cpt_timer or cpt_timer_from_elapsed(),
+    }
+
+
 def state_from_elapsed(status: str = "idle", elapsed_seconds: int = 0) -> dict:
     units = elapsed_seconds // BILLABLE_UNIT_SECONDS
     next_unit_at = (units + 1) * BILLABLE_UNIT_SECONDS
@@ -279,6 +337,7 @@ default_claim = {
 }
 
 session_states = {session["id"]: state_from_elapsed() for session in sessions}
+timer_states = {session["id"]: timer_state_from_elapsed(session["id"]) for session in sessions}
 insights_by_session = {session["id"]: [item.copy() for item in default_insights] for session in sessions}
 suggestions_by_session = {session["id"]: [item.copy() for item in default_suggestions] for session in sessions}
 soap_notes_by_session = {session["id"]: default_soap_notes.copy() for session in sessions}
@@ -300,6 +359,7 @@ def ensure_session(session_id: str) -> None:
     base["status"] = "active"
     sessions.append(base)
     session_states[session_id] = state_from_elapsed()
+    timer_states[session_id] = timer_state_from_elapsed(session_id)
     insights_by_session[session_id] = [item.copy() for item in default_insights]
     suggestions_by_session[session_id] = [item.copy() for item in default_suggestions]
     soap_notes_by_session[session_id] = default_soap_notes.copy()

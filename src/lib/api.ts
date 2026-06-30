@@ -59,6 +59,33 @@ export type ApiRecordingState = {
   timeLeft: number;
 };
 
+export type ApiCptTimerState = {
+  active: boolean;
+  code: string | null;
+  seconds: number;
+  units: number;
+  next_unit_at_seconds: number;
+  seconds_left_to_next_unit: number;
+  status: "idle" | "running" | "paused" | "stopped";
+  source?: "manual" | "ai_suggested" | null;
+  reason?: string | null;
+};
+
+export type ApiTimerState = {
+  session_id: string;
+  recording_status: ApiRecordingState["status"];
+  total_seconds: number;
+  cpt_timer: ApiCptTimerState;
+};
+
+export type ApiCptTimerSuggestion = {
+  should_start: boolean;
+  code: string | null;
+  display_name: string | null;
+  reason: string;
+  confidence: CptSuggestion["confidence"] | "low" | "medium" | "high";
+};
+
 export type ApiTranscriptAnalysis = {
   summary: string;
   possible_clinical_impressions?: string[];
@@ -98,6 +125,7 @@ export type ApiTranscriptAnalysis = {
   billing_hints: string[];
   confidence: ClinicalAnalysis["confidence"];
   disclaimer?: string;
+  cpt_timer_suggestion?: ApiCptTimerSuggestion;
 };
 
 export type ApiAudioTranscriptionAnalysis = ApiTranscriptAnalysis & {
@@ -217,6 +245,46 @@ export const medexaApi = {
     request<ApiRecordingState>(`/sessions/${encodeURIComponent(sessionId)}/state`, {
       method: "POST",
       body,
+    }),
+  getTimerState: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/timer-state`),
+  startSessionTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/timer-state/start`, {
+      method: "POST",
+    }),
+  pauseSessionTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/timer-state/pause`, {
+      method: "POST",
+    }),
+  resumeSessionTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/timer-state/resume`, {
+      method: "POST",
+    }),
+  stopSessionTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/timer-state/stop`, {
+      method: "POST",
+    }),
+  startCptTimer: (
+    sessionId: string,
+    code: string,
+    source: "manual" | "ai_suggested",
+    reason: string,
+  ) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/cpt-timer/start`, {
+      method: "POST",
+      body: { code, source, reason },
+    }),
+  pauseCptTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/cpt-timer/pause`, {
+      method: "POST",
+    }),
+  resumeCptTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/cpt-timer/resume`, {
+      method: "POST",
+    }),
+  stopCptTimer: (sessionId: string) =>
+    request<ApiTimerState>(`/sessions/${encodeURIComponent(sessionId)}/cpt-timer/stop`, {
+      method: "POST",
     }),
   analyzeTranscriptChunk: (
     sessionId: string,

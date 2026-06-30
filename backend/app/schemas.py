@@ -16,6 +16,12 @@ class SessionStateUpdate(BaseModel):
     elapsedSeconds: int | None = None
 
 
+class CptTimerStartRequest(BaseModel):
+    code: str
+    source: Literal["manual", "ai_suggested"] = "manual"
+    reason: str = ""
+
+
 class SoapNotesPayload(BaseModel):
     subjective: dict
     objective: dict
