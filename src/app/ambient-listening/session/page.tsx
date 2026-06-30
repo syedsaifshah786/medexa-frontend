@@ -541,7 +541,6 @@ function AmbientSessionContent() {
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
-  const detectedCptCodesRef = useRef<Set<string>>(new Set());
   const appliedCptCodesRef = useRef<Set<string>>(new Set());
   const lastShownCptAtRef = useRef<Record<string, number>>({});
   const lastTriggerAtRef = useRef(0);
@@ -607,9 +606,43 @@ function AmbientSessionContent() {
     }
 
     const [nextPopup, ...remainingQueue] = cptPopupQueue;
+    console.log("[Medexa CPT] showing popup", nextPopup.code);
     setCurrentCptPopup(nextPopup);
     setCptPopupQueue(remainingQueue);
   }, [cptPopupQueue, currentCptPopup]);
+
+  // Acceptance flow: therapeutic exercise -> popup 97110 -> Apply; gait training while
+  // 97110 is running -> popup 97116 immediately -> Apply; manual therapy while 97116 is
+  // running -> popup 97140 immediately.
+  const shouldShowCptPopup = useCallback(
+    (suggestion: CptPopupSuggestion) => {
+      const now = Date.now();
+      const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] ?? 0;
+      const lastShownAt = lastShownCptAtRef.current[suggestion.code] ?? 0;
+
+      console.log("[Medexa CPT] detected", suggestion);
+      console.log("[Medexa CPT] activeCptCode", activeCptCode);
+
+      if (!suggestion.code) {
+        return false;
+      }
+
+      if (suggestion.code === activeCptCode) {
+        return false;
+      }
+
+      if (now <= rejectedUntil) {
+        return false;
+      }
+
+      if (now - lastShownAt < 30000) {
+        return false;
+      }
+
+      return true;
+    },
+    [activeCptCode],
+  );
 
   const enqueueCptPopups = useCallback((suggestions: ApiCptTimerSuggestion[]) => {
     const now = Date.now();
@@ -624,28 +657,24 @@ function AmbientSessionContent() {
       }));
 
     normalizedSuggestions.forEach((suggestion) => {
-      const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] ?? 0;
-      const lastShownAt = lastShownCptAtRef.current[suggestion.code] ?? 0;
-
-      if (
-        suggestion.code === activeCptCode ||
-        now <= rejectedUntil ||
-        now - lastShownAt < 30000
-      ) {
+      if (!shouldShowCptPopup(suggestion)) {
         return;
       }
 
-      detectedCptCodesRef.current.add(suggestion.code);
       lastShownCptAtRef.current[suggestion.code] = now;
-      console.log("[Medexa] CPT detected", suggestion);
+      console.log("[Medexa CPT] queue", cptPopupQueue);
       setCptPopupQueue((queue) =>
         queue.some((item) => item.code === suggestion.code) || currentCptPopup?.code === suggestion.code
           ? queue
-          : [...queue, suggestion],
+          : (() => {
+              const nextQueue = [...queue, suggestion];
+              console.log("[Medexa CPT] queue", nextQueue);
+              return nextQueue;
+            })(),
       );
       setCptDetectionStatus(`Detected ${suggestion.code}`);
     });
-  }, [activeCptCode, currentCptPopup]);
+  }, [cptPopupQueue, currentCptPopup, shouldShowCptPopup]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1139,9 +1168,9 @@ function AmbientSessionContent() {
     setInsightItems([]);
     setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
-    detectedCptCodesRef.current = new Set();
     appliedCptCodesRef.current = new Set();
     rejectedCptPopupRef.current = {};
+    lastShownCptAtRef.current = {};
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
@@ -1412,7 +1441,6 @@ function AmbientSessionContent() {
     const rejectedCode = currentCptPopup?.code;
     if (rejectedCode) {
       rejectedCptPopupRef.current[rejectedCode] = Date.now() + 30000;
-      detectedCptCodesRef.current.delete(rejectedCode);
     }
     setCurrentCptPopup(null);
     setCptDetectionStatus("Waiting");
