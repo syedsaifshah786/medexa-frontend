@@ -279,7 +279,7 @@ const localCptTriggers = [
   { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL" },
 ];
 
-const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
+const detectInstantCpt = (text: string): CptPopupSuggestion[] => {
   const normalizedText = text
     .toLowerCase()
     .replace(/[^\w\s]/g, " ")
@@ -303,6 +303,8 @@ const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
 
   return Array.from(suggestionsByCode.values());
 };
+
+const detectLocalCptSuggestions = detectInstantCpt;
 
 const apiAnalysisToClinicalAnalysis = (backendAnalysis: ApiTranscriptAnalysis): ClinicalAnalysis => ({
   summary: backendAnalysis.summary,
@@ -754,7 +756,10 @@ function AmbientSessionContent() {
                 apiTimerState.cpt_timer.reason,
               ),
         );
-        if (apiTimerState.cpt_records?.length) {
+        if (loadedStatus === "idle") {
+          setActiveCptCode(null);
+          setCptRecords({});
+        } else if (apiTimerState.cpt_records?.length) {
           setCptRecords(Object.fromEntries(apiTimerState.cpt_records.map((record) => [record.code, record])));
           const runningRecord = apiTimerState.cpt_records.find((record) => record.status === "running");
           setActiveCptCode(runningRecord?.code ?? null);
@@ -849,12 +854,17 @@ function AmbientSessionContent() {
   }, [activeCptCode, recordingStatus]);
 
   useEffect(() => {
-    if (recordingStatus !== "recording" || !lastHeardText.trim()) {
+    const latestText = [lastHeardText, currentThirtySecondChunk, fullTranscript]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    if (recordingStatus !== "recording" || !latestText) {
       return;
     }
 
-    console.log("[Medexa CPT] latest text", lastHeardText);
-    const instantCptSuggestions = detectLocalCptSuggestions(lastHeardText);
+    console.log("[Medexa CPT] latest text", latestText);
+    const instantCptSuggestions = detectInstantCpt(latestText);
     console.log("[Medexa CPT] instant matches", instantCptSuggestions);
 
     if (instantCptSuggestions.length > 0) {
@@ -886,7 +896,7 @@ function AmbientSessionContent() {
         ),
       );
     }
-  }, [enqueueCptPopups, lastHeardText, recordingStatus]);
+  }, [currentThirtySecondChunk, enqueueCptPopups, fullTranscript, lastHeardText, recordingStatus]);
 
   const createAiSummarySegment = useCallback(
     async (endSeconds: number, providedChunkText?: string) => {
@@ -2203,11 +2213,11 @@ function AmbientSessionContent() {
         </div>
       )}
 
-      {currentCptPopup?.should_start && (
+      {currentCptPopup && (
         <div className="procedure-popup-backdrop" aria-hidden="true" />
       )}
 
-      {currentCptPopup?.should_start && (
+      {currentCptPopup && (
         <section className="procedure-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
