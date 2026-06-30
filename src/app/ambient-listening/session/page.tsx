@@ -19,6 +19,7 @@ import {
 import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { getSessionById } from "@/lib/sessions";
+import { detectMedexaCommand, type MedexaCommandDetection } from "@/lib/voiceCommands";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
@@ -229,12 +230,23 @@ const apiLiveSuggestionToInsight = (suggestion: ApiLiveSuggestion): InsightItem 
 
 const localCptTriggers = [
   { phrase: "therapeutic exercise", code: "97110", displayName: "Therapeutic Exercise" },
+  { phrase: "ther ex", code: "97110", displayName: "Therapeutic Exercise" },
   { phrase: "range of motion", code: "97110", displayName: "Therapeutic Exercise" },
+  { phrase: "rom", code: "97110", displayName: "Therapeutic Exercise" },
   { phrase: "strengthening", code: "97110", displayName: "Therapeutic Exercise" },
   { phrase: "gait training", code: "97116", displayName: "Gait Training" },
+  { phrase: "walking practice", code: "97116", displayName: "Gait Training" },
+  { phrase: "stair training", code: "97116", displayName: "Gait Training" },
   { phrase: "manual therapy", code: "97140", displayName: "Manual Therapy" },
+  { phrase: "joint mobilization", code: "97140", displayName: "Manual Therapy" },
+  { phrase: "soft tissue mobilization", code: "97140", displayName: "Manual Therapy" },
   { phrase: "neuromuscular reeducation", code: "97112", displayName: "Neuromuscular Reeducation" },
+  { phrase: "balance training", code: "97112", displayName: "Neuromuscular Reeducation" },
   { phrase: "therapeutic activity", code: "97530", displayName: "Therapeutic Activity" },
+  { phrase: "functional activity", code: "97530", displayName: "Therapeutic Activity" },
+  { phrase: "transfer training", code: "97530", displayName: "Therapeutic Activity" },
+  { phrase: "self care", code: "97535", displayName: "Self-Care / ADL Training" },
+  { phrase: "adl training", code: "97535", displayName: "Self-Care / ADL Training" },
 ];
 
 const detectLocalCptSuggestion = (text: string): ApiCptTimerSuggestion | null => {
@@ -471,6 +483,10 @@ function AmbientSessionContent() {
   const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
   const [cptTimerSuggestion, setCptTimerSuggestion] = useState<ApiCptTimerSuggestion | null>(null);
+  const [voiceTriggerArmed, setVoiceTriggerArmed] = useState(false);
+  const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
+  const [lastTriggerDetection, setLastTriggerDetection] = useState<MedexaCommandDetection | null>(null);
+  const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const routeSessionId = searchParams.get("id") ?? searchParams.get("session") ?? "";
@@ -489,6 +505,9 @@ function AmbientSessionContent() {
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
+  const lastTriggerAtRef = useRef(0);
+  const lastTriggerCommandRef = useRef("");
+  const triggerCooldownMs = 3000;
   const latestDetectedCptSuggestionsRef = useRef<ApiTranscriptAnalysis["cpt_suggestions"]>([]);
   const latestDetectedIcdSuggestionsRef = useRef<ApiTranscriptAnalysis["icd10_suggestions"]>([]);
   const latestNcciConflictsRef = useRef<ApiTranscriptAnalysis["ncci_conflicts"]>([]);
@@ -497,6 +516,7 @@ function AmbientSessionContent() {
   const speechSession = useWebSpeechSession();
   const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
   const fullTranscript = speechSession.liveTranscript;
+  const lastHeardText = speechSession.lastHeardText;
   const currentThirtySecondChunk = speechSession.currentChunkTranscript;
   const aiSegmentsStorageKey = useMemo(
     () => `medexa_session_ai_segments_${sessionId}`,
@@ -751,6 +771,9 @@ function AmbientSessionContent() {
           Date.now() > rejectedUntil
         ) {
           setCptTimerSuggestion(nextCptSuggestion);
+          setCptDetectionStatus(`Detected ${nextCptCode}`);
+        } else if (!nextCptSuggestion?.should_start) {
+          setCptDetectionStatus("Waiting");
         }
 
         const segment: AiSummarySegment = {
@@ -781,8 +804,8 @@ function AmbientSessionContent() {
     }
 
     const summaryTimerId = window.setInterval(() => {
-      void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 30));
-    }, 30000);
+      void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 10));
+    }, 10000);
 
     return () => {
       window.clearInterval(summaryTimerId);
@@ -904,6 +927,7 @@ function AmbientSessionContent() {
     setAiSummarySegments([]);
     setGeneratedSoapSuggestions([]);
     setCptTimerSuggestion(null);
+    setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
@@ -1026,6 +1050,7 @@ function AmbientSessionContent() {
 
     setCptTimer(createLocalCptTimer("running", 0, suggestedCode, source, reason));
     setCptTimerSuggestion(null);
+    setCptDetectionStatus(`Detected ${suggestedCode}`);
     setStatusMessage(`CPT ${suggestedCode} timer started.`);
     medexaApi.startCptTimer(sessionId, suggestedCode, source, reason);
   };
@@ -1036,6 +1061,7 @@ function AmbientSessionContent() {
       rejectedCptPopupRef.current[rejectedCode] = Date.now() + 45000;
     }
     setCptTimerSuggestion(null);
+    setCptDetectionStatus("Waiting");
     setStatusMessage("Procedure suggestion rejected.");
   };
 
@@ -1043,6 +1069,68 @@ function AmbientSessionContent() {
     setCptTimer((timer) => createLocalCptTimer("stopped", timer.seconds, timer.code, timer.source, timer.reason));
     medexaApi.stopCptTimer(sessionId);
   };
+
+  const enableVoiceTrigger = () => {
+    setVoiceTriggerArmed(true);
+    setTriggerStatus("armed");
+    speechSession.startListening();
+  };
+
+  useEffect(() => {
+    if (!lastHeardText || (!voiceTriggerArmed && recordingStatus === "idle")) {
+      return;
+    }
+
+    const detection = detectMedexaCommand(lastHeardText);
+    setLastTriggerDetection(detection);
+
+    if (!detection.wakeWordDetected && detection.command === "none") {
+      return;
+    }
+
+    if (detection.wakeWordDetected) {
+      setTriggerStatus("detected");
+    }
+
+    if (detection.command === "none") {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      lastTriggerCommandRef.current === detection.command &&
+      now - lastTriggerAtRef.current < triggerCooldownMs
+    ) {
+      return;
+    }
+
+    lastTriggerCommandRef.current = detection.command;
+    lastTriggerAtRef.current = now;
+
+    if (detection.command === "start_recording" && recordingStatus !== "recording") {
+      handlePrimaryRecordingControl();
+      return;
+    }
+
+    if (detection.command === "stop_recording" && (recordingStatus === "recording" || recordingStatus === "paused")) {
+      void confirmStop();
+      return;
+    }
+
+    if (detection.command === "pause" && recordingStatus === "recording") {
+      handlePrimaryRecordingControl();
+      return;
+    }
+
+    if (detection.command === "resume" && recordingStatus === "paused") {
+      handlePrimaryRecordingControl();
+      return;
+    }
+
+    if (detection.command === "start_cpt" && recordingStatus === "recording" && cptTimer.status !== "running") {
+      startCptTimerFromSuggestion("manual");
+    }
+  }, [cptTimer.status, lastHeardText, recordingStatus, voiceTriggerArmed]);
 
   const handleGenerateTestSummary = () => {
     const chunkText =
@@ -1236,6 +1324,14 @@ function AmbientSessionContent() {
         <div className="cpt-action-row">
           <button
             type="button"
+            className="secondary"
+            onClick={enableVoiceTrigger}
+            disabled={voiceTriggerArmed && speechSession.isListening}
+          >
+            {voiceTriggerArmed ? "Voice Trigger Armed" : "Enable Voice Trigger"}
+          </button>
+          <button
+            type="button"
             onClick={() => startCptTimerFromSuggestion("manual")}
             disabled={recordingStatus !== "recording" || cptTimer.status === "running"}
           >
@@ -1246,6 +1342,13 @@ function AmbientSessionContent() {
               Stop CPT Timer
             </button>
           )}
+        </div>
+
+        <div className="voice-debug-line" aria-live="polite">
+          <span>Last heard: "{lastHeardText ? lastHeardText.slice(-80) : "waiting"}"</span>
+          <span>Trigger: {triggerStatus === "armed" ? "Armed" : triggerStatus === "detected" ? "Detected" : "Waiting"}</span>
+          <span>CPT Detection: {cptDetectionStatus}</span>
+          {lastTriggerDetection?.command !== "none" && <span>Command: {lastTriggerDetection?.command}</span>}
         </div>
 
         <div className="session-status-row" aria-live="polite">
@@ -2142,6 +2245,23 @@ function AmbientSessionContent() {
           padding: 5px 6px 5px 12px;
           color: #172033;
           font-size: 11px;
+        }
+
+        .voice-debug-line {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+          color: #667085;
+          font-size: 10px;
+        }
+
+        .voice-debug-line span {
+          border: 1px solid #e4e9f2;
+          border-radius: 999px;
+          background: #fff;
+          padding: 4px 8px;
         }
 
         .processing-text {

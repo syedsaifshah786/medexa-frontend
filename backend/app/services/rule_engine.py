@@ -22,8 +22,30 @@ APP_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = APP_DIR.parent
 RULE_DIRS = [
     BACKEND_DIR / "data" / "rules",
+    APP_DIR.parents[1] / "backend" / "data" / "rules",
     BACKEND_DIR / "data" / "rules" / "backend" / "data" / "rules",
 ]
+
+LOCAL_CPT_FALLBACK_PHRASES = {
+    "therapeutic exercise": "97110",
+    "ther ex": "97110",
+    "range of motion": "97110",
+    "rom": "97110",
+    "strengthening": "97110",
+    "gait training": "97116",
+    "walking practice": "97116",
+    "stair training": "97116",
+    "manual therapy": "97140",
+    "joint mobilization": "97140",
+    "soft tissue mobilization": "97140",
+    "neuromuscular reeducation": "97112",
+    "balance training": "97112",
+    "therapeutic activity": "97530",
+    "functional activity": "97530",
+    "transfer training": "97530",
+    "self care": "97535",
+    "adl training": "97535",
+}
 
 
 def normalize_text(text: str) -> str:
@@ -174,10 +196,15 @@ def suggest_cpt_codes(text: str) -> list[dict]:
     rules, _warnings = load_rules()
     matches = find_phrase_matches(text, rules.get("cpt_phrase_map", {}))
     matched_phrases_by_code = _category_matches_by_code(text)
+    normalized = normalize_text(text)
 
     for match in matches:
         code = str(match["value"])
         matched_phrases_by_code.setdefault(code, set()).add(match["phrase"])
+
+    for phrase, code in LOCAL_CPT_FALLBACK_PHRASES.items():
+        if phrase in normalized:
+            matched_phrases_by_code.setdefault(code, set()).add(phrase)
 
     return enrich_cpt_suggestions(
         [

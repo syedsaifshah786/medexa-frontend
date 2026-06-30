@@ -10,6 +10,7 @@ export type TranscriptSegment = {
 
 type UseWebSpeechSessionOptions = {
   lang?: string;
+  onSpeechText?: (text: string) => void;
 };
 
 const normalizeTranscript = (text: string) => text.trim().replace(/\s+/g, " ");
@@ -22,7 +23,7 @@ const getRecognitionConstructor = () => {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 };
 
-export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptions = {}) {
+export function useWebSpeechSession({ lang = "en-US", onSpeechText }: UseWebSpeechSessionOptions = {}) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
   const interimTranscriptRef = useRef("");
@@ -40,6 +41,9 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
   const [permissionError, setPermissionError] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
+  const [lastHeardText, setLastHeardText] = useState("");
+  const [latestInterimText, setLatestInterimText] = useState("");
+  const [latestFinalText, setLatestFinalText] = useState("");
   const [currentChunkTranscript, setCurrentChunkTranscript] = useState("");
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
 
@@ -142,12 +146,20 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
 
         if (result.isFinal) {
           appendFinalTranscript(transcript);
+          setLatestFinalText(transcript);
+          setLastHeardText(transcript);
+          onSpeechText?.(transcript);
         } else {
           interimParts.push(transcript);
         }
       }
 
       interimTranscriptRef.current = normalizeTranscript(interimParts.join(" "));
+      if (interimTranscriptRef.current) {
+        setLatestInterimText(interimTranscriptRef.current);
+        setLastHeardText(interimTranscriptRef.current);
+        onSpeechText?.(interimTranscriptRef.current);
+      }
       syncTranscriptState();
     };
 
@@ -167,7 +179,7 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
 
     recognitionRef.current = recognition;
     return recognition;
-  }, [appendFinalTranscript, lang, syncTranscriptState]);
+  }, [appendFinalTranscript, lang, onSpeechText, syncTranscriptState]);
 
   const startListening = useCallback(() => {
     const recognition = recognitionRef.current ?? createRecognition();
@@ -246,6 +258,9 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
     lastFinalSentenceRef.current = "";
     setLiveTranscript("");
     setFinalTranscript("");
+    setLastHeardText("");
+    setLatestInterimText("");
+    setLatestFinalText("");
     setCurrentChunkTranscript("");
     setTranscriptSegments([]);
   }, []);
@@ -256,6 +271,9 @@ export function useWebSpeechSession({ lang = "en-US" }: UseWebSpeechSessionOptio
     permissionError,
     liveTranscript,
     finalTranscript,
+    lastHeardText,
+    latestInterimText,
+    latestFinalText,
     currentChunkTranscript,
     transcriptSegments,
     recognitionRef,

@@ -1,9 +1,59 @@
+import re
+
 from fastapi import APIRouter, HTTPException
 
 from app import data
-from app.schemas import CptTimerStartRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
+from app.schemas import CptTimerStartRequest, DebugDetectRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
+from app.services.rule_engine import analyze_transcript_chunk
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+def _normalize_speech_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
+
+
+def _detect_trigger_command(text: str) -> dict:
+    phrase = _normalize_speech_text(text)
+    wake_words = [
+        "medexa",
+        "hey medexa",
+        "hi medexa",
+        "okay medexa",
+        "ok medexa",
+        "madexa",
+        "med exa",
+        "medix",
+        "medics",
+        "medicsa",
+        "mede xa",
+        "med ex",
+        "med extra",
+    ]
+    command_phrases = [
+        ("start_recording", ["medexa start recording", "hey medexa start recording", "medexa begin session", "medexa start session", "start recording"]),
+        ("stop_recording", ["medexa stop recording", "medexa stop session", "stop recording"]),
+        ("pause", ["medexa pause", "pause recording"]),
+        ("resume", ["medexa resume", "resume recording"]),
+        ("start_cpt", ["medexa start cpt", "start cpt timer", "start procedure timer", "start procedure"]),
+    ]
+    wake_word_detected = any(wake_word in phrase for wake_word in wake_words)
+
+    for command, phrases in command_phrases:
+        if any(command_phrase in phrase for command_phrase in phrases):
+            return {
+                "wakeWordDetected": wake_word_detected or True,
+                "command": command,
+                "phrase": phrase,
+                "confidence": "high" if wake_word_detected else "medium",
+            }
+
+    return {
+        "wakeWordDetected": wake_word_detected,
+        "command": "none",
+        "phrase": phrase,
+        "confidence": "medium" if wake_word_detected else "low",
+    }
 
 
 @router.get("")
@@ -300,6 +350,18 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
             "units": cpt_units,
         },
         "redirect_url": f"/soap-notes?sessionId={session_id}",
+    }
+
+
+@router.post("/{session_id}/debug-detect")
+def debug_detect(session_id: str, payload: DebugDetectRequest) -> dict:
+    data.ensure_session(session_id)
+    analysis = analyze_transcript_chunk(payload.text, "00:00", "00:10")
+    return {
+        "trigger_command": _detect_trigger_command(payload.text),
+        "cpt_timer_suggestion": analysis.get("cpt_timer_suggestion"),
+        "cpt_suggestions": analysis.get("cpt_suggestions", []),
+        "live_suggestions": analysis.get("live_suggestions", []),
     }
 
 

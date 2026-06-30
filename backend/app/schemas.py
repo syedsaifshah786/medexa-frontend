@@ -79,3 +79,7 @@ class TranscriptChunkAnalysisRequest(BaseModel):
     chunk_text: str
     start_time: str
     end_time: str
+
+
+class DebugDetectRequest(BaseModel):
+    text: str
