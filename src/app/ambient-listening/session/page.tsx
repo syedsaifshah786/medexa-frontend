@@ -280,7 +280,11 @@ const localCptTriggers = [
 ];
 
 const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
-  const normalizedText = text.toLowerCase();
+  const normalizedText = text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const suggestionsByCode = new Map<string, CptPopupSuggestion>();
 
   localCptTriggers.forEach((trigger) => {
@@ -292,8 +296,8 @@ const detectLocalCptSuggestions = (text: string): CptPopupSuggestion[] => {
       should_start: true,
       code: trigger.code,
       display_name: trigger.displayName,
-      reason: `Transcript mentions ${trigger.phrase}. Start CPT record only if clinician approves.`,
-      confidence: "medium",
+      reason: `Detected phrase from live transcript: ${trigger.phrase}`,
+      confidence: "high",
     });
   });
 
@@ -520,6 +524,8 @@ function AmbientSessionContent() {
   const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
   const [cptPopupQueue, setCptPopupQueue] = useState<CptPopupSuggestion[]>([]);
   const [currentCptPopup, setCurrentCptPopup] = useState<CptPopupSuggestion | null>(null);
+  const currentCptPopupRef = useRef<CptPopupSuggestion | null>(null);
+  const cptPopupQueueRef = useRef<CptPopupSuggestion[]>([]);
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -601,12 +607,23 @@ function AmbientSessionContent() {
   }, [aiSegmentsStorageKey, aiSummarySegments]);
 
   useEffect(() => {
+    currentCptPopupRef.current = currentCptPopup;
+    console.log("[Medexa CPT] current popup", currentCptPopup);
+  }, [currentCptPopup]);
+
+  useEffect(() => {
+    cptPopupQueueRef.current = cptPopupQueue;
+  }, [cptPopupQueue]);
+
+  useEffect(() => {
     if (currentCptPopup || cptPopupQueue.length === 0) {
       return;
     }
 
     const [nextPopup, ...remainingQueue] = cptPopupQueue;
     console.log("[Medexa CPT] showing popup", nextPopup.code);
+    currentCptPopupRef.current = nextPopup;
+    cptPopupQueueRef.current = remainingQueue;
     setCurrentCptPopup(nextPopup);
     setCptPopupQueue(remainingQueue);
   }, [cptPopupQueue, currentCptPopup]);
@@ -644,8 +661,40 @@ function AmbientSessionContent() {
     [activeCptCode],
   );
 
-  const enqueueCptPopups = useCallback((suggestions: ApiCptTimerSuggestion[]) => {
+  const queueOrShowCptPopup = useCallback((suggestion: CptPopupSuggestion) => {
     const now = Date.now();
+    if (!shouldShowCptPopup(suggestion)) {
+      return;
+    }
+
+    lastShownCptAtRef.current[suggestion.code] = now;
+    const openPopup = currentCptPopupRef.current;
+
+    console.log("[Medexa CPT] queueing/showing", suggestion);
+    console.log("[Medexa CPT] queue", cptPopupQueueRef.current);
+
+    if (openPopup) {
+      setCptPopupQueue((queue) => {
+        if (queue.some((item) => item.code === suggestion.code) || openPopup.code === suggestion.code) {
+          return queue;
+        }
+
+        const nextQueue = [...queue, suggestion];
+        cptPopupQueueRef.current = nextQueue;
+        console.log("[Medexa CPT] queue", nextQueue);
+        return nextQueue;
+      });
+      setCptDetectionStatus(`Detected ${suggestion.code}`);
+      return;
+    }
+
+    currentCptPopupRef.current = suggestion;
+    console.log("[Medexa CPT] showing popup", suggestion.code);
+    setCurrentCptPopup(suggestion);
+    setCptDetectionStatus(`Detected ${suggestion.code}`);
+  }, [shouldShowCptPopup]);
+
+  const enqueueCptPopups = useCallback((suggestions: ApiCptTimerSuggestion[]) => {
     const normalizedSuggestions = suggestions
       .filter((suggestion): suggestion is CptPopupSuggestion =>
         Boolean(suggestion.should_start && suggestion.code),
@@ -657,24 +706,9 @@ function AmbientSessionContent() {
       }));
 
     normalizedSuggestions.forEach((suggestion) => {
-      if (!shouldShowCptPopup(suggestion)) {
-        return;
-      }
-
-      lastShownCptAtRef.current[suggestion.code] = now;
-      console.log("[Medexa CPT] queue", cptPopupQueue);
-      setCptPopupQueue((queue) =>
-        queue.some((item) => item.code === suggestion.code) || currentCptPopup?.code === suggestion.code
-          ? queue
-          : (() => {
-              const nextQueue = [...queue, suggestion];
-              console.log("[Medexa CPT] queue", nextQueue);
-              return nextQueue;
-            })(),
-      );
-      setCptDetectionStatus(`Detected ${suggestion.code}`);
+      queueOrShowCptPopup(suggestion);
     });
-  }, [cptPopupQueue, currentCptPopup, shouldShowCptPopup]);
+  }, [queueOrShowCptPopup]);
 
   useEffect(() => {
     let isMounted = true;
@@ -819,8 +853,9 @@ function AmbientSessionContent() {
       return;
     }
 
-    console.log("[Medexa] latest transcript", lastHeardText);
+    console.log("[Medexa CPT] latest text", lastHeardText);
     const instantCptSuggestions = detectLocalCptSuggestions(lastHeardText);
+    console.log("[Medexa CPT] instant matches", instantCptSuggestions);
 
     if (instantCptSuggestions.length > 0) {
       enqueueCptPopups(instantCptSuggestions);
@@ -1431,6 +1466,7 @@ function AmbientSessionContent() {
     });
     setActiveCptCode(suggestedCode);
     appliedCptCodesRef.current.add(suggestedCode);
+    currentCptPopupRef.current = null;
     setCurrentCptPopup(null);
     setCptDetectionStatus(`Detected ${suggestedCode}`);
     setStatusMessage(`CPT ${suggestedCode} timer started.`);
@@ -1442,6 +1478,7 @@ function AmbientSessionContent() {
     if (rejectedCode) {
       rejectedCptPopupRef.current[rejectedCode] = Date.now() + 30000;
     }
+    currentCptPopupRef.current = null;
     setCurrentCptPopup(null);
     setCptDetectionStatus("Waiting");
     setStatusMessage("Procedure suggestion rejected.");
@@ -2166,11 +2203,11 @@ function AmbientSessionContent() {
         </div>
       )}
 
-      {recordingStatus === "recording" && currentCptPopup?.should_start && (
+      {currentCptPopup?.should_start && (
         <div className="procedure-popup-backdrop" aria-hidden="true" />
       )}
 
-      {recordingStatus === "recording" && currentCptPopup?.should_start && (
+      {currentCptPopup?.should_start && (
         <section className="procedure-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
