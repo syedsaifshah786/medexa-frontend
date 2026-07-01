@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -122,8 +123,12 @@ def _detect_duration(text: str) -> str:
     return match.group(1) if match else "Current session"
 
 
-def _fallback_soap(payload: dict) -> dict:
-    print("[Medexa LLM] Falling back to deterministic SOAP generation.")
+def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
+    if log:
+        if reason == "openai_429_rate_or_quota_limit":
+            print("[Medexa LLM] OpenAI rate/quota limit hit, using deterministic SOAP fallback")
+        else:
+            print("[Medexa LLM] Falling back to deterministic SOAP generation.")
     transcript = " ".join(str(payload.get("transcript", "")).split())
     cpt_records = payload.get("cpt_records") or []
     detected_cpts = payload.get("detected_cpt_suggestions") or []
@@ -204,6 +209,8 @@ def _fallback_soap(payload: dict) -> dict:
     )
 
     return {
+        "llm_used": False,
+        "llm_fallback_reason": reason or "deterministic_fallback",
         "chief_complaint": chief_complaint,
         "pain_scale": pain_scale,
         "duration": duration,
@@ -239,9 +246,10 @@ def _fallback_soap(payload: dict) -> dict:
 
 def _soap_to_prompt(payload: dict) -> str:
     return (
-        "Generate a SOAP note from the supplied JSON only. Do not invent facts. Do not confirm diagnosis. "
-        "Label assessment as clinical impression / working assessment. CPT/ICD entries are suggestions requiring clinician review. "
-        "Return strict JSON with keys subjective, objective, assessment, plan, summary, billing_summary.\n\n"
+        "Generate a concise SOAP note from the supplied JSON only. Do not invent facts or confirm diagnosis. "
+        "Return compact strict JSON with keys subjective, objective, assessment, plan, summary, billing_summary, "
+        "chief_complaint, pain_scale, duration, diagnosis_summary, observation_notes, range_of_motion, affect, vital_signs. "
+        "Keep each text field brief; CPT/ICD entries are suggestions requiring clinician review.\n\n"
         f"SESSION_JSON:\n{json.dumps(payload, ensure_ascii=True)}"
     )
 
@@ -267,7 +275,7 @@ def generate_soap_with_llm(payload: dict) -> dict:
     print("[LLM] key suffix:", api_key[-4:] if api_key else "")
 
     if provider != "openai" or not api_key:
-        return _fallback_soap(payload)
+        return _fallback_soap(payload, "openai_not_configured")
 
     request_body = {
         "model": model,
@@ -279,25 +287,46 @@ def generate_soap_with_llm(payload: dict) -> dict:
             {"role": "user", "content": _soap_to_prompt(payload)},
         ],
         "temperature": 0.1,
+        "max_tokens": 900,
         "response_format": {"type": "json_object"},
     }
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(request_body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+
+    def _openai_request() -> urllib.request.Request:
+        return urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(request_body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
 
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = json.loads(response.read().decode("utf-8"))
+        print(f"[Medexa LLM] Generating SOAP with OpenAI model: {model}")
+        raw = None
+        for attempt, delay in enumerate([0, 2, 5], start=1):
+            if delay:
+                time.sleep(delay)
+            try:
+                with urllib.request.urlopen(_openai_request(), timeout=20) as response:
+                    raw = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code != 429:
+                    raise
+                print("[LLM] OpenAI rate limit or quota exceeded. Check OpenAI billing, usage, credits, project limits, or rate limits.")
+                if attempt == 3:
+                    raise
+
+        if raw is None:
+            raise ValueError("OpenAI response was empty.")
         content = raw["choices"][0]["message"]["content"]
         generated = _extract_json(content)
-        fallback = _fallback_soap(payload)
+        fallback = _fallback_soap(payload, "openai_response_missing_fields", log=False)
         return {
+            "llm_used": True,
+            "llm_fallback_reason": "",
             "subjective": _as_text(generated.get("subjective")) or fallback["subjective"],
             "objective": _as_text(generated.get("objective")) or fallback["objective"],
             "assessment": _as_text(generated.get("assessment")) or fallback["assessment"],
@@ -316,8 +345,12 @@ def generate_soap_with_llm(payload: dict) -> dict:
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
             print("[LLM] OpenAI auth failed. Check Hugging Face OPENAI_API_KEY secret.")
+        if exc.code == 429:
+            print("[LLM] OpenAI rate limit or quota exceeded. Check OpenAI billing, usage, credits, project limits, or rate limits.")
+            print(f"[Medexa LLM] OpenAI SOAP generation failed: {exc}")
+            return _fallback_soap(payload, "openai_429_rate_or_quota_limit")
         print(f"[Medexa LLM] OpenAI SOAP generation failed: {exc}")
-        return _fallback_soap(payload)
+        return _fallback_soap(payload, f"openai_http_{exc.code}")
     except (KeyError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
         print(f"[Medexa LLM] OpenAI SOAP generation failed: {exc}")
-        return _fallback_soap(payload)
+        return _fallback_soap(payload, "openai_generation_failed")

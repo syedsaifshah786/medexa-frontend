@@ -328,6 +328,28 @@ def stop_cpt_timer(session_id: str) -> dict:
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
     data.ensure_session(session_id)
+    existing_soap = data.soap_notes_by_session.get(session_id)
+    if existing_soap:
+        summary = existing_soap.get("summary") or "AI-assisted suggestions require clinician review."
+        billing_summary = existing_soap.get("billing_summary") or {
+            "total_seconds": payload.total_seconds,
+            "cpt_records": [record.model_dump() for record in payload.cpt_records],
+        }
+        soap_note = {
+            key: value
+            for key, value in existing_soap.items()
+            if key not in {"summary", "billing_summary", "llm_used", "llm_fallback_reason"}
+        }
+        return {
+            "session_id": session_id,
+            "soap_note": soap_note,
+            "summary": summary,
+            "billing_summary": billing_summary,
+            "llm_used": bool(existing_soap.get("llm_used")),
+            "llm_fallback_reason": existing_soap.get("llm_fallback_reason", ""),
+            "redirect_url": f"/soap-notes?sessionId={session_id}",
+        }
+
     llm_payload = payload.model_dump()
     generated = generate_soap_with_llm(llm_payload)
     soap_note = {
@@ -370,6 +392,8 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
         **soap_note,
         "summary": summary,
         "billing_summary": billing_summary,
+        "llm_used": bool(generated.get("llm_used")),
+        "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
     }
     data.generated_soap_session_ids.add(session_id)
     data.summaries_by_session[session_id]["summary"] = summary
@@ -378,6 +402,8 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
         "soap_note": soap_note,
         "summary": summary,
         "billing_summary": billing_summary,
+        "llm_used": bool(generated.get("llm_used")),
+        "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
         "redirect_url": f"/soap-notes?sessionId={session_id}",
     }
 
