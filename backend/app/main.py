@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.data import SOAP_NOTES_STORE
+from app.data import get_soap_note, get_soap_store_debug
 from app.routes import analysis, audio, billing, claims, patient_summary, session_transcript_analysis, sessions, soap_notes, transcripts
 from app.services.llm_service import get_llm_settings, test_openai_auth
 
@@ -33,14 +33,15 @@ def openai_auth_test() -> dict:
 
 @app.get("/debug/soap-store")
 def soap_store() -> dict:
-    return {"count": len(SOAP_NOTES_STORE), "keys": list(SOAP_NOTES_STORE.keys())}
+    return get_soap_store_debug()
 
 
 @app.get("/debug/soap-store/{session_id}")
 def soap_store_session(session_id: str) -> dict:
-    if session_id in SOAP_NOTES_STORE:
-        return SOAP_NOTES_STORE[session_id]
-    return {"detail": "SOAP note not generated for this session"}
+    note = get_soap_note(session_id)
+    if note:
+        return note
+    raise HTTPException(status_code=404, detail="SOAP note not generated for this session")
 
 
 @app.get("/debug/active-routes")

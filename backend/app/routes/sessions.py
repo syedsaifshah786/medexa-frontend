@@ -3,7 +3,7 @@ import re
 from fastapi import APIRouter, HTTPException
 
 from app import data
-from app.data import SOAP_NOTES_STORE
+from app.data import get_soap_store_debug, save_soap_note
 from app.schemas import CptTimerStartRequest, DebugDetectRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
 from app.services.llm_service import generate_soap_with_llm
 from app.services.rule_engine import analyze_transcript_chunk
@@ -328,9 +328,9 @@ def stop_cpt_timer(session_id: str) -> dict:
 
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
-    print("[Finalize ACTIVE ROUTE] called for session:", session_id)
+    print("[Finalize FILE STORE] called:", session_id)
     transcript = payload.transcript or ""
-    print("[Finalize ACTIVE ROUTE] transcript length:", len(transcript))
+    print("[Finalize FILE STORE] transcript length:", len(transcript))
     data.ensure_session(session_id)
     cpt_records = [record.model_dump() for record in payload.cpt_records]
     initial_soap_note = {
@@ -360,12 +360,12 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
         "llm_fallback_reason": "initial_forced_save",
         "saved_to_store": True,
         "store_keys_after_save": [],
-        "active_route_marker": "sessions.finalize_session.v2",
+        "active_route_marker": "sessions.finalize_session.file_store.v1",
     }
-    SOAP_NOTES_STORE[session_id] = initial_response
-    initial_response["store_keys_after_save"] = list(SOAP_NOTES_STORE.keys())
-    print("[Finalize ACTIVE ROUTE] forced initial save:", session_id)
-    print("[Finalize ACTIVE ROUTE] store keys after forced save:", list(SOAP_NOTES_STORE.keys()))
+    print("[Finalize FILE STORE] saving response:", initial_response.keys())
+    save_soap_note(session_id, initial_response)
+    initial_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
+    save_soap_note(session_id, initial_response)
 
     try:
         llm_payload = payload.model_dump()
@@ -417,17 +417,17 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
             "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
             "saved_to_store": True,
             "store_keys_after_save": [],
-            "active_route_marker": "sessions.finalize_session.v2",
+            "active_route_marker": "sessions.finalize_session.file_store.v1",
         }
-        SOAP_NOTES_STORE[session_id] = final_response
-        final_response["store_keys_after_save"] = list(SOAP_NOTES_STORE.keys())
-        print("[Finalize ACTIVE ROUTE] final SOAP saved:", session_id)
-        print("[Finalize ACTIVE ROUTE] final store keys:", list(SOAP_NOTES_STORE.keys()))
+        print("[Finalize FILE STORE] saving response:", final_response.keys())
+        save_soap_note(session_id, final_response)
+        final_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
+        save_soap_note(session_id, final_response)
         data.generated_soap_session_ids.add(session_id)
         data.summaries_by_session[session_id]["summary"] = summary
         return final_response
     except Exception as error:
-        print("[Finalize ACTIVE ROUTE] SOAP generation failed but initial SOAP already saved:", str(error))
+        print("[Finalize FILE STORE] SOAP generation failed but initial SOAP already saved:", str(error))
         data.generated_soap_session_ids.add(session_id)
         data.summaries_by_session[session_id]["summary"] = initial_response["summary"]
         return initial_response

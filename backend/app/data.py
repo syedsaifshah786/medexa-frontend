@@ -1,3 +1,8 @@
+import json
+import tempfile
+from pathlib import Path
+
+
 BILLABLE_UNIT_SECONDS = 8 * 60
 
 
@@ -74,6 +79,67 @@ def state_from_elapsed(status: str = "idle", elapsed_seconds: int = 0) -> dict:
 SOAP_NOTES_STORE = {}
 SESSION_STORE = {}
 TIMER_STATE_STORE = {}
+SOAP_STORE_FILE = Path("/tmp/medexa_soap_notes_store.json")
+
+
+def _effective_soap_store_file() -> Path:
+    try:
+        SOAP_STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        return SOAP_STORE_FILE
+    except Exception as exc:
+        fallback = Path(tempfile.gettempdir()) / "medexa_soap_notes_store.json"
+        print("[SOAP Store] /tmp unavailable, using fallback file:", exc)
+        return fallback
+
+
+def load_soap_notes_store() -> dict:
+    store_file = _effective_soap_store_file()
+    if store_file.exists():
+        try:
+            return json.loads(store_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print("[SOAP Store] failed to read file:", exc)
+    return {}
+
+
+def save_soap_notes_store(store: dict) -> None:
+    store_file = _effective_soap_store_file()
+    store_file.parent.mkdir(parents=True, exist_ok=True)
+    store_file.write_text(json.dumps(store, indent=2, default=str), encoding="utf-8")
+
+
+def save_soap_note(session_id: str, payload: dict) -> dict:
+    store = load_soap_notes_store()
+    store[session_id] = payload
+    SOAP_NOTES_STORE.clear()
+    SOAP_NOTES_STORE.update(store)
+    save_soap_notes_store(store)
+    store_file = _effective_soap_store_file()
+    print("[SOAP Store] saved session:", session_id)
+    print("[SOAP Store] file exists:", store_file.exists())
+    print("[SOAP Store] store keys:", list(store.keys()))
+    print("[SOAP Store] file:", str(store_file))
+    return payload
+
+
+def get_soap_note(session_id: str) -> dict | None:
+    store = load_soap_notes_store()
+    SOAP_NOTES_STORE.clear()
+    SOAP_NOTES_STORE.update(store)
+    return store.get(session_id)
+
+
+def get_soap_store_debug() -> dict:
+    store = load_soap_notes_store()
+    store_file = _effective_soap_store_file()
+    SOAP_NOTES_STORE.clear()
+    SOAP_NOTES_STORE.update(store)
+    return {
+        "count": len(store),
+        "keys": list(store.keys()),
+        "file": str(store_file),
+        "file_exists": store_file.exists(),
+    }
 
 sessions = [
     {
