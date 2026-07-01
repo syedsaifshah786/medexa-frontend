@@ -171,6 +171,7 @@ export type ApiFinalizeSessionPayload = {
   detected_icd10_suggestions: ApiTranscriptAnalysis["icd10_suggestions"];
   ncci_conflicts: ApiTranscriptAnalysis["ncci_conflicts"];
   soap_draft?: unknown;
+  force_regenerate?: boolean;
 };
 
 export type ApiFinalizeSessionResponse = {
@@ -185,9 +186,16 @@ export type ApiFinalizeSessionResponse = {
     cpt_records?: ApiCptRecord[];
   };
   redirect_url: string;
+  saved_to_store?: boolean;
+  llm_used?: boolean;
+  llm_fallback_reason?: string;
+  active_route_marker?: string;
+  store_keys_after_save?: string[];
 };
 
 export type ApiSoapNoteResponse = Partial<SoapData> & {
+  session_id?: string;
+  soap_note?: SoapData;
   chief_complaint?: string;
   pain_scale?: string;
   duration?: string;
@@ -202,6 +210,10 @@ export type ApiSoapNoteResponse = Partial<SoapData> & {
   vital_signs?: string;
   summary?: string;
   billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
+  saved_to_store?: boolean;
+  llm_used?: boolean;
+  llm_fallback_reason?: string;
+  active_route_marker?: string;
 };
 
 export type ApiAudioTranscriptionAnalysis = ApiTranscriptAnalysis & {

@@ -141,41 +141,42 @@ const emptySoapData: typeof defaultSoapData = {
 };
 
 const normalizeSoapResponse = (data: ApiSoapNoteResponse, fallback = defaultSoapData): typeof defaultSoapData => {
-  const subjective = typeof data.subjective === "object" && data.subjective ? data.subjective : null;
-  const objective = typeof data.objective === "object" && data.objective ? data.objective : null;
-  const assessment = typeof data.assessment === "object" && data.assessment ? data.assessment : null;
-  const plan = typeof data.plan === "object" && data.plan ? data.plan : null;
+  const source = (data.soap_note ?? data) as ApiSoapNoteResponse;
+  const subjective = typeof source.subjective === "object" && source.subjective ? source.subjective : null;
+  const objective = typeof source.objective === "object" && source.objective ? source.objective : null;
+  const assessment = typeof source.assessment === "object" && source.assessment ? source.assessment : null;
+  const plan = typeof source.plan === "object" && source.plan ? source.plan : null;
 
   return {
     subjective: {
       chiefComplaint:
         subjective?.chiefComplaint ??
-        data.chief_complaint ??
-        (typeof data.subjective === "string" ? data.subjective : fallback.subjective.chiefComplaint),
-      painScale: subjective?.painScale ?? data.pain_scale ?? fallback.subjective.painScale,
-      duration: subjective?.duration ?? data.duration ?? fallback.subjective.duration,
+        source.chief_complaint ??
+        (typeof source.subjective === "string" ? source.subjective : fallback.subjective.chiefComplaint),
+      painScale: subjective?.painScale ?? source.pain_scale ?? fallback.subjective.painScale,
+      duration: subjective?.duration ?? source.duration ?? fallback.subjective.duration,
     },
     objective: {
       observationNotes:
         objective?.observationNotes ??
-        data.observation_notes ??
-        (typeof data.objective === "string" ? data.objective : fallback.objective.observationNotes),
-      rangeOfMotion: objective?.rangeOfMotion ?? data.range_of_motion ?? fallback.objective.rangeOfMotion,
-      affect: objective?.affect ?? data.affect ?? fallback.objective.affect,
-      vitalSigns: objective?.vitalSigns ?? data.vital_signs ?? fallback.objective.vitalSigns,
+        source.observation_notes ??
+        (typeof source.objective === "string" ? source.objective : fallback.objective.observationNotes),
+      rangeOfMotion: objective?.rangeOfMotion ?? source.range_of_motion ?? fallback.objective.rangeOfMotion,
+      affect: objective?.affect ?? source.affect ?? fallback.objective.affect,
+      vitalSigns: objective?.vitalSigns ?? source.vital_signs ?? fallback.objective.vitalSigns,
     },
     assessment: {
       diagnosisSummary:
         assessment?.diagnosisSummary ??
-        data.diagnosis_summary ??
-        (typeof data.assessment === "string" ? data.assessment : fallback.assessment.diagnosisSummary),
+        source.diagnosis_summary ??
+        (typeof source.assessment === "string" ? source.assessment : fallback.assessment.diagnosisSummary),
       primaryDiagnosisCode: assessment?.primaryDiagnosisCode ?? fallback.assessment.primaryDiagnosisCode,
       severity: assessment?.severity ?? fallback.assessment.severity,
     },
     plan: {
       followUpPlan:
         plan?.followUpPlan ??
-        (typeof data.plan === "string" ? data.plan : fallback.plan.followUpPlan),
+        (typeof source.plan === "string" ? source.plan : fallback.plan.followUpPlan),
     },
   };
 };
@@ -195,6 +196,7 @@ function SoapNotesContent() {
   useEffect(() => {
     const querySessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
     const activeSessionId = querySessionId || getActiveSessionId();
+    console.log("[SOAP Page] sessionId", activeSessionId);
     setSessionId(activeSessionId);
     setMissingSessionSoap(false);
 
@@ -205,38 +207,41 @@ function SoapNotesContent() {
         return;
       }
 
+      const storedSoapNote = window.localStorage.getItem(`medexa_soap_note_${activeSessionId}`);
+
+      if (storedSoapNote) {
+        try {
+          const parsed = JSON.parse(storedSoapNote) as ApiSoapNoteResponse & {
+            billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
+          };
+          const { billing_summary: nextBillingSummary } = parsed;
+          if (isMounted) {
+            setBillingSummary(nextBillingSummary ?? null);
+            updateSoapData(normalizeSoapResponse(parsed, querySessionId ? emptySoapData : defaultSoapData));
+            setMissingSessionSoap(false);
+          }
+        } catch {
+          window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
+        }
+      }
+
       const apiSoapData = await medexaApi.getSoapNote(activeSessionId);
+      console.log("[SOAP Page] backend data", apiSoapData);
 
       if (isMounted && apiSoapData) {
         const { billing_summary: nextBillingSummary } = apiSoapData;
         setBillingSummary(nextBillingSummary ?? null);
         updateSoapData(normalizeSoapResponse(apiSoapData, querySessionId ? emptySoapData : defaultSoapData));
+        window.localStorage.setItem(`medexa_soap_note_${activeSessionId}`, JSON.stringify(apiSoapData));
+        setMissingSessionSoap(false);
         return;
       }
-
-      const storedSoapNote = window.localStorage.getItem(`medexa_soap_note_${activeSessionId}`);
 
       if (!isMounted) {
         return;
       }
 
       if (!storedSoapNote) {
-        if (querySessionId) {
-          updateSoapData(emptySoapData);
-          setMissingSessionSoap(true);
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(storedSoapNote) as ApiSoapNoteResponse & {
-          billing_summary?: ApiFinalizeSessionResponse["billing_summary"];
-        };
-        const { billing_summary: nextBillingSummary } = parsed;
-        setBillingSummary(nextBillingSummary ?? null);
-        updateSoapData(normalizeSoapResponse(parsed, querySessionId ? emptySoapData : defaultSoapData));
-      } catch {
-        window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
         if (querySessionId) {
           updateSoapData(emptySoapData);
           setMissingSessionSoap(true);

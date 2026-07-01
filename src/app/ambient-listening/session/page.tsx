@@ -513,6 +513,7 @@ function AmbientSessionContent() {
   const lastAnalyzedSecondRef = useRef(0);
   const recordingSecondsRef = useRef(INITIAL_RECORDING_SECONDS);
   const isGeneratingSegmentRef = useRef(false);
+  const finalizingRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
   const appliedCptCodesRef = useRef<Set<string>>(new Set());
   const lastTriggerAtRef = useRef(0);
@@ -1253,6 +1254,7 @@ function AmbientSessionContent() {
     rejectedCptPopupRef.current = {};
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
+    finalizingRef.current = false;
   };
 
   const handlePrimaryRecordingControl = async () => {
@@ -1365,6 +1367,12 @@ function AmbientSessionContent() {
   };
 
   const confirmStop = async () => {
+    if (finalizingRef.current) {
+      return;
+    }
+    finalizingRef.current = true;
+    console.log("[Finalize Frontend] called once", sessionId);
+
     const finalCptTimer =
       cptTimer.status === "running" || cptTimer.status === "paused"
         ? createLocalCptTimer("stopped", cptTimer.seconds, cptTimer.code, cptTimer.source, cptTimer.reason)
@@ -1438,19 +1446,16 @@ function AmbientSessionContent() {
     };
     console.log("[Medexa] finalizing SOAP", finalizePayload);
     const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
+    console.log("[Finalize Frontend] response", finalized);
     console.log("[Medexa] SOAP saved", finalized);
 
     if (finalized?.soap_note) {
       updateSoapData(finalized.soap_note);
       window.localStorage.setItem(
         `medexa_soap_note_${sessionId}`,
-        JSON.stringify({
-          ...finalized.soap_note,
-          billing_summary: finalized.billing_summary,
-          summary: finalized.summary,
-        }),
+        JSON.stringify(finalized),
       );
-      router.push(finalized.redirect_url || `/soap-notes?sessionId=${sessionId}`);
+      router.push(`/soap-notes?sessionId=${sessionId}`);
       return;
     }
 

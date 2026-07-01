@@ -244,6 +244,10 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     }
 
 
+def generate_fallback_soap(payload: dict, reason: str = "deterministic_fallback") -> dict:
+    return _fallback_soap(payload, reason)
+
+
 def _soap_to_prompt(payload: dict) -> str:
     return (
         "Generate a concise SOAP note from the supplied JSON only. Do not invent facts or confirm diagnosis. "

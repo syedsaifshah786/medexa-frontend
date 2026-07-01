@@ -52,6 +52,7 @@ class FinalizeSessionRequest(BaseModel):
     detected_icd10_suggestions: list[dict] = Field(default_factory=list)
     ncci_conflicts: list[dict] = Field(default_factory=list)
     soap_draft: dict = Field(default_factory=dict)
+    force_regenerate: bool = False
 
 
 class SoapNotesPayload(BaseModel):

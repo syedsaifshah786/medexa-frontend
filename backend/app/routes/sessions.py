@@ -3,9 +3,9 @@ import re
 from fastapi import APIRouter, HTTPException
 
 from app import data
-from app.data import get_soap_store_debug, save_soap_note
+from app.data import get_soap_note, get_soap_store_debug, save_soap_note
 from app.schemas import CptTimerStartRequest, DebugDetectRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
-from app.services.llm_service import generate_soap_with_llm
+from app.services.llm_service import generate_fallback_soap, generate_soap_with_llm
 from app.services.rule_engine import analyze_transcript_chunk
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -326,111 +326,103 @@ def stop_cpt_timer(session_id: str) -> dict:
     return _timer_response(session_id)
 
 
+def _soap_response_from_generated(
+    session_id: str,
+    payload: FinalizeSessionRequest,
+    generated: dict,
+    cpt_records: list[dict],
+) -> dict:
+    soap_note = {
+        "chief_complaint": generated.get("chief_complaint", generated["subjective"]),
+        "pain_scale": generated.get("pain_scale", "Requires clinician review"),
+        "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
+        "observation_notes": generated.get("observation_notes", generated["objective"]),
+        "range_of_motion": generated.get("range_of_motion", "Requires clinician review"),
+        "affect": generated.get("affect", "Requires clinician review"),
+        "vital_signs": generated.get("vital_signs", "Requires clinician review"),
+        "diagnosis_summary": generated.get("diagnosis_summary", generated["assessment"]),
+        "subjective": {
+            "chiefComplaint": generated.get("chief_complaint", generated["subjective"]),
+            "painScale": generated.get("pain_scale", "Requires clinician review"),
+            "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
+        },
+        "objective": {
+            "observationNotes": generated.get("observation_notes", generated["objective"]),
+            "rangeOfMotion": generated.get("range_of_motion", "Requires clinician review"),
+            "affect": generated.get("affect", "Requires clinician review"),
+            "vitalSigns": generated.get("vital_signs", "Requires clinician review"),
+        },
+        "assessment": {
+            "diagnosisSummary": generated.get("diagnosis_summary", generated["assessment"]),
+            "primaryDiagnosisCode": "Requires clinician review",
+            "severity": "Requires clinician review",
+        },
+        "plan": {
+            "followUpPlan": generated["plan"],
+        },
+    }
+    summary = generated.get("summary") or "AI-assisted suggestions require clinician review."
+    billing_summary = generated.get("billing_summary") or {
+        "total_seconds": payload.total_seconds,
+        "cpt_records": cpt_records,
+    }
+    billing_summary["total_seconds"] = payload.total_seconds
+    billing_summary["cpt_records"] = cpt_records
+    return {
+        "session_id": session_id,
+        "soap_note": soap_note,
+        "summary": summary,
+        "billing_summary": billing_summary,
+        "redirect_url": f"/soap-notes?sessionId={session_id}",
+        "llm_used": bool(generated.get("llm_used")),
+        "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
+        "saved_to_store": True,
+        "store_keys_after_save": [],
+        "active_route_marker": "sessions.finalize_session.fallback_first.v1",
+    }
+
+
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
     print("[Finalize FILE STORE] called:", session_id)
-    transcript = payload.transcript or ""
-    print("[Finalize FILE STORE] transcript length:", len(transcript))
+    print("[Finalize FILE STORE] transcript length:", len(payload.transcript or ""))
     data.ensure_session(session_id)
+    existing_soap = get_soap_note(session_id)
+    if existing_soap and not payload.force_regenerate:
+        return existing_soap
+
     cpt_records = [record.model_dump() for record in payload.cpt_records]
-    initial_soap_note = {
-        "chief_complaint": "Generating from session transcript",
-        "pain_scale": "Not documented",
-        "duration": "Not documented",
-        "subjective": transcript[:1000] if transcript else "Insufficient transcript captured for this session.",
-        "objective": "Session data captured. CPT records will be reviewed.",
-        "assessment": "Working clinical impression pending clinician review.",
-        "plan": "Clinician review required.",
-        "diagnosis_summary": "AI-assisted suggestions require clinician review.",
-        "observation_notes": transcript[:1000] if transcript else "No transcript captured.",
-        "range_of_motion": "Not documented",
-        "affect": "Not documented",
-        "vital_signs": "Not documented",
-    }
-    initial_response = {
-        "session_id": session_id,
-        "soap_note": initial_soap_note,
-        "summary": "Initial SOAP record saved.",
-        "billing_summary": {
-            "total_seconds": payload.total_seconds,
-            "cpt_records": cpt_records,
-        },
-        "redirect_url": f"/soap-notes?sessionId={session_id}",
-        "llm_used": False,
-        "llm_fallback_reason": "initial_forced_save",
-        "saved_to_store": True,
-        "store_keys_after_save": [],
-        "active_route_marker": "sessions.finalize_session.file_store.v1",
-    }
-    print("[Finalize FILE STORE] saving response:", initial_response.keys())
-    save_soap_note(session_id, initial_response)
-    initial_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
-    save_soap_note(session_id, initial_response)
+    llm_payload = payload.model_dump()
+    fallback_generated = generate_fallback_soap(llm_payload, "deterministic_fallback")
+    fallback_response = _soap_response_from_generated(session_id, payload, fallback_generated, cpt_records)
+    save_soap_note(session_id, fallback_response)
+    fallback_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
+    save_soap_note(session_id, fallback_response)
+    print("[Finalize] fallback saved before LLM:", session_id)
+    print("[Finalize] saved_to_store:", True)
 
     try:
-        llm_payload = payload.model_dump()
         generated = generate_soap_with_llm(llm_payload)
-        soap_note = {
-            "chief_complaint": generated.get("chief_complaint", generated["subjective"]),
-            "pain_scale": generated.get("pain_scale", "Requires clinician review"),
-            "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
-            "observation_notes": generated.get("observation_notes", generated["objective"]),
-            "range_of_motion": generated.get("range_of_motion", "Requires clinician review"),
-            "affect": generated.get("affect", "Requires clinician review"),
-            "vital_signs": generated.get("vital_signs", "Requires clinician review"),
-            "diagnosis_summary": generated.get("diagnosis_summary", generated["assessment"]),
-            "subjective": {
-                "chiefComplaint": generated.get("chief_complaint", generated["subjective"]),
-                "painScale": generated.get("pain_scale", "Requires clinician review"),
-                "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
-            },
-            "objective": {
-                "observationNotes": generated.get("observation_notes", generated["objective"]),
-                "rangeOfMotion": generated.get("range_of_motion", "Requires clinician review"),
-                "affect": generated.get("affect", "Requires clinician review"),
-                "vitalSigns": generated.get("vital_signs", "Requires clinician review"),
-            },
-            "assessment": {
-                "diagnosisSummary": generated.get("diagnosis_summary", generated["assessment"]),
-                "primaryDiagnosisCode": "Requires clinician review",
-                "severity": "Requires clinician review",
-            },
-            "plan": {
-                "followUpPlan": generated["plan"],
-            },
-        }
-        summary = generated.get("summary") or "AI-assisted suggestions require clinician review."
-        billing_summary = generated.get("billing_summary") or {
-            "total_seconds": payload.total_seconds,
-            "cpt_records": cpt_records,
-        }
-        billing_summary["total_seconds"] = payload.total_seconds
-        billing_summary["cpt_records"] = cpt_records
-        print("[Finalize] generated soap keys:", soap_note.keys())
-        final_response = {
-            "session_id": session_id,
-            "soap_note": soap_note,
-            "summary": summary,
-            "billing_summary": billing_summary,
-            "redirect_url": f"/soap-notes?sessionId={session_id}",
-            "llm_used": bool(generated.get("llm_used")),
-            "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
-            "saved_to_store": True,
-            "store_keys_after_save": [],
-            "active_route_marker": "sessions.finalize_session.file_store.v1",
-        }
+        if generated.get("llm_fallback_reason") == "openai_429_rate_or_quota_limit":
+            fallback_response["llm_fallback_reason"] = "openai_429_rate_or_quota_limit"
+            save_soap_note(session_id, fallback_response)
+            print("[Finalize] OpenAI 429, returning saved fallback SOAP:", session_id)
+            print("[Finalize] saved_to_store:", True)
+            return fallback_response
+
+        final_response = _soap_response_from_generated(session_id, payload, generated, cpt_records)
         print("[Finalize FILE STORE] saving response:", final_response.keys())
         save_soap_note(session_id, final_response)
         final_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
         save_soap_note(session_id, final_response)
         data.generated_soap_session_ids.add(session_id)
-        data.summaries_by_session[session_id]["summary"] = summary
+        data.summaries_by_session[session_id]["summary"] = final_response["summary"]
         return final_response
     except Exception as error:
-        print("[Finalize FILE STORE] SOAP generation failed but initial SOAP already saved:", str(error))
+        print("[Finalize FILE STORE] SOAP generation failed but fallback SOAP already saved:", str(error))
         data.generated_soap_session_ids.add(session_id)
-        data.summaries_by_session[session_id]["summary"] = initial_response["summary"]
-        return initial_response
+        data.summaries_by_session[session_id]["summary"] = fallback_response["summary"]
+        return fallback_response
 
 
 @router.post("/{session_id}/debug-detect")
