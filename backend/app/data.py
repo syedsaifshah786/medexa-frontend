@@ -194,6 +194,8 @@ sessions = [
     },
 ]
 
+SESSION_STORE = {session["id"]: session for session in sessions}
+
 transcripts = [
     {
         "id": "jameson-locke",
@@ -345,10 +347,12 @@ default_claim = {
 
 session_states = {session["id"]: state_from_elapsed() for session in sessions}
 timer_states = {session["id"]: timer_state_from_elapsed(session["id"]) for session in sessions}
+TIMER_STATE_STORE = timer_states
 cpt_records_by_session = {session["id"]: {} for session in sessions}
 insights_by_session = {session["id"]: [item.copy() for item in default_insights] for session in sessions}
 suggestions_by_session = {session["id"]: [item.copy() for item in default_suggestions] for session in sessions}
-soap_notes_by_session = {session["id"]: default_soap_notes.copy() for session in sessions}
+SOAP_NOTES_STORE = {}
+soap_notes_by_session = SOAP_NOTES_STORE
 generated_soap_session_ids: set[str] = set()
 billing_by_session = {session["id"]: {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()} for session in sessions}
 summaries_by_session = {session["id"]: default_summary.copy() for session in sessions}
@@ -356,7 +360,7 @@ claims_by_session = {session["id"]: {"patientMeta": default_claim["patientMeta"]
 
 
 def get_session(session_id: str) -> dict:
-    return next((session for session in sessions if session["id"] == session_id), sessions[0])
+    return SESSION_STORE.get(session_id, sessions[0])
 
 
 def ensure_session(session_id: str) -> None:
@@ -367,12 +371,12 @@ def ensure_session(session_id: str) -> None:
     base["patientName"] = "New Session"
     base["status"] = "active"
     sessions.append(base)
+    SESSION_STORE[session_id] = base
     session_states[session_id] = state_from_elapsed()
     timer_states[session_id] = timer_state_from_elapsed(session_id)
     cpt_records_by_session[session_id] = {}
     insights_by_session[session_id] = [item.copy() for item in default_insights]
     suggestions_by_session[session_id] = [item.copy() for item in default_suggestions]
-    soap_notes_by_session[session_id] = default_soap_notes.copy()
     billing_by_session[session_id] = {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()}
     summaries_by_session[session_id] = default_summary.copy()
     claims_by_session[session_id] = {"patientMeta": default_claim["patientMeta"].copy(), "cptItems": [item.copy() for item in default_claim["cptItems"]], "diagnosisCodes": [item.copy() for item in default_claim["diagnosisCodes"]], "claimStatus": default_claim["claimStatus"]}

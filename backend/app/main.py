@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.data import SOAP_NOTES_STORE
 from app.routes import analysis, audio, billing, claims, patient_summary, session_transcript_analysis, sessions, soap_notes, transcripts
 from app.services.llm_service import get_llm_settings, test_openai_auth
 
@@ -28,6 +29,11 @@ def llm_health() -> dict:
 @app.get("/debug/openai-auth-test")
 def openai_auth_test() -> dict:
     return test_openai_auth()
+
+
+@app.get("/debug/soap-store")
+def soap_store() -> dict:
+    return {"count": len(SOAP_NOTES_STORE), "keys": list(SOAP_NOTES_STORE.keys())}
 
 
 app.include_router(sessions.router)

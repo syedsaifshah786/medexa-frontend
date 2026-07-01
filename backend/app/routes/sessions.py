@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter, HTTPException
 
 from app import data
+from app.data import SOAP_NOTES_STORE
 from app.schemas import CptTimerStartRequest, DebugDetectRequest, FinalizeSessionRequest, StartSessionRequest, SessionStateUpdate
 from app.services.llm_service import generate_soap_with_llm
 from app.services.rule_engine import analyze_transcript_chunk
@@ -327,29 +328,9 @@ def stop_cpt_timer(session_id: str) -> dict:
 
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
+    print("[Finalize] called for session:", session_id)
+    print("[Finalize] transcript length:", len(payload.transcript or ""))
     data.ensure_session(session_id)
-    existing_soap = data.soap_notes_by_session.get(session_id)
-    if existing_soap:
-        summary = existing_soap.get("summary") or "AI-assisted suggestions require clinician review."
-        billing_summary = existing_soap.get("billing_summary") or {
-            "total_seconds": payload.total_seconds,
-            "cpt_records": [record.model_dump() for record in payload.cpt_records],
-        }
-        soap_note = {
-            key: value
-            for key, value in existing_soap.items()
-            if key not in {"summary", "billing_summary", "llm_used", "llm_fallback_reason"}
-        }
-        return {
-            "session_id": session_id,
-            "soap_note": soap_note,
-            "summary": summary,
-            "billing_summary": billing_summary,
-            "llm_used": bool(existing_soap.get("llm_used")),
-            "llm_fallback_reason": existing_soap.get("llm_fallback_reason", ""),
-            "redirect_url": f"/soap-notes?sessionId={session_id}",
-        }
-
     llm_payload = payload.model_dump()
     generated = generate_soap_with_llm(llm_payload)
     soap_note = {
@@ -388,24 +369,22 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
     }
     billing_summary["total_seconds"] = payload.total_seconds
     billing_summary["cpt_records"] = [record.model_dump() for record in payload.cpt_records]
-    data.soap_notes_by_session[session_id] = {
-        **soap_note,
-        "summary": summary,
-        "billing_summary": billing_summary,
-        "llm_used": bool(generated.get("llm_used")),
-        "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
-    }
-    data.generated_soap_session_ids.add(session_id)
-    data.summaries_by_session[session_id]["summary"] = summary
-    return {
+    print("[Finalize] generated soap keys:", soap_note.keys())
+    response_payload = {
         "session_id": session_id,
         "soap_note": soap_note,
         "summary": summary,
         "billing_summary": billing_summary,
+        "redirect_url": f"/soap-notes?sessionId={session_id}",
         "llm_used": bool(generated.get("llm_used")),
         "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
-        "redirect_url": f"/soap-notes?sessionId={session_id}",
     }
+    print("[Finalize] saving SOAP for session:", session_id)
+    SOAP_NOTES_STORE[session_id] = response_payload
+    print("[Finalize] SOAP store keys:", list(SOAP_NOTES_STORE.keys()))
+    data.generated_soap_session_ids.add(session_id)
+    data.summaries_by_session[session_id]["summary"] = summary
+    return response_payload
 
 
 @router.post("/{session_id}/debug-detect")
