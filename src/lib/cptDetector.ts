@@ -9,7 +9,6 @@ const cptPhraseMap = [
     phrases: [
       "therapeutic exercise",
       "therapeutic exercises",
-      "therapy exercise",
       "ther ex",
       "therex",
       "range of motion",
@@ -52,7 +51,10 @@ const cptPhraseMap = [
     displayName: "Neuromuscular Reeducation",
     phrases: [
       "neuromuscular reeducation",
+      "neuromuscular re-education",
       "neuro reeducation",
+      "neuro re-education",
+      "neuromuscular rehab",
       "balance training",
       "balance exercise",
       "proprioception",
@@ -66,14 +68,25 @@ const cptPhraseMap = [
       "therapeutic activity",
       "therapeutic activities",
       "functional activity",
+      "functional activities",
       "transfer training",
       "sit to stand",
+      "bed mobility",
+      "functional mobility",
     ],
   },
   {
     code: "97535",
     displayName: "Self-Care / ADL",
-    phrases: ["self care", "adl training", "activities of daily living"],
+    phrases: [
+      "self care",
+      "self-care",
+      "adl training",
+      "activities of daily living",
+      "dressing training",
+      "grooming training",
+      "bathing training",
+    ],
   },
 ];
 
@@ -109,23 +122,24 @@ export function detectCptFromText(text: string): CptTimerSuggestion[] {
     return [];
   }
 
-  cptPhraseMap.forEach((entry) => {
-    const matchedPhrase = entry.phrases.find((phrase) => phraseMatches(normalizedText, phrase));
+  cptPhraseMap
+    .flatMap((entry) => entry.phrases.map((phrase) => ({ ...entry, phrase })))
+    .sort((a, b) => normalizeCptText(b.phrase).length - normalizeCptText(a.phrase).length)
+    .forEach((entry) => {
+      if (!phraseMatches(normalizedText, entry.phrase) || suggestionsByCode.has(entry.code)) {
+        return;
+      }
 
-    if (!matchedPhrase || suggestionsByCode.has(entry.code)) {
-      return;
-    }
-
-    suggestionsByCode.set(entry.code, {
-      should_start: true,
-      code: entry.code,
-      display_name: entry.displayName,
-      matched_phrase: matchedPhrase,
-      body_region: bodyRegion ?? "unspecified",
-      reason: `Detected phrase from live transcript: ${matchedPhrase}`,
-      confidence: "high",
+      suggestionsByCode.set(entry.code, {
+        should_start: true,
+        code: entry.code,
+        display_name: entry.displayName,
+        matched_phrase: entry.phrase,
+        body_region: bodyRegion ?? "unspecified",
+        reason: `Detected phrase from live transcript: ${entry.phrase}`,
+        confidence: "high",
+      });
     });
-  });
 
   return Array.from(suggestionsByCode.values());
 }

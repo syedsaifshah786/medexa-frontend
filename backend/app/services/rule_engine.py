@@ -55,6 +55,72 @@ LOCAL_CPT_FALLBACK_PHRASES = {
     "activities of daily living": "97535",
 }
 
+APPROVED_CPT_PHRASES = {
+    "97110": [
+        "therapeutic exercise",
+        "therapeutic exercises",
+        "ther ex",
+        "therex",
+        "range of motion",
+        "range motion",
+        "rom",
+        "strengthening",
+        "strength training",
+        "stretching",
+    ],
+    "97112": [
+        "neuromuscular reeducation",
+        "neuromuscular re-education",
+        "neuro reeducation",
+        "neuro re-education",
+        "neuromuscular rehab",
+        "balance training",
+        "balance exercise",
+        "proprioception",
+        "postural training",
+    ],
+    "97116": [
+        "gait training",
+        "gate training",
+        "walking training",
+        "walking practice",
+        "stair training",
+        "stairs training",
+        "ambulation",
+        "treadmill walking",
+    ],
+    "97140": [
+        "manual therapy",
+        "manual techniques",
+        "joint mobilization",
+        "soft tissue mobilization",
+        "soft tissue work",
+        "myofascial release",
+        "manual traction",
+    ],
+    "97530": [
+        "therapeutic activity",
+        "therapeutic activities",
+        "functional activity",
+        "functional activities",
+        "transfer training",
+        "sit to stand",
+        "bed mobility",
+        "functional mobility",
+    ],
+    "97535": [
+        "self care",
+        "self-care",
+        "adl training",
+        "activities of daily living",
+        "dressing training",
+        "grooming training",
+        "bathing training",
+    ],
+}
+
+GENERIC_CPT_PHRASES = {"therapy", "therapeutic", "exercise", "treatment", "activity"}
+
 BODY_REGION_DISPLAY_NAMES = {
     "spine_lumbar": "lower back",
     "spine_cervical": "neck",
@@ -195,6 +261,64 @@ def find_phrase_matches(text: str, phrase_map: dict) -> list[dict]:
     return matches
 
 
+def _normalize_cpt_phrase_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
+
+
+def _phrase_matches_exact(normalized_text: str, phrase: str) -> bool:
+    normalized_phrase = _normalize_cpt_phrase_text(phrase)
+    if not normalized_phrase or normalized_phrase in GENERIC_CPT_PHRASES:
+        return False
+    return re.search(rf"(^|\s){re.escape(normalized_phrase)}(\s|$)", normalized_text) is not None
+
+
+def iter_cpt_phrases(phrase_map: Any) -> list[tuple[str, str]]:
+    phrases: list[tuple[str, str]] = []
+
+    if isinstance(phrase_map, dict):
+        for key, value in phrase_map.items():
+            if str(key).startswith("_"):
+                continue
+            if isinstance(value, str):
+                if re.fullmatch(r"\d{5}", str(key)):
+                    phrases.append((value, str(key)))
+                else:
+                    phrases.append((str(key), value))
+            elif isinstance(value, list):
+                code = str(key)
+                for phrase in value:
+                    if isinstance(phrase, str):
+                        phrases.append((phrase, code))
+                    elif isinstance(phrase, dict) and phrase.get("phrase"):
+                        phrases.append((str(phrase["phrase"]), str(phrase.get("code") or code)))
+    elif isinstance(phrase_map, list):
+        for item in phrase_map:
+            if isinstance(item, dict) and item.get("phrase") and item.get("code"):
+                phrases.append((str(item["phrase"]), str(item["code"])))
+
+    approved = {
+        _normalize_cpt_phrase_text(phrase): code
+        for code, phrase_list in APPROVED_CPT_PHRASES.items()
+        for phrase in phrase_list
+    }
+    safe_phrases = [
+        (phrase, code)
+        for phrase, code in phrases
+        if approved.get(_normalize_cpt_phrase_text(phrase)) == str(code)
+        and _normalize_cpt_phrase_text(phrase) not in GENERIC_CPT_PHRASES
+    ]
+    safe_keys = {(_normalize_cpt_phrase_text(phrase), code) for phrase, code in safe_phrases}
+
+    for code, phrase_list in APPROVED_CPT_PHRASES.items():
+        for phrase in phrase_list:
+            key = (_normalize_cpt_phrase_text(phrase), code)
+            if key not in safe_keys:
+                safe_phrases.append((phrase, code))
+                safe_keys.add(key)
+
+    return sorted(safe_phrases, key=lambda item: len(_normalize_cpt_phrase_text(item[0])), reverse=True)
+
+
 def detect_body_regions(text: str) -> list[dict]:
     rules, _warnings = load_rules()
     matches = find_phrase_matches(text, rules.get("body_region_map", {}))
@@ -271,23 +395,17 @@ def _category_matches_by_code(text: str) -> dict[str, set[str]]:
 
 def suggest_cpt_codes(text: str) -> list[dict]:
     rules, _warnings = load_rules()
-    matches = find_phrase_matches(text, rules.get("cpt_phrase_map", {}))
-    matched_phrases_by_code = _category_matches_by_code(text)
-    normalized = normalize_text(text)
+    matched_phrases_by_code: dict[str, set[str]] = {}
+    normalized = _normalize_cpt_phrase_text(text)
     first_position_by_code: dict[str, int] = {}
 
-    for match in matches:
-        code = str(match["value"])
-        matched_phrases_by_code.setdefault(code, set()).add(match["phrase"])
-        phrase_position = normalized.find(normalize_text(match["phrase"]))
-        if phrase_position >= 0:
-            first_position_by_code[code] = min(first_position_by_code.get(code, phrase_position), phrase_position)
-
-    for phrase, code in LOCAL_CPT_FALLBACK_PHRASES.items():
-        if phrase in normalized:
+    print("[CPT Detect] transcript:", text)
+    for phrase, code in iter_cpt_phrases(rules.get("cpt_phrase_map", {})):
+        if _phrase_matches_exact(normalized, phrase):
             matched_phrases_by_code.setdefault(code, set()).add(phrase)
-            phrase_position = normalized.find(phrase)
+            phrase_position = normalized.find(_normalize_cpt_phrase_text(phrase))
             first_position_by_code[code] = min(first_position_by_code.get(code, phrase_position), phrase_position)
+            print("[CPT Detect] matched phrase:", phrase, "code:", code)
 
     suggestions = enrich_cpt_suggestions(
         [
@@ -298,7 +416,9 @@ def suggest_cpt_codes(text: str) -> list[dict]:
             for code, phrases in matched_phrases_by_code.items()
         ]
     )
-    return sorted(suggestions, key=lambda suggestion: first_position_by_code.get(suggestion["code"], 10**9))
+    final_suggestions = sorted(suggestions, key=lambda suggestion: first_position_by_code.get(suggestion["code"], 10**9))
+    print("[CPT Detect] final suggestions:", final_suggestions)
+    return final_suggestions
 
 
 def _matched_body_region(text: str) -> dict | None:
