@@ -261,6 +261,42 @@ const mergeItemsById = <T extends { id: string }>(currentItems: T[], nextItems: 
   return Array.from(byId.values());
 };
 
+const normalizeModifierRegion = (region?: string | null) =>
+  (region ?? "").trim().toLowerCase().replace(/_/g, " ");
+
+const buildLocalModifier59Suggestions = (records: Record<string, ApiCptRecord>): Modifier59PopupSuggestion[] => {
+  const grouped = Object.values(records).reduce<Record<string, ApiCptRecord[]>>((groups, record) => {
+    const region = normalizeModifierRegion(record.bodyRegion);
+    if (!region || region === "unspecified") {
+      return groups;
+    }
+
+    groups[region] = [...(groups[region] ?? []), record];
+    return groups;
+  }, {});
+
+  return Object.entries(grouped).flatMap(([bodyRegion, regionRecords]) => {
+    const codes = Array.from(new Set(regionRecords.map((record) => record.code).filter(Boolean))).sort();
+    if (codes.length < 2) {
+      return [];
+    }
+
+    return [
+      {
+        id: `modifier-59-${codes.join("-")}-${bodyRegion.replace(/\s+/g, "-")}`,
+        type: "modifier" as const,
+        title: "Modifier 59 Required",
+        description: `Multiple CPT services detected for the same body region: ${bodyRegion}. Review whether Modifier 59 is required for distinct procedural services.`,
+        codes,
+        body_region: bodyRegion,
+        modifier: "59" as const,
+        status: "pending" as const,
+        requires_clinician_review: true,
+      },
+    ];
+  });
+};
+
 const detectInstantCpt = (text: string): CptPopupSuggestion[] => {
   return detectCptFromText(text).filter((suggestion): suggestion is CptPopupSuggestion =>
     Boolean(suggestion.should_start && suggestion.code),
@@ -500,6 +536,7 @@ function AmbientSessionContent() {
   const [backendCptDebugSuggestions, setBackendCptDebugSuggestions] = useState<ApiCptTimerSuggestion[]>([]);
   const [modifier59Suggestions, setModifier59Suggestions] = useState<Modifier59PopupSuggestion[]>([]);
   const [currentModifier59Popup, setCurrentModifier59Popup] = useState<Modifier59PopupSuggestion | null>(null);
+  const [lastModifierReason, setLastModifierReason] = useState("none");
   const [backendRulesStatus, setBackendRulesStatus] = useState("unchecked");
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
@@ -725,6 +762,28 @@ function AmbientSessionContent() {
 
       return remainingQueue;
     });
+  }, []);
+
+  const publishModifier59Suggestions = useCallback((records: Record<string, ApiCptRecord>) => {
+    const localModifierSuggestions = buildLocalModifier59Suggestions(records);
+    if (localModifierSuggestions.length === 0) {
+      setLastModifierReason("No same-region CPT pairs detected.");
+      return;
+    }
+
+    setLastModifierReason(localModifierSuggestions[0].description);
+    setModifier59Suggestions((items) => mergeItemsById(items, localModifierSuggestions));
+    setSuggestionItems((items) =>
+      mergeItemsById(
+        items.filter((item) => !defaultSuggestions.some((defaultItem) => defaultItem.id === item.id)),
+        localModifierSuggestions.map((suggestion) => ({
+          id: suggestion.id,
+          title: suggestion.title,
+          text: suggestion.description,
+        })),
+      ),
+    );
+    setCurrentModifier59Popup((current) => current ?? localModifierSuggestions[0]);
   }, []);
 
   const handleLiveTranscript = useCallback(
@@ -1097,6 +1156,7 @@ function AmbientSessionContent() {
               requires_clinician_review: Boolean(suggestion.requires_clinician_review),
             }));
           if (nextModifierSuggestions.length > 0) {
+            setLastModifierReason(nextModifierSuggestions[0].description);
             setModifier59Suggestions((items) => mergeItemsById(items, nextModifierSuggestions));
             setCurrentModifier59Popup((current) => current ?? nextModifierSuggestions[0]);
           }
@@ -1147,6 +1207,7 @@ function AmbientSessionContent() {
         const nextCptSuggestions = backendCptSuggestions.length > 0 ? backendCptSuggestions : localCptSuggestions;
 
         if (backendModifier59Suggestions.length > 0) {
+          setLastModifierReason(backendModifier59Suggestions[0].description);
           setModifier59Suggestions((items) => mergeItemsById(items, backendModifier59Suggestions));
           setCurrentModifier59Popup((current) => current ?? backendModifier59Suggestions[0]);
         }
@@ -1361,6 +1422,7 @@ function AmbientSessionContent() {
     setBackendCptDebugSuggestions([]);
     setModifier59Suggestions([]);
     setCurrentModifier59Popup(null);
+    setLastModifierReason("none");
     setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
     appliedCptCodesRef.current = new Set();
@@ -1611,7 +1673,7 @@ function AmbientSessionContent() {
     setCptTimer(createLocalCptTimer("running", 0, suggestedCode, source, reason));
     setCptRecords((records) => {
       const nextStartSecond = recordingSecondsRef.current;
-      const stoppedRecords = Object.fromEntries(
+      const stoppedRecords: Record<string, ApiCptRecord> = Object.fromEntries(
         Object.entries(records).map(([code, record]) => [
           code,
           record.status === "running"
@@ -1628,27 +1690,30 @@ function AmbientSessionContent() {
         ]),
       );
       const existingRecord = stoppedRecords[suggestedCode];
+      const inferredBodyRegion = suggestion?.body_region ?? existingRecord?.bodyRegion ?? "unspecified";
 
-      return {
+      const nextRecords: Record<string, ApiCptRecord> = {
         ...stoppedRecords,
         [suggestedCode]: {
           code: suggestedCode,
           displayName,
           seconds: 0,
           units: 0,
-          status: "running",
+          status: "running" as const,
           source,
           intervals: [
             ...(existingRecord?.intervals ?? []),
             { startSecond: nextStartSecond },
           ],
           reason,
-          bodyRegion: suggestion?.body_region ?? existingRecord?.bodyRegion ?? null,
+          bodyRegion: inferredBodyRegion,
           bodyRegionCode: suggestion?.body_region_code ?? existingRecord?.bodyRegionCode ?? null,
           matchedPhrase: suggestion?.matched_phrase ?? existingRecord?.matchedPhrase ?? null,
           billingCategory: suggestion?.billing_category ?? existingRecord?.billingCategory ?? null,
         },
       };
+      window.setTimeout(() => publishModifier59Suggestions(nextRecords), 0);
+      return nextRecords;
     });
     setActiveCptCode(suggestedCode);
     appliedCptCodesRef.current.add(suggestedCode);
@@ -1986,8 +2051,11 @@ function AmbientSessionContent() {
           <span>Backend rules: {backendRulesStatus}</span>
           <span>Popup: {currentCptPopup?.code || "none"}</span>
           <span>Active CPT code: {activeCptCode || "none"}</span>
-          <span>CPT records: {Object.keys(cptRecords).join(", ") || "none"}</span>
-          <span>Modifier 59 suggestions: {modifier59Suggestions.map((suggestion) => suggestion.id).join(", ") || "none"}</span>
+          <span>
+            CPT records: {Object.values(cptRecords).map((record) => `${record.code}:${record.bodyRegion || "unspecified"}`).join(", ") || "none"}
+          </span>
+          <span>Modifier 59 suggestions count: {modifier59Suggestions.length}</span>
+          <span>Last modifier reason: {lastModifierReason}</span>
           <button
             type="button"
             onClick={() => {
@@ -2022,7 +2090,7 @@ function AmbientSessionContent() {
               }
             }}
           >
-            Test CPT 97110 Transcript
+            Test 97110 Lower Back
           </button>
           <button
             type="button"
@@ -2035,7 +2103,7 @@ function AmbientSessionContent() {
               }
             }}
           >
-            Test CPT 97140 Same Region Transcript
+            Test 97140 Lower Back
           </button>
           <button
             type="button"
@@ -2048,7 +2116,7 @@ function AmbientSessionContent() {
               }
             }}
           >
-            Test CPT 97116 Different Region Transcript
+            Test 97116 Lower Extremity
           </button>
         </div>
 

@@ -84,6 +84,15 @@ const normalizeCptText = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const bodyRegionPhrases = [
+  { region: "lower back", phrases: ["lower back", "low back", "lumbar", "lumbar spine", "back pain"] },
+  { region: "lower extremity", phrases: ["lower extremity", "leg", "gait", "walking", "stair"] },
+  { region: "knee", phrases: ["knee", "left knee", "right knee"] },
+  { region: "shoulder", phrases: ["shoulder", "left shoulder", "right shoulder"] },
+  { region: "hip", phrases: ["hip", "left hip", "right hip"] },
+  { region: "ankle", phrases: ["ankle", "left ankle", "right ankle"] },
+];
+
 const phraseMatches = (normalizedText: string, phrase: string) => {
   const normalizedPhrase = normalizeCptText(phrase);
   return new RegExp(`(^|\\s)${normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`).test(normalizedText);
@@ -92,6 +101,9 @@ const phraseMatches = (normalizedText: string, phrase: string) => {
 export function detectCptFromText(text: string): CptTimerSuggestion[] {
   const normalizedText = normalizeCptText(text);
   const suggestionsByCode = new Map<string, CptTimerSuggestion>();
+  const bodyRegion = bodyRegionPhrases.find((entry) =>
+    entry.phrases.some((phrase) => phraseMatches(normalizedText, phrase)),
+  )?.region;
 
   if (!normalizedText) {
     return [];
@@ -108,6 +120,8 @@ export function detectCptFromText(text: string): CptTimerSuggestion[] {
       should_start: true,
       code: entry.code,
       display_name: entry.displayName,
+      matched_phrase: matchedPhrase,
+      body_region: bodyRegion ?? "unspecified",
       reason: `Detected phrase from live transcript: ${matchedPhrase}`,
       confidence: "high",
     });

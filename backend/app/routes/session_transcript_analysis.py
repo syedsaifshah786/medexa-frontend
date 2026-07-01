@@ -12,18 +12,12 @@ def analyze_session_transcript_chunk(session_id: str, payload: TranscriptChunkAn
     data.ensure_session(session_id)
     print("[Analyze] chunk_text:", payload.chunk_text)
     print("[Analyze] full_transcript length:", len(payload.full_transcript or ""))
-    analysis_text = " ".join(
-        dict.fromkeys(
-            part.strip()
-            for part in [payload.full_transcript, payload.chunk_text]
-            if part and part.strip()
-        )
-    )
     analysis = analyze_transcript_chunk(
-        analysis_text or payload.chunk_text,
+        payload.chunk_text,
         payload.start_time,
         payload.end_time,
         payload.cpt_records,
+        payload.full_transcript,
     )
     print("[Analyze] CPT suggestions:", analysis.get("cpt_timer_suggestions", []))
     print("[Analyze] Modifier 59 suggestions:", analysis.get("modifier59_suggestions", []))

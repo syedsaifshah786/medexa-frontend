@@ -55,6 +55,47 @@ LOCAL_CPT_FALLBACK_PHRASES = {
     "activities of daily living": "97535",
 }
 
+BODY_REGION_DISPLAY_NAMES = {
+    "spine_lumbar": "lower back",
+    "spine_cervical": "neck",
+    "spine_thoracic": "upper back",
+    "shoulder_right": "shoulder",
+    "shoulder_left": "shoulder",
+    "elbow_right": "elbow",
+    "elbow_left": "elbow",
+    "wrist_right": "wrist",
+    "wrist_left": "wrist",
+    "hand_right": "hand",
+    "hand_left": "hand",
+    "hip_right": "hip",
+    "hip_left": "hip",
+    "knee_right": "knee",
+    "knee_left": "knee",
+    "ankle_right": "ankle",
+    "ankle_left": "ankle",
+    "foot_right": "foot",
+    "foot_left": "foot",
+}
+
+LOCAL_BODY_REGION_FALLBACK_PHRASES = {
+    "lower back": "lower back",
+    "low back": "lower back",
+    "lumbar": "lower back",
+    "lumbar spine": "lower back",
+    "back pain": "lower back",
+    "knee": "knee",
+    "left knee": "knee",
+    "right knee": "knee",
+    "shoulder": "shoulder",
+    "hip": "hip",
+    "ankle": "ankle",
+    "lower extremity": "lower extremity",
+    "leg": "lower extremity",
+    "gait": "lower extremity",
+    "walking": "lower extremity",
+    "stair": "lower extremity",
+}
+
 
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
@@ -62,6 +103,18 @@ def normalize_text(text: str) -> str:
 
 def _display_label(value: str) -> str:
     return value.replace("_", " ").replace("/", " / ").title()
+
+
+def _display_body_region(region: str, phrase: str = "") -> str:
+    normalized_region = normalize_text(region).replace(" ", "_")
+    normalized_phrase = normalize_text(phrase)
+    if normalized_phrase in LOCAL_BODY_REGION_FALLBACK_PHRASES:
+        return LOCAL_BODY_REGION_FALLBACK_PHRASES[normalized_phrase]
+    if region in BODY_REGION_DISPLAY_NAMES:
+        return BODY_REGION_DISPLAY_NAMES[region]
+    if normalized_region in BODY_REGION_DISPLAY_NAMES:
+        return BODY_REGION_DISPLAY_NAMES[normalized_region]
+    return region.replace("_", " ").strip() or phrase.strip() or "unspecified"
 
 
 def _confidence_for_phrase(phrase: str) -> str:
@@ -146,16 +199,27 @@ def detect_body_regions(text: str) -> list[dict]:
     rules, _warnings = load_rules()
     matches = find_phrase_matches(text, rules.get("body_region_map", {}))
     regions: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
 
     for match in matches:
-        region = str(match["value"])
-        key = (match["phrase"], region)
+        region_code = str(match["value"])
+        region = _display_body_region(region_code, str(match["phrase"]))
+        key = normalize_text(region)
         if key in seen:
             continue
 
         seen.add(key)
-        regions.append({"phrase": match["phrase"], "region": region})
+        regions.append({"phrase": match["phrase"], "region": region, "region_code": region_code})
+
+    normalized = normalize_text(text)
+    for phrase, region in sorted(LOCAL_BODY_REGION_FALLBACK_PHRASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if phrase not in normalized:
+            continue
+        key = normalize_text(region)
+        if key in seen:
+            continue
+        seen.add(key)
+        regions.append({"phrase": phrase, "region": region, "region_code": key.replace(" ", "_")})
 
     return regions
 
@@ -245,8 +309,8 @@ def _matched_body_region(text: str) -> dict | None:
     region = regions[0]
     return {
         "phrase": str(region.get("phrase", "")),
-        "region": str(region.get("region", "")),
-        "display": str(region.get("phrase") or region.get("region", "")).replace("_", " "),
+        "region": str(region.get("region_code") or region.get("region", "")),
+        "display": str(region.get("region") or region.get("phrase") or "unspecified").replace("_", " "),
     }
 
 
@@ -272,32 +336,81 @@ def _record_value(record: Any, key: str, default: Any = None) -> Any:
     return getattr(record, key, default)
 
 
-def _same_region_modifier59_suggestions(cpt_items: list[dict]) -> list[dict]:
+def _ncci_conflict_for_codes(code_a: str, code_b: str) -> dict | None:
+    rules, _warnings = load_rules()
+    pair = frozenset([str(code_a), str(code_b)])
+    for rule in rules.get("ncci_conflicts", []):
+        if not isinstance(rule, dict) or not rule.get("cpt_a") or not rule.get("cpt_b"):
+            continue
+        if frozenset([str(rule["cpt_a"]), str(rule["cpt_b"])]) == pair:
+            return rule
+    return None
+
+
+def _normalize_modifier_region(region: Any) -> str:
+    normalized = normalize_text(str(region or "")).replace("_", " ")
+    if not normalized or normalized == "unspecified":
+        return ""
+    return _display_body_region(normalized, normalized)
+
+
+def detect_modifier59_suggestions(cpt_records: list, new_cpt_suggestions: list) -> list[dict]:
     by_region: dict[str, list[dict]] = {}
+    cpt_items: list[dict] = []
+
+    for record in cpt_records or []:
+        code = str(_record_value(record, "code", "") or "")
+        if not code:
+            continue
+        record_region = (
+            _record_value(record, "bodyRegion")
+            or _record_value(record, "body_region")
+            or _record_value(record, "bodyRegionCode")
+            or _record_value(record, "body_region_code")
+        )
+        cpt_items.append({"code": code, "body_region": record_region})
+
+    cpt_items.extend(new_cpt_suggestions or [])
     for item in cpt_items:
         code = str(item.get("code") or "")
-        region_key = str(item.get("body_region_code") or item.get("body_region") or "")
+        region = _normalize_modifier_region(item.get("body_region") or item.get("bodyRegion"))
+        region_key = normalize_text(region)
         if not code or not region_key:
             continue
-        by_region.setdefault(region_key, []).append(item)
+        by_region.setdefault(region_key, []).append({**item, "body_region": region})
 
     suggestions: list[dict] = []
-    for _region_key, region_items in by_region.items():
+    print("[Modifier59] cpt records:", cpt_records)
+    print("[Modifier59] new cpt suggestions:", new_cpt_suggestions)
+    print("[Modifier59] grouped by region:", by_region)
+
+    for region_key, region_items in by_region.items():
         unique_by_code = {str(item["code"]): item for item in region_items if item.get("code")}
         if len(unique_by_code) < 2:
             continue
 
         codes = sorted(unique_by_code)
-        body_region = str(next(iter(unique_by_code.values())).get("body_region") or "same region")
+        body_region = str(next(iter(unique_by_code.values())).get("body_region") or region_key)
+        ncci_rule = None
+        for code_a, code_b in combinations(codes, 2):
+            ncci_rule = _ncci_conflict_for_codes(code_a, code_b)
+            if ncci_rule:
+                break
+        description = (
+            f"Potential NCCI conflict detected for multiple CPT services in the same body region: {body_region}. "
+            "Review whether Modifier 59 is required for distinct procedural services."
+            if ncci_rule
+            else (
+                f"Multiple CPT services detected for the same body region: {body_region}. "
+                "Review whether Modifier 59 is required for distinct procedural services."
+            )
+        )
         suggestions.append(
             {
                 "id": f"modifier-59-{'-'.join(codes)}-{normalize_text(body_region).replace(' ', '-')}",
                 "type": "modifier",
                 "title": "Modifier 59 Required",
-                "description": (
-                    f"Multiple CPT services detected for the same body region: {body_region}. "
-                    "Review whether Modifier 59 is required for distinct procedural services."
-                ),
+                "description": description,
                 "codes": codes,
                 "body_region": body_region,
                 "modifier": "59",
@@ -306,12 +419,13 @@ def _same_region_modifier59_suggestions(cpt_items: list[dict]) -> list[dict]:
             }
         )
 
+    print("[Modifier59] suggestions:", suggestions)
     return suggestions
 
 
-def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = []) -> dict:
+def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_transcript: str = "") -> dict:
     clean_text = normalize_text(text or "")
-    body_region = _matched_body_region(clean_text)
+    body_region = _matched_body_region(clean_text) or _matched_body_region(full_transcript or "")
     body_region_display = body_region["display"] if body_region else None
     body_region_code = body_region["region"] if body_region else None
     cpt_suggestions = suggest_cpt_codes(clean_text)
@@ -327,31 +441,19 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = []) -> di
                 "display_name": suggestion["display_name"],
                 "matched_phrase": matched_phrase,
                 "matched_phrases": suggestion.get("matched_phrases", []),
-                "body_region": body_region_display,
+                "body_region": body_region_display or "unspecified",
                 "body_region_code": body_region_code,
                 "billing_category": billing_category,
-                "reason": suggestion["reason"],
+                "reason": (
+                    f"Transcript mentions {matched_phrase or suggestion['display_name']} for {body_region_display}."
+                    if body_region_display
+                    else suggestion["reason"]
+                ),
                 "confidence": suggestion["confidence"],
             }
         )
 
-    modifier_inputs: list[dict] = []
-    for record in existing_cpt_records or []:
-        code = str(_record_value(record, "code", "") or "")
-        if not code:
-            continue
-        record_region = _record_value(record, "bodyRegion") or _record_value(record, "body_region")
-        record_region_code = _record_value(record, "bodyRegionCode") or _record_value(record, "body_region_code") or record_region
-        modifier_inputs.append(
-            {
-                "code": code,
-                "body_region": str(record_region).replace("_", " ") if record_region else None,
-                "body_region_code": str(record_region_code) if record_region_code else None,
-            }
-        )
-
-    modifier_inputs.extend(cpt_timer_suggestions)
-    modifier59_suggestions = _same_region_modifier59_suggestions(modifier_inputs)
+    modifier59_suggestions = detect_modifier59_suggestions(existing_cpt_records or [], cpt_timer_suggestions)
 
     return {
         "cpt_timer_suggestions": cpt_timer_suggestions,
@@ -516,13 +618,14 @@ def analyze_transcript_chunk(
     start_time: str,
     end_time: str,
     existing_cpt_records: list | None = None,
+    full_transcript: str = "",
 ) -> dict:
     rules, rule_warnings = load_rules()
     clean_text = " ".join(chunk_text.split())
     icd10_suggestions = suggest_icd10_codes(clean_text)
     body_regions = detect_body_regions(clean_text)
     cpt_suggestions = suggest_cpt_codes(clean_text)
-    cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [])
+    cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [], full_transcript)
     ncci_conflicts = detect_ncci_conflicts(cpt_suggestions, body_regions)
     symptoms = _symptoms_from_text(clean_text, icd10_suggestions)
     impressions = [
