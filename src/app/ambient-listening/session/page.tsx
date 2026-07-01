@@ -541,6 +541,9 @@ function AmbientSessionContent() {
   const [visibleFullTranscript, setVisibleFullTranscript] = useState("");
   const [cptDebugText, setCptDebugText] = useState("");
   const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
+  const [latestChunkCptMatches, setLatestChunkCptMatches] = useState<CptPopupSuggestion[]>([]);
+  const [fullTranscriptCptMatches, setFullTranscriptCptMatches] = useState<CptPopupSuggestion[]>([]);
+  const [finalCptMatchesUsed, setFinalCptMatchesUsed] = useState<CptPopupSuggestion[]>([]);
   const [lastMatchedPhrase, setLastMatchedPhrase] = useState("none");
   const [lastDetectedCptCode, setLastDetectedCptCode] = useState("none");
   const [lastDetectionSource, setLastDetectionSource] = useState<"backend_json_rules" | "frontend_fallback" | "none">("none");
@@ -848,7 +851,11 @@ function AmbientSessionContent() {
       setCptDebugText([normalizedLatestText, normalizedFullText].filter(Boolean).join(" ").trim());
 
       const latestMatches = detectInstantCpt(normalizedLatestText);
-      const matches = latestMatches.length > 0 ? latestMatches : detectInstantCpt(normalizedFullText);
+      const fullMatches = detectInstantCpt(normalizedFullText);
+      const matches = latestMatches.length > 0 ? latestMatches : fullMatches;
+      setLatestChunkCptMatches(latestMatches);
+      setFullTranscriptCptMatches(fullMatches);
+      setFinalCptMatchesUsed(matches);
       setCptDebugMatches(matches);
       if (matches.length > 0) {
         setLastMatchedPhrase(matches[0].matched_phrase ?? "none");
@@ -1015,16 +1022,21 @@ function AmbientSessionContent() {
   }, [activeCptCode, recordingStatus]);
 
   useEffect(() => {
-    const transcriptForCptDetection = [
+    const latestChunkText = [
+      manualLiveTranscriptText,
       speechSession.lastHeardText,
       speechSession.interimTranscript,
       speechSession.currentChunkTranscript,
+      latestHeardTextRef.current,
+      lastHeardText,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const fullTranscriptForCptDetection = [
       speechSession.liveTranscript,
       speechSession.finalTranscript,
-      latestHeardTextRef.current,
       fullTranscriptRef.current,
-      manualLiveTranscriptText,
-      lastHeardText,
       fullTranscript,
     ]
       .filter(Boolean)
@@ -1033,28 +1045,38 @@ function AmbientSessionContent() {
 
     latestHeardTextRef.current = speechSession.lastHeardText || speechSession.interimTranscript || lastHeardText;
     fullTranscriptRef.current = speechSession.liveTranscript || fullTranscript;
-    setCptDebugText(transcriptForCptDetection);
+    setCptDebugText(latestChunkText || fullTranscriptForCptDetection);
 
     if (recordingStatus !== "recording") {
       console.log("[Medexa CPT DEBUG] skipped because recordingStatus:", recordingStatus);
       setCptDebugMatches([]);
+      setFinalCptMatchesUsed([]);
       return;
     }
 
-    if (!transcriptForCptDetection.trim()) {
+    if (!latestChunkText && !fullTranscriptForCptDetection) {
       console.log("[Medexa CPT DEBUG] no transcript available yet");
       setCptDebugMatches([]);
+      setFinalCptMatchesUsed([]);
       return;
     }
 
-    const instantCptSuggestions = detectInstantCpt(transcriptForCptDetection);
+    const latestCptSuggestions = detectInstantCpt(latestChunkText);
+    const fullCptSuggestions = detectInstantCpt(fullTranscriptForCptDetection);
+    const instantCptSuggestions = latestCptSuggestions.length > 0 ? latestCptSuggestions : fullCptSuggestions;
+    setLatestChunkCptMatches(latestCptSuggestions);
+    setFullTranscriptCptMatches(fullCptSuggestions);
+    setFinalCptMatchesUsed(instantCptSuggestions);
     setCptDebugMatches(instantCptSuggestions);
 
-    console.log("[Medexa CPT] transcriptForCptDetection", transcriptForCptDetection);
+    console.log("[Medexa CPT] latestChunkForCptDetection", latestChunkText);
+    console.log("[Medexa CPT] fullTranscriptForCptDetection", fullTranscriptForCptDetection);
     console.log("[Medexa CPT] matches", instantCptSuggestions);
-    console.log("[Frontend CPT] transcript:", transcriptForCptDetection);
+    console.log("[Frontend CPT] latest transcript:", latestChunkText);
+    console.log("[Frontend CPT] full transcript:", fullTranscriptForCptDetection);
     console.log("[Frontend CPT] matches:", instantCptSuggestions);
-    console.log("[Medexa CPT DEBUG] transcriptForCptDetection:", transcriptForCptDetection);
+    console.log("[Medexa CPT DEBUG] latestChunkForCptDetection:", latestChunkText);
+    console.log("[Medexa CPT DEBUG] fullTranscriptForCptDetection:", fullTranscriptForCptDetection);
     console.log("[Medexa CPT DEBUG] matches:", instantCptSuggestions);
 
     if (instantCptSuggestions.length > 0) {
@@ -1508,6 +1530,9 @@ function AmbientSessionContent() {
     setSuggestionItems([]);
     setInsightItems([]);
     setBackendCptDebugSuggestions([]);
+    setLatestChunkCptMatches([]);
+    setFullTranscriptCptMatches([]);
+    setFinalCptMatchesUsed([]);
     setLastMatchedPhrase("none");
     setLastDetectedCptCode("none");
     setLastDetectionSource("none");
@@ -2148,7 +2173,9 @@ function AmbientSessionContent() {
           <span>Detected CPT code: {lastDetectedCptCode}</span>
           <span>Detection source: {lastDetectionSource}</span>
           <span>Latest transcript: {(latestHeardTextRef.current || lastHeardText || "none").slice(-80)}</span>
-          <span>Latest CPT matches: {cptDebugMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+          <span>Latest chunk CPT matches: {latestChunkCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+          <span>Full transcript CPT matches: {fullTranscriptCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+          <span>Final CPT matches used: {finalCptMatchesUsed.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
           <span>Backend CPT suggestions: {backendCptDebugSuggestions.map((match) => match.code).filter(Boolean).join(", ") || "none"}</span>
           <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
           <span>Backend rules: {backendRulesStatus}</span>
@@ -2675,8 +2702,10 @@ function AmbientSessionContent() {
               <p>Procedure Detected</p>
               <h2>Starting a therapy procedure?</h2>
               <span>
-                Procedure for {currentCptPopup.code || cptCode}
-                {currentCptPopup.display_name ? ` - ${currentCptPopup.display_name}` : ""} detected. Start CPT record for the session?
+                Procedure for {currentCptPopup.code}
+                {currentCptPopup.display_name || currentCptPopup.displayName
+                  ? ` - ${currentCptPopup.display_name || currentCptPopup.displayName}`
+                  : ""} detected. Start CPT record for the session?
               </span>
               <small>Suggested CPT. Requires clinician review.</small>
             </div>
