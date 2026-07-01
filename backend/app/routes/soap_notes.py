@@ -9,7 +9,7 @@ router = APIRouter(prefix="/soap-notes", tags=["soap-notes"])
 
 @router.get("/{session_id}")
 def get_soap_notes(session_id: str) -> dict:
-    print("[SOAP GET] requested session:", session_id)
+    print("[SOAP GET] requested:", session_id)
     print("[SOAP GET] available keys:", list(SOAP_NOTES_STORE.keys()))
     if session_id not in SOAP_NOTES_STORE:
         raise HTTPException(status_code=404, detail="SOAP note not generated for this session")

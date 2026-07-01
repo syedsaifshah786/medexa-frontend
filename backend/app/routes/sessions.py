@@ -328,63 +328,109 @@ def stop_cpt_timer(session_id: str) -> dict:
 
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
-    print("[Finalize] called for session:", session_id)
-    print("[Finalize] transcript length:", len(payload.transcript or ""))
+    print("[Finalize ACTIVE ROUTE] called for session:", session_id)
+    transcript = payload.transcript or ""
+    print("[Finalize ACTIVE ROUTE] transcript length:", len(transcript))
     data.ensure_session(session_id)
-    llm_payload = payload.model_dump()
-    generated = generate_soap_with_llm(llm_payload)
-    soap_note = {
-        "chief_complaint": generated.get("chief_complaint", generated["subjective"]),
-        "pain_scale": generated.get("pain_scale", "Requires clinician review"),
-        "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
-        "observation_notes": generated.get("observation_notes", generated["objective"]),
-        "range_of_motion": generated.get("range_of_motion", "Requires clinician review"),
-        "affect": generated.get("affect", "Requires clinician review"),
-        "vital_signs": generated.get("vital_signs", "Requires clinician review"),
-        "diagnosis_summary": generated.get("diagnosis_summary", generated["assessment"]),
-        "subjective": {
-            "chiefComplaint": generated.get("chief_complaint", generated["subjective"]),
-            "painScale": generated.get("pain_scale", "Requires clinician review"),
-            "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
-        },
-        "objective": {
-            "observationNotes": generated.get("observation_notes", generated["objective"]),
-            "rangeOfMotion": generated.get("range_of_motion", "Requires clinician review"),
-            "affect": generated.get("affect", "Requires clinician review"),
-            "vitalSigns": generated.get("vital_signs", "Requires clinician review"),
-        },
-        "assessment": {
-            "diagnosisSummary": generated.get("diagnosis_summary", generated["assessment"]),
-            "primaryDiagnosisCode": "Requires clinician review",
-            "severity": "Requires clinician review",
-        },
-        "plan": {
-            "followUpPlan": generated["plan"],
-        },
+    cpt_records = [record.model_dump() for record in payload.cpt_records]
+    initial_soap_note = {
+        "chief_complaint": "Generating from session transcript",
+        "pain_scale": "Not documented",
+        "duration": "Not documented",
+        "subjective": transcript[:1000] if transcript else "Insufficient transcript captured for this session.",
+        "objective": "Session data captured. CPT records will be reviewed.",
+        "assessment": "Working clinical impression pending clinician review.",
+        "plan": "Clinician review required.",
+        "diagnosis_summary": "AI-assisted suggestions require clinician review.",
+        "observation_notes": transcript[:1000] if transcript else "No transcript captured.",
+        "range_of_motion": "Not documented",
+        "affect": "Not documented",
+        "vital_signs": "Not documented",
     }
-    summary = generated.get("summary") or "AI-assisted suggestions require clinician review."
-    billing_summary = generated.get("billing_summary") or {
-        "total_seconds": payload.total_seconds,
-        "cpt_records": [record.model_dump() for record in payload.cpt_records],
-    }
-    billing_summary["total_seconds"] = payload.total_seconds
-    billing_summary["cpt_records"] = [record.model_dump() for record in payload.cpt_records]
-    print("[Finalize] generated soap keys:", soap_note.keys())
-    response_payload = {
+    initial_response = {
         "session_id": session_id,
-        "soap_note": soap_note,
-        "summary": summary,
-        "billing_summary": billing_summary,
+        "soap_note": initial_soap_note,
+        "summary": "Initial SOAP record saved.",
+        "billing_summary": {
+            "total_seconds": payload.total_seconds,
+            "cpt_records": cpt_records,
+        },
         "redirect_url": f"/soap-notes?sessionId={session_id}",
-        "llm_used": bool(generated.get("llm_used")),
-        "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
+        "llm_used": False,
+        "llm_fallback_reason": "initial_forced_save",
+        "saved_to_store": True,
+        "store_keys_after_save": [],
+        "active_route_marker": "sessions.finalize_session.v2",
     }
-    SOAP_NOTES_STORE[session_id] = response_payload
-    print("[Finalize] saved SOAP for session:", session_id)
-    print("[Finalize] SOAP store keys:", list(SOAP_NOTES_STORE.keys()))
-    data.generated_soap_session_ids.add(session_id)
-    data.summaries_by_session[session_id]["summary"] = summary
-    return response_payload
+    SOAP_NOTES_STORE[session_id] = initial_response
+    initial_response["store_keys_after_save"] = list(SOAP_NOTES_STORE.keys())
+    print("[Finalize ACTIVE ROUTE] forced initial save:", session_id)
+    print("[Finalize ACTIVE ROUTE] store keys after forced save:", list(SOAP_NOTES_STORE.keys()))
+
+    try:
+        llm_payload = payload.model_dump()
+        generated = generate_soap_with_llm(llm_payload)
+        soap_note = {
+            "chief_complaint": generated.get("chief_complaint", generated["subjective"]),
+            "pain_scale": generated.get("pain_scale", "Requires clinician review"),
+            "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
+            "observation_notes": generated.get("observation_notes", generated["objective"]),
+            "range_of_motion": generated.get("range_of_motion", "Requires clinician review"),
+            "affect": generated.get("affect", "Requires clinician review"),
+            "vital_signs": generated.get("vital_signs", "Requires clinician review"),
+            "diagnosis_summary": generated.get("diagnosis_summary", generated["assessment"]),
+            "subjective": {
+                "chiefComplaint": generated.get("chief_complaint", generated["subjective"]),
+                "painScale": generated.get("pain_scale", "Requires clinician review"),
+                "duration": generated.get("duration", f"{payload.total_seconds // 60}:{str(payload.total_seconds % 60).zfill(2)}"),
+            },
+            "objective": {
+                "observationNotes": generated.get("observation_notes", generated["objective"]),
+                "rangeOfMotion": generated.get("range_of_motion", "Requires clinician review"),
+                "affect": generated.get("affect", "Requires clinician review"),
+                "vitalSigns": generated.get("vital_signs", "Requires clinician review"),
+            },
+            "assessment": {
+                "diagnosisSummary": generated.get("diagnosis_summary", generated["assessment"]),
+                "primaryDiagnosisCode": "Requires clinician review",
+                "severity": "Requires clinician review",
+            },
+            "plan": {
+                "followUpPlan": generated["plan"],
+            },
+        }
+        summary = generated.get("summary") or "AI-assisted suggestions require clinician review."
+        billing_summary = generated.get("billing_summary") or {
+            "total_seconds": payload.total_seconds,
+            "cpt_records": cpt_records,
+        }
+        billing_summary["total_seconds"] = payload.total_seconds
+        billing_summary["cpt_records"] = cpt_records
+        print("[Finalize] generated soap keys:", soap_note.keys())
+        final_response = {
+            "session_id": session_id,
+            "soap_note": soap_note,
+            "summary": summary,
+            "billing_summary": billing_summary,
+            "redirect_url": f"/soap-notes?sessionId={session_id}",
+            "llm_used": bool(generated.get("llm_used")),
+            "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
+            "saved_to_store": True,
+            "store_keys_after_save": [],
+            "active_route_marker": "sessions.finalize_session.v2",
+        }
+        SOAP_NOTES_STORE[session_id] = final_response
+        final_response["store_keys_after_save"] = list(SOAP_NOTES_STORE.keys())
+        print("[Finalize ACTIVE ROUTE] final SOAP saved:", session_id)
+        print("[Finalize ACTIVE ROUTE] final store keys:", list(SOAP_NOTES_STORE.keys()))
+        data.generated_soap_session_ids.add(session_id)
+        data.summaries_by_session[session_id]["summary"] = summary
+        return final_response
+    except Exception as error:
+        print("[Finalize ACTIVE ROUTE] SOAP generation failed but initial SOAP already saved:", str(error))
+        data.generated_soap_session_ids.add(session_id)
+        data.summaries_by_session[session_id]["summary"] = initial_response["summary"]
+        return initial_response
 
 
 @router.post("/{session_id}/debug-detect")

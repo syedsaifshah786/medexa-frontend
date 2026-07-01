@@ -43,6 +43,29 @@ def soap_store_session(session_id: str) -> dict:
     return {"detail": "SOAP note not generated for this session"}
 
 
+@app.get("/debug/active-routes")
+def active_routes() -> dict:
+    routes = []
+    route_sources = list(app.routes)
+    for route in app.routes:
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            route_sources.extend(getattr(original_router, "routes", []) or [])
+
+    for route in route_sources:
+        path = getattr(route, "path", "")
+        if not path:
+            continue
+        routes.append(
+            {
+                "path": path,
+                "methods": sorted(getattr(route, "methods", []) or []),
+                "name": getattr(route, "name", ""),
+            }
+        )
+    return {"routes": routes}
+
+
 app.include_router(sessions.router)
 app.include_router(analysis.router)
 app.include_router(audio.router)
