@@ -67,12 +67,12 @@ const defaultSuggestions = [
   {
     id: "unit-recorded",
     title: "Unit Recorded",
-    text: "1 unit recorded for 97110 - Therapeutic Ex. at 8:04",
+    text: "1 unit recorded for the reviewed CPT at 8:04",
   },
   {
     id: "modifier-59",
     title: "Modifier 59 Required",
-    text: "Potential Bundle conflict detected for 97112 with 97110. Apply modifier?",
+    text: "Potential bundle conflict detected for same-region CPT services. Apply modifier?",
   },
   {
     id: "snf-validation",
@@ -118,6 +118,8 @@ type AiSummarySegment = {
 type CptPopupSuggestion = ApiCptTimerSuggestion & {
   code: string;
   display_name: string | null;
+  displayName?: string | null;
+  detection_source?: "backend_json_rules" | "frontend_fallback";
 };
 
 type Modifier59PopupSuggestion = ApiModifier59Suggestion;
@@ -298,9 +300,15 @@ const buildLocalModifier59Suggestions = (records: Record<string, ApiCptRecord>):
 };
 
 const detectInstantCpt = (text: string): CptPopupSuggestion[] => {
-  return detectCptFromText(text).filter((suggestion): suggestion is CptPopupSuggestion =>
-    Boolean(suggestion.should_start && suggestion.code),
-  );
+  return detectCptFromText(text)
+    .filter((suggestion): suggestion is CptPopupSuggestion =>
+      Boolean(suggestion.should_start && suggestion.code),
+    )
+    .map((suggestion) => ({
+      ...suggestion,
+      displayName: suggestion.display_name,
+      detection_source: "frontend_fallback" as const,
+    }));
 };
 
 const detectLocalCptSuggestions = detectInstantCpt;
@@ -703,58 +711,66 @@ function AmbientSessionContent() {
     setCptPopupQueue(remainingQueue);
   }, [cptPopupQueue, currentCptPopup]);
 
-  // Acceptance flow: therapeutic exercise -> popup 97110 -> Apply; gait training while
-  // 97110 is running -> popup 97116 immediately -> Apply; manual therapy while 97116 is
-  // running -> popup 97140 immediately.
   const queueOrShowCptPopup = useCallback((suggestion: CptPopupSuggestion) => {
     if (!suggestion?.code) {
       return;
     }
+    const normalizedSuggestion: CptPopupSuggestion = {
+      ...suggestion,
+      code: suggestion.code,
+      display_name: suggestion.display_name ?? suggestion.displayName ?? suggestion.code,
+      displayName: suggestion.displayName ?? suggestion.display_name ?? suggestion.code,
+      matched_phrase: suggestion.matched_phrase ?? null,
+      body_region: suggestion.body_region ?? null,
+      reason: suggestion.reason ?? "",
+      confidence: suggestion.confidence ?? "medium",
+      should_start: true,
+    };
 
     const now = Date.now();
-    const rejectedUntil = rejectedCptPopupRef.current[suggestion.code] || 0;
+    const rejectedUntil = rejectedCptPopupRef.current[normalizedSuggestion.code] || 0;
 
     if (rejectedUntil > now) {
-      console.log("[Medexa CPT DEBUG] rejected cooldown active", suggestion.code);
+      console.log("[Medexa CPT DEBUG] rejected cooldown active", normalizedSuggestion.code);
       return;
     }
 
-    if (suggestion.code === activeCptCodeRef.current) {
-      console.log("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", suggestion.code);
+    if (normalizedSuggestion.code === activeCptCodeRef.current) {
+      console.log("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", normalizedSuggestion.code);
       return;
     }
 
-    const lastShownAt = lastShownCptAtRef.current[suggestion.code] || 0;
+    const lastShownAt = lastShownCptAtRef.current[normalizedSuggestion.code] || 0;
     if (now - lastShownAt < 30000) {
-      console.log("[Medexa CPT DEBUG] same CPT shown within 30s, ignoring duplicate", suggestion.code);
+      console.log("[Medexa CPT DEBUG] same CPT shown within 30s, ignoring duplicate", normalizedSuggestion.code);
       return;
     }
-    lastShownCptAtRef.current[suggestion.code] = now;
+    lastShownCptAtRef.current[normalizedSuggestion.code] = now;
 
     console.log("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
     console.log("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
-    console.log("[Medexa CPT DEBUG] show or queue popup", suggestion);
+    console.log("[Medexa CPT DEBUG] show or queue popup", normalizedSuggestion);
 
     setCurrentCptPopup((current) => {
       if (current) {
         setCptPopupQueue((queue) => {
-          if (queue.some((item) => item.code === suggestion.code)) {
+          if (queue.some((item) => item.code === normalizedSuggestion.code)) {
             return queue;
           }
 
-          const nextQueue = [...queue, suggestion];
+          const nextQueue = [...queue, normalizedSuggestion];
           cptPopupQueueRef.current = nextQueue;
           console.log("[Medexa CPT DEBUG] queue", nextQueue);
           return nextQueue;
         });
-        setCptDetectionStatus(`Detected ${suggestion.code}`);
+        setCptDetectionStatus(`Detected ${normalizedSuggestion.code}`);
         return current;
       }
 
-      currentCptPopupRef.current = suggestion;
-      console.log("[Medexa CPT DEBUG] showing popup", suggestion.code);
-      setCptDetectionStatus(`Detected ${suggestion.code}`);
-      return suggestion;
+      currentCptPopupRef.current = normalizedSuggestion;
+      console.log("[Medexa CPT DEBUG] showing popup", normalizedSuggestion.code);
+      setCptDetectionStatus(`Detected ${normalizedSuggestion.code}`);
+      return normalizedSuggestion;
     });
   }, []);
 
@@ -1244,9 +1260,12 @@ function AmbientSessionContent() {
         }
 
         const backendCptSuggestions = backendAnalysis?.cpt_timer_suggestions?.length
-          ? backendAnalysis.cpt_timer_suggestions
+          ? backendAnalysis.cpt_timer_suggestions.map((suggestion) => ({
+              ...suggestion,
+              detection_source: "backend_json_rules" as const,
+            }))
           : backendAnalysis?.cpt_timer_suggestion?.should_start
-            ? [backendAnalysis.cpt_timer_suggestion]
+            ? [{ ...backendAnalysis.cpt_timer_suggestion, detection_source: "backend_json_rules" as const }]
             : (backendAnalysis?.cpt_suggestions ?? [])
                 .filter((suggestion) => suggestion.confidence === "high" || suggestion.confidence === "medium")
                 .map((suggestion) => ({
@@ -1737,8 +1756,12 @@ function AmbientSessionContent() {
     source: "manual" | "ai_suggested" = "manual",
     suggestion = currentCptPopup,
   ) => {
-    const suggestedCode = suggestion?.code || selectedSession.cpt || "97110";
-    const displayName = suggestion?.display_name || suggestedCode;
+    const suggestedCode = suggestion?.code ?? (source === "manual" ? selectedSession.cpt : null);
+    if (!suggestedCode) {
+      setStatusMessage("No CPT suggestion selected.");
+      return;
+    }
+    const displayName = suggestion?.display_name || suggestion?.displayName || suggestedCode;
     const reason =
       suggestion?.reason ||
       (source === "ai_suggested"
@@ -1961,7 +1984,7 @@ function AmbientSessionContent() {
   const formattedRecordingDuration = formatDuration(recordingSeconds);
   const sessionUnits = recordingStatus === "idle" ? 0 : cptUnitsFromSeconds(recordingSeconds);
   const cptUnits = cptTimer.units;
-  const cptCode = cptTimer.code || currentCptPopup?.code || selectedSession.cpt || "97110";
+  const cptCode = cptTimer.code || currentCptPopup?.code || selectedSession.cpt || "";
   const nextCptUnit = cptUnits + 1;
   const primaryBannerTitle =
     cptTimer.status === "running" || cptTimer.status === "paused"
@@ -2124,11 +2147,15 @@ function AmbientSessionContent() {
           <span>Last matched phrase: {lastMatchedPhrase}</span>
           <span>Detected CPT code: {lastDetectedCptCode}</span>
           <span>Detection source: {lastDetectionSource}</span>
+          <span>Latest transcript: {(latestHeardTextRef.current || lastHeardText || "none").slice(-80)}</span>
+          <span>Latest CPT matches: {cptDebugMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
           <span>Backend CPT suggestions: {backendCptDebugSuggestions.map((match) => match.code).filter(Boolean).join(", ") || "none"}</span>
           <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
           <span>Backend rules: {backendRulesStatus}</span>
-          <span>Popup: {currentCptPopup?.code || "none"}</span>
+          <span>Popup CPT code: {currentCptPopup?.code || "none"}</span>
+          <span>Popup CPT display name: {currentCptPopup?.display_name || currentCptPopup?.displayName || "none"}</span>
           <span>Active CPT code: {activeCptCode || "none"}</span>
+          <span>Queued CPT codes: {cptPopupQueue.map((item) => item.code).join(", ") || "none"}</span>
           <span>
             CPT records: {Object.values(cptRecords).map((record) => `${record.code}:${record.bodyRegion || "unspecified"}`).join(", ") || "none"}
           </span>
@@ -2145,22 +2172,13 @@ function AmbientSessionContent() {
           </button>
           <button
             type="button"
-            onClick={() =>
-              queueOrShowCptPopup({
-                should_start: true,
-                code: "97110",
-                display_name: "Therapeutic Exercise",
-                reason: "Manual test popup",
-                confidence: "high",
-              })
-            }
-          >
-            Test CPT Popup
-          </button>
-          <button
-            type="button"
             onClick={() => {
               const testText = "Patient is doing neuromuscular reeducation and balance training for lower back.";
+              currentCptPopupRef.current = null;
+              cptPopupQueueRef.current = [];
+              lastShownCptAtRef.current = {};
+              setCurrentCptPopup(null);
+              setCptPopupQueue([]);
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
               if (recordingStatus === "recording") {
@@ -2174,6 +2192,11 @@ function AmbientSessionContent() {
             type="button"
             onClick={() => {
               const testText = "Manual therapy and soft tissue mobilization were performed for lower back.";
+              currentCptPopupRef.current = null;
+              cptPopupQueueRef.current = [];
+              lastShownCptAtRef.current = {};
+              setCurrentCptPopup(null);
+              setCptPopupQueue([]);
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
               if (recordingStatus === "recording") {
@@ -2187,6 +2210,11 @@ function AmbientSessionContent() {
             type="button"
             onClick={() => {
               const testText = "Therapeutic activity and transfer training were performed.";
+              currentCptPopupRef.current = null;
+              cptPopupQueueRef.current = [];
+              lastShownCptAtRef.current = {};
+              setCurrentCptPopup(null);
+              setCptPopupQueue([]);
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
               if (recordingStatus === "recording") {
@@ -2200,6 +2228,11 @@ function AmbientSessionContent() {
             type="button"
             onClick={() => {
               const testText = "Therapeutic exercise and range of motion were performed.";
+              currentCptPopupRef.current = null;
+              cptPopupQueueRef.current = [];
+              lastShownCptAtRef.current = {};
+              setCurrentCptPopup(null);
+              setCptPopupQueue([]);
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
               if (recordingStatus === "recording") {
