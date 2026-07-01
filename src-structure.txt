@@ -1,0 +1,52 @@
+Folder PATH listing
+Volume serial number is 0000000E 2280:56FB
+C:\USERS\DELL\MEDEXA-UI-PROTOTYPE\SRC
++---app
+|   |   favicon.ico
+|   |   globals.css
+|   |   layout.tsx
+|   |   page.tsx
+|   |   
+|   +---ambient-listening
+|   |   |   page.tsx
+|   |   |   
+|   |   \---session
+|   |           page.tsx
+|   |           
+|   +---billing-intelligence
+|   |       page.tsx
+|   |       
+|   +---claim-document
+|   |       page.tsx
+|   |       
+|   +---patient-summary
+|   |       page.tsx
+|   |       
+|   +---soap-notes
+|   |       page.tsx
+|   |       
+|   \---start-session
+|           page.tsx
+|           
++---components
+|       DoctorContext.tsx
+|       MedexaHeader.tsx
+|       
++---context
+|       LanguageContext.tsx
+|       SessionDocumentationContext.tsx
+|       
++---hooks
+|       useWebSpeechSession.ts
+|       
++---lib
+|       activeSession.ts
+|       api.ts
+|       clinicalAnalyzer.ts
+|       sessions.ts
+|       translations.ts
+|       voiceCommands.ts
+|       
+\---types
+        speech-recognition.d.ts
+        

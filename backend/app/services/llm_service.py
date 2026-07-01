@@ -7,6 +7,72 @@ import urllib.request
 from typing import Any
 
 
+def get_openai_api_key() -> str:
+    key = os.getenv("OPENAI_API_KEY") or ""
+    key = key.strip().strip('"').strip("'").strip()
+    return key
+
+
+def get_llm_settings() -> dict:
+    raw_key = os.getenv("OPENAI_API_KEY") or ""
+    stripped_key = raw_key.strip()
+    cleaned_key = get_openai_api_key()
+    return {
+        "llm_provider": os.getenv("LLM_PROVIDER", "none").strip().lower(),
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
+        "openai_api_key_configured": bool(cleaned_key),
+        "openai_api_key_length": len(cleaned_key),
+        "openai_api_key_prefix": cleaned_key[:7] if cleaned_key else "",
+        "openai_api_key_suffix": cleaned_key[-4:] if cleaned_key else "",
+        "has_leading_or_trailing_whitespace": raw_key != stripped_key,
+        "has_quotes": (
+            len(stripped_key) >= 2
+            and (
+                (stripped_key.startswith('"') and stripped_key.endswith('"'))
+                or (stripped_key.startswith("'") and stripped_key.endswith("'"))
+            )
+        ),
+    }
+
+
+def test_openai_auth() -> dict:
+    api_key = get_openai_api_key()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    key_debug = {
+        "key_prefix": api_key[:7] if api_key else "",
+        "key_suffix": api_key[-4:] if api_key else "",
+        "key_length": len(api_key),
+    }
+
+    if not api_key:
+        return {
+            "ok": False,
+            "status": 0,
+            "error": "OPENAI_API_KEY is not configured",
+            **key_debug,
+        }
+
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            response.read()
+            return {"ok": True, "status": response.status, "model": model}
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            print("[LLM] OpenAI auth failed. Check Hugging Face OPENAI_API_KEY secret.")
+            error = "Unauthorized / invalid api key"
+        else:
+            error = str(exc.reason) if exc.reason else "OpenAI auth test failed"
+        return {"ok": False, "status": exc.code, "error": error, **key_debug}
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return {"ok": False, "status": 0, "error": str(exc), **key_debug}
+
+
 def _as_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
@@ -189,9 +255,16 @@ def _extract_json(text: str) -> dict:
 
 
 def generate_soap_with_llm(payload: dict) -> dict:
-    provider = os.getenv("LLM_PROVIDER", "none").lower()
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    provider = os.getenv("LLM_PROVIDER", "none").strip().lower()
+    api_key = get_openai_api_key()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+
+    print("[LLM] provider:", provider)
+    print("[LLM] model:", model)
+    print("[LLM] key configured:", bool(api_key))
+    print("[LLM] key length:", len(api_key))
+    print("[LLM] key prefix:", api_key[:7] if api_key else "")
+    print("[LLM] key suffix:", api_key[-4:] if api_key else "")
 
     if provider != "openai" or not api_key:
         return _fallback_soap(payload)
@@ -240,6 +313,11 @@ def generate_soap_with_llm(payload: dict) -> dict:
             "summary": _as_text(generated.get("summary")) or fallback["summary"],
             "billing_summary": generated.get("billing_summary") or fallback["billing_summary"],
         }
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            print("[LLM] OpenAI auth failed. Check Hugging Face OPENAI_API_KEY secret.")
+        print(f"[Medexa LLM] OpenAI SOAP generation failed: {exc}")
+        return _fallback_soap(payload)
     except (KeyError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
         print(f"[Medexa LLM] OpenAI SOAP generation failed: {exc}")
         return _fallback_soap(payload)
