@@ -174,6 +174,7 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     ]
 
     transcript_excerpt = transcript[:600]
+    insufficient_transcript_message = "Insufficient transcript captured for this session"
     billing_summary = {
         "total_seconds": total_seconds,
         "cpt_records": cpt_records,
@@ -205,7 +206,7 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     chief_complaint = (
         f"Patient reports {chief_phrase}"
         if chief_phrase
-        else transcript[:180] or "No chief complaint captured from transcript"
+        else transcript[:180] or insufficient_transcript_message
     )
 
     return {
@@ -214,8 +215,7 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
         "chief_complaint": chief_complaint,
         "pain_scale": pain_scale,
         "duration": duration,
-        "subjective": transcript_excerpt
-        or "No patient-reported speech was captured. Clinician review is required.",
+        "subjective": transcript_excerpt or insufficient_transcript_message,
         "objective": " ".join(
             [
                 "AI-assisted session draft based on live transcript and clinician actions.",

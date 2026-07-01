@@ -379,8 +379,8 @@ def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
         "llm_used": bool(generated.get("llm_used")),
         "llm_fallback_reason": generated.get("llm_fallback_reason", ""),
     }
-    print("[Finalize] saving SOAP for session:", session_id)
     SOAP_NOTES_STORE[session_id] = response_payload
+    print("[Finalize] saved SOAP for session:", session_id)
     print("[Finalize] SOAP store keys:", list(SOAP_NOTES_STORE.keys()))
     data.generated_soap_session_ids.add(session_id)
     data.summaries_by_session[session_id]["summary"] = summary

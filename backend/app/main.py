@@ -36,6 +36,13 @@ def soap_store() -> dict:
     return {"count": len(SOAP_NOTES_STORE), "keys": list(SOAP_NOTES_STORE.keys())}
 
 
+@app.get("/debug/soap-store/{session_id}")
+def soap_store_session(session_id: str) -> dict:
+    if session_id in SOAP_NOTES_STORE:
+        return SOAP_NOTES_STORE[session_id]
+    return {"detail": "SOAP note not generated for this session"}
+
+
 app.include_router(sessions.router)
 app.include_router(analysis.router)
 app.include_router(audio.router)

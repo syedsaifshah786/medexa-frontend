@@ -71,6 +71,10 @@ def state_from_elapsed(status: str = "idle", elapsed_seconds: int = 0) -> dict:
     }
 
 
+SOAP_NOTES_STORE = {}
+SESSION_STORE = {}
+TIMER_STATE_STORE = {}
+
 sessions = [
     {
         "id": "samuel-thompson",
@@ -194,7 +198,7 @@ sessions = [
     },
 ]
 
-SESSION_STORE = {session["id"]: session for session in sessions}
+SESSION_STORE.update({session["id"]: session for session in sessions})
 
 transcripts = [
     {
@@ -347,11 +351,10 @@ default_claim = {
 
 session_states = {session["id"]: state_from_elapsed() for session in sessions}
 timer_states = {session["id"]: timer_state_from_elapsed(session["id"]) for session in sessions}
-TIMER_STATE_STORE = timer_states
+TIMER_STATE_STORE.update(timer_states)
 cpt_records_by_session = {session["id"]: {} for session in sessions}
 insights_by_session = {session["id"]: [item.copy() for item in default_insights] for session in sessions}
 suggestions_by_session = {session["id"]: [item.copy() for item in default_suggestions] for session in sessions}
-SOAP_NOTES_STORE = {}
 soap_notes_by_session = SOAP_NOTES_STORE
 generated_soap_session_ids: set[str] = set()
 billing_by_session = {session["id"]: {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()} for session in sessions}
