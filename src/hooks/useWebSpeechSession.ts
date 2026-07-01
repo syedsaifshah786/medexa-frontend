@@ -17,17 +17,24 @@ type UseWebSpeechSessionOptions = {
 
 const normalizeTranscript = (text: string) => text.trim().replace(/\s+/g, " ");
 
+const SpeechRecognition =
+  typeof window !== "undefined"
+    ? window.SpeechRecognition || window.webkitSpeechRecognition
+    : null;
+
 const getRecognitionConstructor = () => {
   if (typeof window === "undefined") {
     return undefined;
   }
 
-  return window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  return SpeechRecognition ?? window.SpeechRecognition ?? window.webkitSpeechRecognition;
 };
 
 export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscriptUpdate }: UseWebSpeechSessionOptions = {}) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
+  const liveTranscriptRef = useRef("");
+  const lastHeardTextRef = useRef("");
   const interimTranscriptRef = useRef("");
   const chunkFinalTranscriptRef = useRef("");
   const chunkTranscriptRef = useRef("");
@@ -36,6 +43,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
   const isManuallyStoppedRef = useRef(false);
   const isPausedRef = useRef(false);
   const shouldListenRef = useRef(false);
+  const shouldKeepListeningRef = shouldListenRef;
   const triggerModeRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
 
@@ -59,6 +67,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     const chunkText = normalizeTranscript([chunkFinalTranscriptRef.current, interimTranscriptRef.current].filter(Boolean).join(" "));
 
     chunkTranscriptRef.current = chunkText;
+    liveTranscriptRef.current = fullText;
     setFinalTranscript(finalTranscriptRef.current);
     setLiveTranscript(fullText);
     setCurrentChunkTranscript(chunkText);
@@ -151,7 +160,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
         setPermissionError(message);
         setPermissionStatus("denied");
         setTriggerPermissionStatus("required");
-        shouldListenRef.current = false;
+        shouldKeepListeningRef.current = false;
         isManuallyStoppedRef.current = true;
       } else if (event.error === "no-speech") {
         setPermissionError("No speech detected yet. Keep speaking or try again.");
@@ -185,6 +194,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
           appendFinalTranscript(transcript);
           finalParts.push(transcript);
           setLatestFinalText(transcript);
+          lastHeardTextRef.current = transcript;
           setLastHeardText(transcript);
           latestText = transcript;
           if (detection.wakeWordDetected || detection.command !== "none") {
@@ -199,6 +209,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       interimTranscriptRef.current = normalizeTranscript(interimParts.join(" "));
       if (interimTranscriptRef.current) {
         setLatestInterimText(interimTranscriptRef.current);
+        lastHeardTextRef.current = interimTranscriptRef.current;
         setLastHeardText(interimTranscriptRef.current);
         latestText = interimTranscriptRef.current;
         const detection = detectMedexaCommand(interimTranscriptRef.current);
@@ -212,6 +223,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
         console.log("[WebSpeech] latestHeardText", latestText);
         console.log("[WebSpeech] interim", interimTranscriptRef.current);
         console.log("[WebSpeech] final", normalizeTranscript(finalParts.join(" ")));
+        console.log("[WebSpeech] finalTranscript", finalTranscriptRef.current);
         console.log("[WebSpeech] liveTranscript", fullText);
         console.log("[WebSpeech] live", fullText);
         onTranscriptUpdate?.(latestText, fullText);
@@ -222,7 +234,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       console.log("[WebSpeech] ended");
       setIsListening(false);
 
-      if (shouldListenRef.current && !isManuallyStoppedRef.current && !isPausedRef.current) {
+      if (shouldKeepListeningRef.current && !isManuallyStoppedRef.current && !isPausedRef.current) {
         restartTimerRef.current = window.setTimeout(() => {
           try {
             recognition.start();
@@ -268,7 +280,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       setPermissionStatus("denied");
       setPermissionError("Microphone permission denied");
       setTriggerPermissionStatus("required");
-      shouldListenRef.current = false;
+      shouldKeepListeningRef.current = false;
       isManuallyStoppedRef.current = true;
       setIsListening(false);
       return;
@@ -280,7 +292,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       return;
     }
 
-    shouldListenRef.current = true;
+    shouldKeepListeningRef.current = true;
     isManuallyStoppedRef.current = false;
     isPausedRef.current = false;
 
@@ -365,6 +377,8 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
 
   const resetTranscript = useCallback(() => {
     finalTranscriptRef.current = "";
+    liveTranscriptRef.current = "";
+    lastHeardTextRef.current = "";
     interimTranscriptRef.current = "";
     chunkFinalTranscriptRef.current = "";
     chunkTranscriptRef.current = "";
@@ -396,6 +410,8 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     transcriptSegments,
     recognitionRef,
     finalTranscriptRef,
+    liveTranscriptRef,
+    lastHeardTextRef,
     interimTranscriptRef,
     chunkTranscriptRef,
     lastProcessedChunkRef,

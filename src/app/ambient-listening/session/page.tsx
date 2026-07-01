@@ -489,6 +489,7 @@ function AmbientSessionContent() {
   const [currentCptPopup, setCurrentCptPopup] = useState<CptPopupSuggestion | null>(null);
   const currentCptPopupRef = useRef<CptPopupSuggestion | null>(null);
   const cptPopupQueueRef = useRef<CptPopupSuggestion[]>([]);
+  const [manualLiveTranscriptText, setManualLiveTranscriptText] = useState("");
   const [cptDebugText, setCptDebugText] = useState("");
   const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
   const [backendRulesStatus, setBackendRulesStatus] = useState("unchecked");
@@ -514,7 +515,6 @@ function AmbientSessionContent() {
   const isGeneratingSegmentRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
   const appliedCptCodesRef = useRef<Set<string>>(new Set());
-  const lastShownCptAtRef = useRef<Record<string, number>>({});
   const lastTriggerAtRef = useRef(0);
   const lastTriggerCommandRef = useRef("");
   const triggerCooldownMs = 3000;
@@ -642,19 +642,10 @@ function AmbientSessionContent() {
       return;
     }
 
-    const lastShownAt = lastShownCptAtRef.current[suggestion.code] || 0;
-
-    if (now - lastShownAt < 30000) {
-      console.log("[Medexa CPT DEBUG] recently shown", suggestion.code);
-      return;
-    }
-
     if (suggestion.code === activeCptCodeRef.current) {
       console.log("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", suggestion.code);
       return;
     }
-
-    lastShownCptAtRef.current[suggestion.code] = now;
 
     console.log("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
     console.log("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
@@ -866,6 +857,7 @@ function AmbientSessionContent() {
       speechSession.finalTranscript,
       latestHeardTextRef.current,
       fullTranscriptRef.current,
+      manualLiveTranscriptText,
       lastHeardText,
       fullTranscript,
     ]
@@ -892,6 +884,8 @@ function AmbientSessionContent() {
     const instantCptSuggestions = detectInstantCpt(transcriptForCptDetection);
     setCptDebugMatches(instantCptSuggestions);
 
+    console.log("[Medexa CPT] transcriptForCptDetection", transcriptForCptDetection);
+    console.log("[Medexa CPT] matches", instantCptSuggestions);
     console.log("[Frontend CPT] transcript:", transcriptForCptDetection);
     console.log("[Frontend CPT] matches:", instantCptSuggestions);
     console.log("[Medexa CPT DEBUG] transcriptForCptDetection:", transcriptForCptDetection);
@@ -937,6 +931,7 @@ function AmbientSessionContent() {
     speechSession.interimTranscript,
     speechSession.lastHeardText,
     speechSession.liveTranscript,
+    manualLiveTranscriptText,
   ]);
 
   const createAiSummarySegment = useCallback(
@@ -1256,12 +1251,11 @@ function AmbientSessionContent() {
     setIgnoredSuggestions({});
     appliedCptCodesRef.current = new Set();
     rejectedCptPopupRef.current = {};
-    lastShownCptAtRef.current = {};
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
   };
 
-  const handlePrimaryRecordingControl = () => {
+  const handlePrimaryRecordingControl = async () => {
     setStatusMessage("");
 
     if (recordingStatus === "recording") {
@@ -1311,6 +1305,7 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
+    console.log("[Medexa Recording] Start Recording clicked");
     console.log("[Medexa Recording] started");
     console.log("[Medexa Recording] status", "recording");
     setCptTimer((timer) =>
@@ -1335,13 +1330,12 @@ function AmbientSessionContent() {
         },
       };
     });
-    console.log("[Medexa Recording] Start Recording clicked");
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
-      void speechSession.startListening();
+      console.log("[Medexa Recording] speechSession.startListening called");
+      await speechSession.startListening();
     } else {
       speechSession.resumeListening();
     }
-    console.log("[Medexa Recording] speech start called");
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
       medexaApi.startSessionTimer(sessionId);
     } else {
@@ -1828,7 +1822,7 @@ function AmbientSessionContent() {
           <button
             type="button"
             onClick={() => startCptTimerFromSuggestion("manual")}
-            disabled={recordingStatus !== "recording" || cptTimer.status === "running"}
+            disabled={recordingStatus !== "recording"}
           >
             Start CPT Timer
           </button>
@@ -1846,13 +1840,15 @@ function AmbientSessionContent() {
         </div>
 
         <div className="cpt-debug-strip" aria-live="polite">
-          <span>Last heard: {cptDebugText.slice(-80) || "none"}</span>
-          <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
           <span>Recording status: {recordingStatus}</span>
-          <span>Speech listening: {speechSession.isListening ? "yes" : "no"}</span>
+          <span>Speech listening: {speechSession.isListening ? "true" : "false"}</span>
           <span>Mic permission: {speechSession.permissionStatus}</span>
+          <span>Speech supported: {speechSession.isSupported ? "true" : "false"}</span>
+          <span>Speech error: {speechSession.error || "none"}</span>
+          <span>Last heard: {speechSession.lastHeardText || "none"}</span>
+          <span>Detection text: {cptDebugText.slice(-80) || "none"}</span>
+          <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
           <span>Backend rules: {backendRulesStatus}</span>
-          {speechSession.error && <span>Speech error: {speechSession.error}</span>}
           <span>Popup: {currentCptPopup?.code || "none"}</span>
           <button
             type="button"
@@ -1876,6 +1872,20 @@ function AmbientSessionContent() {
             }
           >
             Test CPT Popup
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const testText = "Patient is doing therapeutic exercise and range of motion";
+              setManualLiveTranscriptText(testText);
+              const matches = detectInstantCpt(testText);
+              console.log("[Medexa CPT] Test Live Transcript CPT", testText, matches);
+              setCptDebugText(testText);
+              setCptDebugMatches(matches);
+              matches.forEach((match) => queueOrShowCptPopup(match));
+            }}
+          >
+            Test Live Transcript CPT
           </button>
           <button
             type="button"

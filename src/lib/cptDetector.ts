@@ -1,5 +1,7 @@
 import type { ApiCptTimerSuggestion } from "@/lib/api";
 
+export type CptTimerSuggestion = ApiCptTimerSuggestion;
+
 const cptPhraseMap = [
   {
     code: "97110",
@@ -82,12 +84,21 @@ const normalizeCptText = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export function detectCptFromText(text: string): ApiCptTimerSuggestion[] {
+const phraseMatches = (normalizedText: string, phrase: string) => {
+  const normalizedPhrase = normalizeCptText(phrase);
+  return new RegExp(`(^|\\s)${normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`).test(normalizedText);
+};
+
+export function detectCptFromText(text: string): CptTimerSuggestion[] {
   const normalizedText = normalizeCptText(text);
-  const suggestionsByCode = new Map<string, ApiCptTimerSuggestion>();
+  const suggestionsByCode = new Map<string, CptTimerSuggestion>();
+
+  if (!normalizedText) {
+    return [];
+  }
 
   cptPhraseMap.forEach((entry) => {
-    const matchedPhrase = entry.phrases.find((phrase) => normalizedText.includes(phrase));
+    const matchedPhrase = entry.phrases.find((phrase) => phraseMatches(normalizedText, phrase));
 
     if (!matchedPhrase || suggestionsByCode.has(entry.code)) {
       return;
