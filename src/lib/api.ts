@@ -83,17 +83,38 @@ export type ApiCptTimerSuggestion = {
   should_start: boolean;
   code: string | null;
   display_name: string | null;
+  matched_phrase?: string | null;
+  matched_phrases?: string[];
+  body_region?: string | null;
+  body_region_code?: string | null;
+  billing_category?: string | null;
   reason: string;
   confidence: CptSuggestion["confidence"] | "low" | "medium" | "high";
 };
 
+export type ApiModifier59Suggestion = {
+  id: string;
+  type: "modifier";
+  title: string;
+  description: string;
+  codes: string[];
+  body_region: string;
+  modifier: "59";
+  status: "pending" | "applied" | "ignored";
+  requires_clinician_review: boolean;
+};
+
 export type ApiLiveSuggestion = {
   id: string;
-  type: "billing" | "protocol" | "detected" | "alert";
+  type: "billing" | "protocol" | "detected" | "alert" | "modifier";
   title: string;
   description: string;
   action_label: string;
   status: "pending" | "applied" | "ignored";
+  codes?: string[];
+  body_region?: string;
+  modifier?: "59";
+  requires_clinician_review?: boolean;
 };
 
 export type ApiTranscriptAnalysis = {
@@ -137,6 +158,7 @@ export type ApiTranscriptAnalysis = {
   disclaimer?: string;
   cpt_timer_suggestion?: ApiCptTimerSuggestion;
   cpt_timer_suggestions?: ApiCptTimerSuggestion[];
+  modifier59_suggestions?: ApiModifier59Suggestion[];
   live_suggestions?: ApiLiveSuggestion[];
 };
 
@@ -152,6 +174,10 @@ export type ApiCptRecord = {
     endSecond?: number;
   }>;
   reason?: string;
+  bodyRegion?: string | null;
+  bodyRegionCode?: string | null;
+  matchedPhrase?: string | null;
+  billingCategory?: string | null;
 };
 
 export type ApiFinalizeSessionPayload = {
@@ -170,6 +196,7 @@ export type ApiFinalizeSessionPayload = {
   detected_cpt_suggestions: ApiTranscriptAnalysis["cpt_suggestions"];
   detected_icd10_suggestions: ApiTranscriptAnalysis["icd10_suggestions"];
   ncci_conflicts: ApiTranscriptAnalysis["ncci_conflicts"];
+  modifier59_suggestions?: ApiModifier59Suggestion[];
   soap_draft?: unknown;
   force_regenerate?: boolean;
 };
@@ -383,6 +410,7 @@ export const medexaApi = {
       end_time: string;
       existing_cpt_codes?: string[];
       active_cpt_code?: string | null;
+      cpt_records?: ApiCptRecord[];
       approved_insights?: string[];
       applied_suggestions?: string[];
     },

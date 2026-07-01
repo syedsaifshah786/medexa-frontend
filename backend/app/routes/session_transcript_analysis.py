@@ -19,8 +19,14 @@ def analyze_session_transcript_chunk(session_id: str, payload: TranscriptChunkAn
             if part and part.strip()
         )
     )
-    analysis = analyze_transcript_chunk(analysis_text or payload.chunk_text, payload.start_time, payload.end_time)
+    analysis = analyze_transcript_chunk(
+        analysis_text or payload.chunk_text,
+        payload.start_time,
+        payload.end_time,
+        payload.cpt_records,
+    )
     print("[Analyze] CPT suggestions:", analysis.get("cpt_timer_suggestions", []))
+    print("[Analyze] Modifier 59 suggestions:", analysis.get("modifier59_suggestions", []))
     detected_codes = [item.get("code") for item in analysis.get("cpt_suggestions", []) if item.get("code")]
     all_codes = [
         {"code": code}

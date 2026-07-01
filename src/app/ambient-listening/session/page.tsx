@@ -11,6 +11,7 @@ import {
   apiSessionToUpcomingSession,
   medexaApi,
   type ApiCptRecord,
+  type ApiModifier59Suggestion,
   type ApiCptTimerSuggestion,
   type ApiInsight,
   type ApiLiveSuggestion,
@@ -118,6 +119,8 @@ type CptPopupSuggestion = ApiCptTimerSuggestion & {
   code: string;
   display_name: string | null;
 };
+
+type Modifier59PopupSuggestion = ApiModifier59Suggestion;
 
 const INITIAL_RECORDING_SECONDS = 0;
 
@@ -494,6 +497,9 @@ function AmbientSessionContent() {
   const [visibleFullTranscript, setVisibleFullTranscript] = useState("");
   const [cptDebugText, setCptDebugText] = useState("");
   const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
+  const [backendCptDebugSuggestions, setBackendCptDebugSuggestions] = useState<ApiCptTimerSuggestion[]>([]);
+  const [modifier59Suggestions, setModifier59Suggestions] = useState<Modifier59PopupSuggestion[]>([]);
+  const [currentModifier59Popup, setCurrentModifier59Popup] = useState<Modifier59PopupSuggestion | null>(null);
   const [backendRulesStatus, setBackendRulesStatus] = useState("unchecked");
   const [triggerStatus, setTriggerStatus] = useState<"waiting" | "armed" | "detected">("waiting");
   const [cptDetectionStatus, setCptDetectionStatus] = useState("Waiting");
@@ -606,6 +612,19 @@ function AmbientSessionContent() {
   useEffect(() => {
     cptPopupQueueRef.current = cptPopupQueue;
   }, [cptPopupQueue]);
+
+  useEffect(() => {
+    if (currentModifier59Popup) {
+      return;
+    }
+
+    const nextModifier = modifier59Suggestions.find(
+      (suggestion) => suggestion.status === "pending" && !appliedSuggestions[suggestion.id] && !ignoredSuggestions[suggestion.id],
+    );
+    if (nextModifier) {
+      setCurrentModifier59Popup(nextModifier);
+    }
+  }, [appliedSuggestions, currentModifier59Popup, ignoredSuggestions, modifier59Suggestions]);
 
   useEffect(() => {
     if (currentCptPopup || cptPopupQueue.length === 0) {
@@ -990,6 +1009,7 @@ function AmbientSessionContent() {
           end_time: endTime,
           existing_cpt_codes: Object.keys(cptRecords),
           active_cpt_code: activeCptCode,
+          cpt_records: Object.values(cptRecords),
           approved_insights: insightItems
             .filter((item) => insightStates[item.id]?.approved && !insightStates[item.id]?.ignored)
             .map((item) => item.note || item.text),
@@ -998,6 +1018,7 @@ function AmbientSessionContent() {
             .map((item) => item.text),
         });
         console.log("[Medexa] backend analysis", backendAnalysis);
+        setBackendCptDebugSuggestions(backendAnalysis?.cpt_timer_suggestions ?? []);
         const analysis: ClinicalAnalysis = backendAnalysis
           ? apiAnalysisToClinicalAnalysis(backendAnalysis)
           : analyzeClinicalTranscript(chunkText);
@@ -1044,6 +1065,7 @@ function AmbientSessionContent() {
         ).map(({ id: _id, ...conflict }) => conflict);
 
         const backendLiveSuggestions = backendAnalysis?.live_suggestions ?? [];
+        const backendModifier59Suggestions = backendAnalysis?.modifier59_suggestions ?? [];
         if (backendLiveSuggestions.length > 0) {
           const nextSuggestions = backendLiveSuggestions.map(apiLiveSuggestionToSuggestion);
           const nextInsightItems = backendLiveSuggestions.map(apiLiveSuggestionToInsight);
@@ -1059,6 +1081,25 @@ function AmbientSessionContent() {
               nextInsightItems,
             ),
           );
+          const nextModifierSuggestions = backendLiveSuggestions
+            .filter((suggestion): suggestion is ApiLiveSuggestion & ApiModifier59Suggestion =>
+              suggestion.type === "modifier" && Boolean(suggestion.modifier === "59" && suggestion.body_region && suggestion.codes),
+            )
+            .map((suggestion) => ({
+              id: suggestion.id,
+              type: "modifier" as const,
+              title: suggestion.title,
+              description: suggestion.description,
+              codes: suggestion.codes ?? [],
+              body_region: suggestion.body_region ?? "same region",
+              modifier: "59" as const,
+              status: suggestion.status,
+              requires_clinician_review: Boolean(suggestion.requires_clinician_review),
+            }));
+          if (nextModifierSuggestions.length > 0) {
+            setModifier59Suggestions((items) => mergeItemsById(items, nextModifierSuggestions));
+            setCurrentModifier59Popup((current) => current ?? nextModifierSuggestions[0]);
+          }
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
           const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
               id: `local-cpt-${suggestion.code}`,
@@ -1104,6 +1145,11 @@ function AmbientSessionContent() {
               }));
         const localCptSuggestions = !backendAnalysis ? detectLocalCptSuggestions(chunkText) : [];
         const nextCptSuggestions = backendCptSuggestions.length > 0 ? backendCptSuggestions : localCptSuggestions;
+
+        if (backendModifier59Suggestions.length > 0) {
+          setModifier59Suggestions((items) => mergeItemsById(items, backendModifier59Suggestions));
+          setCurrentModifier59Popup((current) => current ?? backendModifier59Suggestions[0]);
+        }
 
         if (recordingStatus === "recording" && nextCptSuggestions.length > 0) {
           enqueueCptPopups(nextCptSuggestions);
@@ -1151,8 +1197,8 @@ function AmbientSessionContent() {
     }
 
     const summaryTimerId = window.setInterval(() => {
-      void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 10));
-    }, 10000);
+      void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 5));
+    }, 5000);
 
     return () => {
       window.clearInterval(summaryTimerId);
@@ -1269,6 +1315,39 @@ function AmbientSessionContent() {
     setStatusMessage("Suggestion ignored.");
   };
 
+  const handleModifier59Apply = (suggestion = currentModifier59Popup) => {
+    if (!suggestion) {
+      return;
+    }
+
+    setAppliedSuggestions((suggestions) => ({
+      ...suggestions,
+      [suggestion.id]: true,
+    }));
+    setModifier59Suggestions((items) =>
+      items.map((item) => (item.id === suggestion.id ? { ...item, status: "applied" } : item)),
+    );
+    setCurrentModifier59Popup(null);
+    medexaApi.applySuggestion(sessionId, suggestion.id);
+    setStatusMessage("Modifier 59 marked for clinician review.");
+  };
+
+  const handleModifier59Ignore = (suggestion = currentModifier59Popup) => {
+    if (!suggestion) {
+      return;
+    }
+
+    setIgnoredSuggestions((suggestions) => ({
+      ...suggestions,
+      [suggestion.id]: true,
+    }));
+    setModifier59Suggestions((items) =>
+      items.map((item) => (item.id === suggestion.id ? { ...item, status: "ignored" } : item)),
+    );
+    setCurrentModifier59Popup(null);
+    setStatusMessage("Modifier 59 suggestion ignored.");
+  };
+
   const resetAiSession = () => {
     speechSession.resetTranscript();
     setAiSummarySegments([]);
@@ -1279,6 +1358,9 @@ function AmbientSessionContent() {
     setActiveCptCode(null);
     setSuggestionItems([]);
     setInsightItems([]);
+    setBackendCptDebugSuggestions([]);
+    setModifier59Suggestions([]);
+    setCurrentModifier59Popup(null);
     setCptDetectionStatus("Waiting");
     setIgnoredSuggestions({});
     appliedCptCodesRef.current = new Set();
@@ -1438,6 +1520,10 @@ function AmbientSessionContent() {
         source: finalCptTimer.source ?? existingRecord?.source ?? "manual",
         intervals: closedIntervals,
         reason: finalCptTimer.reason ?? existingRecord?.reason ?? "",
+        bodyRegion: existingRecord?.bodyRegion ?? null,
+        bodyRegionCode: existingRecord?.bodyRegionCode ?? null,
+        matchedPhrase: existingRecord?.matchedPhrase ?? null,
+        billingCategory: existingRecord?.billingCategory ?? null,
       };
     }
 
@@ -1479,6 +1565,7 @@ function AmbientSessionContent() {
       detected_cpt_suggestions: latestDetectedCptSuggestionsRef.current ?? [],
       detected_icd10_suggestions: latestDetectedIcdSuggestionsRef.current ?? [],
       ncci_conflicts: latestNcciConflictsRef.current ?? [],
+      modifier59_suggestions: modifier59Suggestions,
       soap_draft: localSoapData,
     };
     console.log("[Medexa] finalizing SOAP", finalizePayload);
@@ -1530,7 +1617,7 @@ function AmbientSessionContent() {
           record.status === "running"
             ? {
                 ...record,
-                status: "stopped" as const,
+                status: "paused" as const,
                 intervals: record.intervals.map((interval, index, intervals) =>
                   index === intervals.length - 1 && interval.endSecond === undefined
                     ? { ...interval, endSecond: nextStartSecond }
@@ -1556,6 +1643,10 @@ function AmbientSessionContent() {
             { startSecond: nextStartSecond },
           ],
           reason,
+          bodyRegion: suggestion?.body_region ?? existingRecord?.bodyRegion ?? null,
+          bodyRegionCode: suggestion?.body_region_code ?? existingRecord?.bodyRegionCode ?? null,
+          matchedPhrase: suggestion?.matched_phrase ?? existingRecord?.matchedPhrase ?? null,
+          billingCategory: suggestion?.billing_category ?? existingRecord?.billingCategory ?? null,
         },
       };
     });
@@ -1890,9 +1981,13 @@ function AmbientSessionContent() {
           <span>Last heard: {latestHeardTextRef.current || lastHeardText || "none"}</span>
           <span>Detection text: {cptDebugText.slice(-80) || "none"}</span>
           <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
+          <span>Backend CPT suggestions: {backendCptDebugSuggestions.map((match) => match.code).filter(Boolean).join(", ") || "none"}</span>
           <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
           <span>Backend rules: {backendRulesStatus}</span>
           <span>Popup: {currentCptPopup?.code || "none"}</span>
+          <span>Active CPT code: {activeCptCode || "none"}</span>
+          <span>CPT records: {Object.keys(cptRecords).join(", ") || "none"}</span>
+          <span>Modifier 59 suggestions: {modifier59Suggestions.map((suggestion) => suggestion.id).join(", ") || "none"}</span>
           <button
             type="button"
             onClick={() => {
@@ -1919,32 +2014,41 @@ function AmbientSessionContent() {
           <button
             type="button"
             onClick={() => {
-              const testText = "Patient is doing therapeutic exercise and range of motion";
+              const testText = "Patient is doing therapeutic exercise, range of motion and strengthening for lower back.";
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+              if (recordingStatus === "recording") {
+                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+              }
             }}
           >
-            Test Transcript Detection
+            Test CPT 97110 Transcript
           </button>
           <button
             type="button"
             onClick={() => {
-              const testText = "The patient is working on gait training and walking balance today";
+              const testText = "Manual therapy and soft tissue mobilization were performed for lower back.";
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+              if (recordingStatus === "recording") {
+                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+              }
             }}
           >
-            Test Gait Transcript
+            Test CPT 97140 Same Region Transcript
           </button>
           <button
             type="button"
             onClick={() => {
-              const testText = "Manual therapy soft tissue mobilization was performed for the shoulder";
+              const testText = "Gait training and stair training were performed for lower extremity.";
               setManualLiveTranscriptText(testText);
               handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+              if (recordingStatus === "recording") {
+                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+              }
             }}
           >
-            Test Manual Therapy Transcript
+            Test CPT 97116 Different Region Transcript
           </button>
         </div>
 
@@ -2367,7 +2471,7 @@ function AmbientSessionContent() {
         </div>
       )}
 
-      {currentCptPopup && (
+      {(currentCptPopup || currentModifier59Popup) && (
         <div className="procedure-popup-backdrop" aria-hidden="true" />
       )}
 
@@ -2390,6 +2494,28 @@ function AmbientSessionContent() {
               Reject
             </button>
             <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested", currentCptPopup)}>
+              Apply
+            </button>
+          </div>
+        </section>
+      )}
+
+      {currentModifier59Popup && !currentCptPopup && (
+        <section className="procedure-popup cpt-detected-popup" role="dialog" aria-live="polite" aria-label="Modifier 59 Required">
+          <div className="procedure-popup-left">
+            <span className="procedure-popup-dot" aria-hidden="true" />
+            <div>
+              <p>Modifier Review</p>
+              <h2>{currentModifier59Popup.title}</h2>
+              <span>{currentModifier59Popup.description}</span>
+              <small>AI-assisted modifier suggestion. Requires clinician review.</small>
+            </div>
+          </div>
+          <div className="procedure-popup-actions">
+            <button type="button" onClick={() => handleModifier59Ignore(currentModifier59Popup)}>
+              Ignore
+            </button>
+            <button type="button" onClick={() => handleModifier59Apply(currentModifier59Popup)}>
               Apply
             </button>
           </div>

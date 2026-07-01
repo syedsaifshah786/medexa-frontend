@@ -51,6 +51,7 @@ class FinalizeSessionRequest(BaseModel):
     detected_cpt_suggestions: list[dict] = Field(default_factory=list)
     detected_icd10_suggestions: list[dict] = Field(default_factory=list)
     ncci_conflicts: list[dict] = Field(default_factory=list)
+    modifier59_suggestions: list[dict] = Field(default_factory=list)
     soap_draft: dict = Field(default_factory=dict)
     force_regenerate: bool = False
 
@@ -98,6 +99,7 @@ class TranscriptChunkAnalysisRequest(BaseModel):
     end_time: str
     existing_cpt_codes: list[str] = Field(default_factory=list)
     active_cpt_code: str | None = None
+    cpt_records: list[dict] = Field(default_factory=list)
     approved_insights: list[str] = Field(default_factory=list)
     applied_suggestions: list[str] = Field(default_factory=list)
 

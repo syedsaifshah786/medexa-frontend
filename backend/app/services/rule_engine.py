@@ -101,6 +101,9 @@ def load_rules() -> tuple[dict[str, Any], list[str]]:
         if warning:
             warnings.append(warning)
 
+    print("[RuleEngine] CPT phrase map loaded:", len(rules.get("cpt_phrase_map", {})))
+    print("[RuleEngine] CPT rules loaded:", len(rules.get("cpt_rules", {})))
+    print("[RuleEngine] body region map loaded:", len(rules.get("body_region_map", {})))
     return rules, warnings
 
 
@@ -232,6 +235,131 @@ def suggest_cpt_codes(text: str) -> list[dict]:
         ]
     )
     return sorted(suggestions, key=lambda suggestion: first_position_by_code.get(suggestion["code"], 10**9))
+
+
+def _matched_body_region(text: str) -> dict | None:
+    regions = detect_body_regions(text)
+    if not regions:
+        return None
+
+    region = regions[0]
+    return {
+        "phrase": str(region.get("phrase", "")),
+        "region": str(region.get("region", "")),
+        "display": str(region.get("phrase") or region.get("region", "")).replace("_", " "),
+    }
+
+
+def _billing_category_for_code(text: str, code: str) -> str | None:
+    rules, _warnings = load_rules()
+    category_matches = find_phrase_matches(text, rules.get("billing_category_map", {}))
+    cpt_rules = rules.get("cpt_rules", {})
+    label = ""
+    if isinstance(cpt_rules, dict) and isinstance(cpt_rules.get(code), dict):
+        label = str(cpt_rules[code].get("label") or "")
+
+    for match in category_matches:
+        category = str(match.get("value") or "")
+        if category and category == label:
+            return category
+
+    return label or None
+
+
+def _record_value(record: Any, key: str, default: Any = None) -> Any:
+    if isinstance(record, dict):
+        return record.get(key, default)
+    return getattr(record, key, default)
+
+
+def _same_region_modifier59_suggestions(cpt_items: list[dict]) -> list[dict]:
+    by_region: dict[str, list[dict]] = {}
+    for item in cpt_items:
+        code = str(item.get("code") or "")
+        region_key = str(item.get("body_region_code") or item.get("body_region") or "")
+        if not code or not region_key:
+            continue
+        by_region.setdefault(region_key, []).append(item)
+
+    suggestions: list[dict] = []
+    for _region_key, region_items in by_region.items():
+        unique_by_code = {str(item["code"]): item for item in region_items if item.get("code")}
+        if len(unique_by_code) < 2:
+            continue
+
+        codes = sorted(unique_by_code)
+        body_region = str(next(iter(unique_by_code.values())).get("body_region") or "same region")
+        suggestions.append(
+            {
+                "id": f"modifier-59-{'-'.join(codes)}-{normalize_text(body_region).replace(' ', '-')}",
+                "type": "modifier",
+                "title": "Modifier 59 Required",
+                "description": (
+                    f"Multiple CPT services detected for the same body region: {body_region}. "
+                    "Review whether Modifier 59 is required for distinct procedural services."
+                ),
+                "codes": codes,
+                "body_region": body_region,
+                "modifier": "59",
+                "status": "pending",
+                "requires_clinician_review": True,
+            }
+        )
+
+    return suggestions
+
+
+def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = []) -> dict:
+    clean_text = normalize_text(text or "")
+    body_region = _matched_body_region(clean_text)
+    body_region_display = body_region["display"] if body_region else None
+    body_region_code = body_region["region"] if body_region else None
+    cpt_suggestions = suggest_cpt_codes(clean_text)
+    cpt_timer_suggestions: list[dict] = []
+
+    for suggestion in cpt_suggestions:
+        matched_phrase = next(iter(suggestion.get("matched_phrases", [])), "")
+        billing_category = _billing_category_for_code(clean_text, suggestion["code"])
+        cpt_timer_suggestions.append(
+            {
+                "should_start": True,
+                "code": suggestion["code"],
+                "display_name": suggestion["display_name"],
+                "matched_phrase": matched_phrase,
+                "matched_phrases": suggestion.get("matched_phrases", []),
+                "body_region": body_region_display,
+                "body_region_code": body_region_code,
+                "billing_category": billing_category,
+                "reason": suggestion["reason"],
+                "confidence": suggestion["confidence"],
+            }
+        )
+
+    modifier_inputs: list[dict] = []
+    for record in existing_cpt_records or []:
+        code = str(_record_value(record, "code", "") or "")
+        if not code:
+            continue
+        record_region = _record_value(record, "bodyRegion") or _record_value(record, "body_region")
+        record_region_code = _record_value(record, "bodyRegionCode") or _record_value(record, "body_region_code") or record_region
+        modifier_inputs.append(
+            {
+                "code": code,
+                "body_region": str(record_region).replace("_", " ") if record_region else None,
+                "body_region_code": str(record_region_code) if record_region_code else None,
+            }
+        )
+
+    modifier_inputs.extend(cpt_timer_suggestions)
+    modifier59_suggestions = _same_region_modifier59_suggestions(modifier_inputs)
+
+    return {
+        "cpt_timer_suggestions": cpt_timer_suggestions,
+        "cpt_timer_suggestion": cpt_timer_suggestions[0] if cpt_timer_suggestions else None,
+        "modifier59_suggestions": modifier59_suggestions,
+        "body_regions": detect_body_regions(clean_text),
+        "disclaimer": DISCLAIMER,
+    }
 
 
 def enrich_cpt_suggestions(cpt_codes: list) -> list[dict]:
@@ -383,12 +511,18 @@ def _soap_update(
     }
 
 
-def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) -> dict:
+def analyze_transcript_chunk(
+    chunk_text: str,
+    start_time: str,
+    end_time: str,
+    existing_cpt_records: list | None = None,
+) -> dict:
     rules, rule_warnings = load_rules()
     clean_text = " ".join(chunk_text.split())
     icd10_suggestions = suggest_icd10_codes(clean_text)
     body_regions = detect_body_regions(clean_text)
     cpt_suggestions = suggest_cpt_codes(clean_text)
+    cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [])
     ncci_conflicts = detect_ncci_conflicts(cpt_suggestions, body_regions)
     symptoms = _symptoms_from_text(clean_text, icd10_suggestions)
     impressions = [
@@ -415,26 +549,14 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         if clean_text
         else "low"
     )
-    cpt_timer_suggestions = [
-        {
-            "should_start": True,
-            "code": suggestion["code"],
-            "display_name": suggestion["display_name"],
-            "reason": suggestion["reason"],
-            "confidence": suggestion["confidence"],
-        }
-        for suggestion in cpt_suggestions
-    ]
-    cpt_timer_suggestion = {
+    cpt_timer_suggestions = cpt_detection["cpt_timer_suggestions"]
+    cpt_timer_suggestion = cpt_detection["cpt_timer_suggestion"] or {
         "should_start": False,
         "code": None,
         "display_name": None,
         "reason": "",
         "confidence": "low",
     }
-
-    if cpt_timer_suggestions:
-        cpt_timer_suggestion = cpt_timer_suggestions[0]
 
     live_suggestions: list[dict] = []
     for suggestion in cpt_suggestions[:3]:
@@ -473,6 +595,22 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
             }
         )
 
+    for suggestion in cpt_detection.get("modifier59_suggestions", []):
+        live_suggestions.append(
+            {
+                "id": suggestion["id"],
+                "type": "modifier",
+                "title": suggestion["title"],
+                "description": suggestion["description"],
+                "action_label": "Apply",
+                "status": "pending",
+                "codes": suggestion["codes"],
+                "body_region": suggestion["body_region"],
+                "modifier": suggestion["modifier"],
+                "requires_clinician_review": True,
+            }
+        )
+
     if symptoms:
         live_suggestions.append(
             {
@@ -500,6 +638,7 @@ def analyze_transcript_chunk(chunk_text: str, start_time: str, end_time: str) ->
         "disclaimer": DISCLAIMER,
         "cpt_timer_suggestion": cpt_timer_suggestion,
         "cpt_timer_suggestions": cpt_timer_suggestions,
+        "modifier59_suggestions": cpt_detection.get("modifier59_suggestions", []),
         "live_suggestions": live_suggestions,
         "rule_warnings": rule_warnings,
         "rules_loaded": any(bool(rules.get(key)) for key in RULE_FILE_NAMES),
