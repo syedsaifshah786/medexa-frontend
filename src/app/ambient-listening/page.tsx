@@ -119,6 +119,7 @@ export default function AmbientListeningPage() {
   const [voiceCommandMessage, setVoiceCommandMessage] = useState("");
   const [isDraggingSessions, setIsDraggingSessions] = useState(false);
   const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
+  const [now, setNow] = useState<Date | null>(null);
   const { selectedDoctor } = useSelectedDoctor();
   const { t } = useLanguage();
   const speechSession = useWebSpeechSession();
@@ -127,6 +128,52 @@ export default function AmbientListeningPage() {
 
   const normalizedHeaderSearch = headerSearch.trim().toLowerCase();
   const doctorFirstName = selectedDoctor.name.replace(/^Dr\.\s+/, "").split(" ")[0];
+  const formattedDateTime = useMemo(() => {
+    if (!now) {
+      return "";
+    }
+
+    const date = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    }).format(now);
+    const time = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(now);
+
+    return `${date} • ${time}`;
+  }, [now]);
+  const greeting = useMemo(() => {
+    if (!now) {
+      return "";
+    }
+
+    const hour = now.getHours();
+    if (hour >= 5 && hour < 12) {
+      return "Good Morning";
+    }
+    if (hour >= 12 && hour < 17) {
+      return "Good Afternoon";
+    }
+    if (hour >= 17 && hour < 21) {
+      return "Good Evening";
+    }
+    return "Good Night";
+  }, [now]);
+
+  useEffect(() => {
+    const updateNow = () => setNow(new Date());
+    updateNow();
+    const interval = window.setInterval(updateNow, 60000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -421,11 +468,11 @@ export default function AmbientListeningPage() {
       />
 
       <section className="content">
-        <p className="date">Tuesday, Jul 13, 2026</p>
+        <p className="date">{formattedDateTime}</p>
 
         <section className="hero">
           <h1>
-            {t("common.goodMorning")},
+            {greeting || t("common.goodMorning")},
             <br />
             Dr. {doctorFirstName}
           </h1>
