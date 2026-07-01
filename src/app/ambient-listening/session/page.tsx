@@ -490,6 +490,8 @@ function AmbientSessionContent() {
   const currentCptPopupRef = useRef<CptPopupSuggestion | null>(null);
   const cptPopupQueueRef = useRef<CptPopupSuggestion[]>([]);
   const [manualLiveTranscriptText, setManualLiveTranscriptText] = useState("");
+  const [visibleLatestHeardText, setVisibleLatestHeardText] = useState("");
+  const [visibleFullTranscript, setVisibleFullTranscript] = useState("");
   const [cptDebugText, setCptDebugText] = useState("");
   const [cptDebugMatches, setCptDebugMatches] = useState<CptPopupSuggestion[]>([]);
   const [backendRulesStatus, setBackendRulesStatus] = useState("unchecked");
@@ -515,6 +517,7 @@ function AmbientSessionContent() {
   const isGeneratingSegmentRef = useRef(false);
   const finalizingRef = useRef(false);
   const rejectedCptPopupRef = useRef<Record<string, number>>({});
+  const lastShownCptAtRef = useRef<Record<string, number>>({});
   const appliedCptCodesRef = useRef<Set<string>>(new Set());
   const lastTriggerAtRef = useRef(0);
   const lastTriggerCommandRef = useRef("");
@@ -527,20 +530,10 @@ function AmbientSessionContent() {
   const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { t } = useLanguage();
-  const speechSession = useWebSpeechSession();
-  const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
-  const fullTranscript = speechSession.liveTranscript;
-  const lastHeardText = speechSession.lastHeardText;
-  const currentThirtySecondChunk = speechSession.currentChunkTranscript;
   const aiSegmentsStorageKey = useMemo(
     () => `medexa_session_ai_segments_${sessionId}`,
     [sessionId],
   );
-
-  useEffect(() => {
-    speechSession.autoStartTriggerMode();
-    setTriggerStatus("armed");
-  }, [speechSession.autoStartTriggerMode]);
 
   useEffect(() => {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -648,6 +641,13 @@ function AmbientSessionContent() {
       return;
     }
 
+    const lastShownAt = lastShownCptAtRef.current[suggestion.code] || 0;
+    if (now - lastShownAt < 30000) {
+      console.log("[Medexa CPT DEBUG] same CPT shown within 30s, ignoring duplicate", suggestion.code);
+      return;
+    }
+    lastShownCptAtRef.current[suggestion.code] = now;
+
     console.log("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
     console.log("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
     console.log("[Medexa CPT DEBUG] show or queue popup", suggestion);
@@ -707,6 +707,37 @@ function AmbientSessionContent() {
       return remainingQueue;
     });
   }, []);
+
+  const handleLiveTranscript = useCallback(
+    (latestText: string, fullText: string, source: "interim" | "final" = "interim") => {
+      const normalizedLatestText = latestText.trim();
+      const normalizedFullText = fullText.trim();
+      latestHeardTextRef.current = normalizedLatestText;
+      fullTranscriptRef.current = normalizedFullText;
+      setVisibleLatestHeardText(normalizedLatestText);
+      setVisibleFullTranscript(normalizedFullText);
+      setCptDebugText([normalizedLatestText, normalizedFullText].filter(Boolean).join(" ").trim());
+
+      const latestMatches = detectInstantCpt(normalizedLatestText);
+      const matches = latestMatches.length > 0 ? latestMatches : detectInstantCpt(normalizedFullText);
+      setCptDebugMatches(matches);
+      console.log("[Medexa CPT] handleLiveTranscript", { latestText: normalizedLatestText, fullText: normalizedFullText, source });
+      console.log("[Medexa CPT] matches", matches);
+      matches.forEach((match) => queueOrShowCptPopup(match));
+    },
+    [queueOrShowCptPopup],
+  );
+
+  const speechSession = useWebSpeechSession({ onTranscriptUpdate: handleLiveTranscript });
+  const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
+  const fullTranscript = visibleFullTranscript || speechSession.liveTranscript;
+  const lastHeardText = visibleLatestHeardText || speechSession.lastHeardText;
+  const currentThirtySecondChunk = speechSession.currentChunkTranscript;
+
+  useEffect(() => {
+    speechSession.autoStartTriggerMode();
+    setTriggerStatus("armed");
+  }, [speechSession.autoStartTriggerMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1252,6 +1283,12 @@ function AmbientSessionContent() {
     setIgnoredSuggestions({});
     appliedCptCodesRef.current = new Set();
     rejectedCptPopupRef.current = {};
+    lastShownCptAtRef.current = {};
+    latestHeardTextRef.current = "";
+    fullTranscriptRef.current = "";
+    setManualLiveTranscriptText("");
+    setVisibleLatestHeardText("");
+    setVisibleFullTranscript("");
     lastAnalyzedSecondRef.current = 0;
     isGeneratingSegmentRef.current = false;
     finalizingRef.current = false;
@@ -1307,7 +1344,7 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
-    console.log("[Medexa Recording] Start Recording clicked");
+    console.log("[Medexa] Start Recording clicked");
     console.log("[Medexa Recording] started");
     console.log("[Medexa Recording] status", "recording");
     setCptTimer((timer) =>
@@ -1333,7 +1370,7 @@ function AmbientSessionContent() {
       };
     });
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
-      console.log("[Medexa Recording] speechSession.startListening called");
+      console.log("[Medexa] speechSession.startListening called");
       await speechSession.startListening();
     } else {
       speechSession.resumeListening();
@@ -1427,7 +1464,7 @@ function AmbientSessionContent() {
     });
     const localSoapData = saveSoapDocumentation();
     const finalizePayload = {
-      transcript: speechSession.finalTranscriptRef.current || fullTranscript,
+      transcript: fullTranscriptRef.current || speechSession.finalTranscriptRef.current || fullTranscript,
       total_seconds: recordingSeconds,
       cpt_timer: {
         active: false,
@@ -1850,9 +1887,10 @@ function AmbientSessionContent() {
           <span>Mic permission: {speechSession.permissionStatus}</span>
           <span>Speech supported: {speechSession.isSupported ? "true" : "false"}</span>
           <span>Speech error: {speechSession.error || "none"}</span>
-          <span>Last heard: {speechSession.lastHeardText || "none"}</span>
+          <span>Last heard: {latestHeardTextRef.current || lastHeardText || "none"}</span>
           <span>Detection text: {cptDebugText.slice(-80) || "none"}</span>
           <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
+          <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
           <span>Backend rules: {backendRulesStatus}</span>
           <span>Popup: {currentCptPopup?.code || "none"}</span>
           <button
@@ -1883,28 +1921,30 @@ function AmbientSessionContent() {
             onClick={() => {
               const testText = "Patient is doing therapeutic exercise and range of motion";
               setManualLiveTranscriptText(testText);
-              const matches = detectInstantCpt(testText);
-              console.log("[Medexa CPT] Test Live Transcript CPT", testText, matches);
-              setCptDebugText(testText);
-              setCptDebugMatches(matches);
-              matches.forEach((match) => queueOrShowCptPopup(match));
+              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
             }}
           >
-            Test Live Transcript CPT
+            Test Transcript Detection
           </button>
           <button
             type="button"
-            onClick={() =>
-              queueOrShowCptPopup({
-                should_start: true,
-                code: "97116",
-                display_name: "Gait Training",
-                reason: "Manual test gait popup",
-                confidence: "high",
-              })
-            }
+            onClick={() => {
+              const testText = "The patient is working on gait training and walking balance today";
+              setManualLiveTranscriptText(testText);
+              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+            }}
           >
-            Test Gait CPT
+            Test Gait Transcript
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const testText = "Manual therapy soft tissue mobilization was performed for the shoulder";
+              setManualLiveTranscriptText(testText);
+              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+            }}
+          >
+            Test Manual Therapy Transcript
           </button>
         </div>
 

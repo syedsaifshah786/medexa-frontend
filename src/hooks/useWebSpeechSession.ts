@@ -12,7 +12,7 @@ export type TranscriptSegment = {
 type UseWebSpeechSessionOptions = {
   lang?: string;
   onSpeechText?: (text: string) => void;
-  onTranscriptUpdate?: (latestText: string, fullText: string) => void;
+  onTranscriptUpdate?: (latestText: string, fullText: string, source: "interim" | "final") => void;
 };
 
 const normalizeTranscript = (text: string) => text.trim().replace(/\s+/g, " ");
@@ -180,6 +180,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       const interimParts: string[] = [];
       const finalParts: string[] = [];
       let latestText = "";
+      let latestSource: "interim" | "final" = "interim";
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
@@ -197,6 +198,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
           lastHeardTextRef.current = transcript;
           setLastHeardText(transcript);
           latestText = transcript;
+          latestSource = "final";
           if (detection.wakeWordDetected || detection.command !== "none") {
             setLastDetectedCommand(detection);
           }
@@ -212,6 +214,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
         lastHeardTextRef.current = interimTranscriptRef.current;
         setLastHeardText(interimTranscriptRef.current);
         latestText = interimTranscriptRef.current;
+        latestSource = "interim";
         const detection = detectMedexaCommand(interimTranscriptRef.current);
         if (detection.wakeWordDetected || detection.command !== "none") {
           setLastDetectedCommand(detection);
@@ -220,13 +223,15 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       }
       const { fullText } = syncTranscriptState();
       if (latestText) {
+        console.log("[WebSpeech] latestText", latestText);
         console.log("[WebSpeech] latestHeardText", latestText);
         console.log("[WebSpeech] interim", interimTranscriptRef.current);
         console.log("[WebSpeech] final", normalizeTranscript(finalParts.join(" ")));
         console.log("[WebSpeech] finalTranscript", finalTranscriptRef.current);
+        console.log("[WebSpeech] fullText", fullText);
         console.log("[WebSpeech] liveTranscript", fullText);
         console.log("[WebSpeech] live", fullText);
-        onTranscriptUpdate?.(latestText, fullText);
+        onTranscriptUpdate?.(latestText, fullText, latestSource);
       }
     };
 
