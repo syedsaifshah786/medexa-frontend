@@ -36,6 +36,7 @@ RULE_FILE_NAMES = {
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 RULES_DIR = BACKEND_ROOT / "data" / "rules"
+OPTIONAL_RULE_FILES = {"cpt_icd10_rules.json"}
 
 print("[RuleEngine] RULES_DIR:", RULES_DIR)
 
@@ -211,7 +212,8 @@ def _confidence_for_phrase(phrase: str) -> str:
 def _load_json_file(file_name: str) -> tuple[Any, str | None]:
     path = RULES_DIR / file_name
     if not path.exists():
-        warning = f"Missing rule file: {path}"
+        rule_type = "optional rule file" if file_name in OPTIONAL_RULE_FILES else "rule file"
+        warning = f"Missing {rule_type}: {path}"
         print("[RuleEngine]", warning)
         return {}, warning
 

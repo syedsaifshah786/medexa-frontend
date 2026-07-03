@@ -60,15 +60,23 @@ def cpt_lookup_health() -> dict:
         value = rules.get(key, {})
         return len(value) if hasattr(value, "__len__") else 0
 
+    def exists(key: str) -> bool:
+        return (RULES_DIR / RULE_FILE_NAMES[key]).exists()
+
     return {
-        "medexa_cpt_lookup_exists": (RULES_DIR / RULE_FILE_NAMES["medexa_cpt_lookup"]).exists(),
+        "medexa_cpt_lookup_exists": exists("medexa_cpt_lookup"),
         "medexa_cpt_lookup_count": count("medexa_cpt_lookup"),
-        "medexa_icd10_lookup_exists": (RULES_DIR / RULE_FILE_NAMES["medexa_icd10_lookup"]).exists(),
+        "medexa_icd10_lookup_exists": exists("medexa_icd10_lookup"),
         "medexa_icd10_lookup_count": count("medexa_icd10_lookup"),
+        "cpt_billing_rules_exists": exists("cpt_billing_rules"),
         "cpt_billing_rules_count": count("cpt_billing_rules"),
+        "cpt_icd10_rules_exists": exists("cpt_icd10_rules"),
         "cpt_icd10_rules_count": count("cpt_icd10_rules"),
+        "cpt_mue_rules_exists": exists("cpt_mue_rules"),
         "cpt_mue_rules_count": count("cpt_mue_rules"),
+        "cpt_ptp_rules_exists": exists("cpt_ptp_rules"),
         "cpt_ptp_rules_count": count("cpt_ptp_rules"),
+        "cpt_addon_rules_exists": exists("cpt_addon_rules"),
         "cpt_addon_rules_count": count("cpt_addon_rules"),
         "warnings": warnings,
         "sample_detection": sample.get("cpt_timer_suggestions", []),
