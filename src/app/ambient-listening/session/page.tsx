@@ -26,7 +26,13 @@ import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
-console.log("[Frontend CPT] detector imported");
+const debugLog = (...args: Parameters<typeof console.log>) => {
+  if (process.env.NODE_ENV === "development") {
+    console.log(...args);
+  }
+};
+
+debugLog("[Frontend CPT] detector imported");
 
 const defaultInsights = [
   {
@@ -565,6 +571,7 @@ function AmbientSessionContent() {
   const routeSessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? searchParams.get("session") ?? "";
   const shouldContinueRecording = searchParams.get("continueRecording") === "1";
   const routeSource = searchParams.get("source") ?? "manual";
+  const showDebug = process.env.NODE_ENV === "development" && searchParams.get("debug") === "1";
   const shouldAutoStartRecording =
     searchParams.get("autoStartRecording") === "1" || shouldContinueRecording;
   const localRouteSession = getSessionById(routeSessionId);
@@ -667,7 +674,7 @@ function AmbientSessionContent() {
 
   useEffect(() => {
     currentCptPopupRef.current = currentCptPopup;
-    console.log("[Medexa CPT] current popup", currentCptPopup);
+    debugLog("[Medexa CPT] current popup", currentCptPopup);
   }, [currentCptPopup]);
 
   useEffect(() => {
@@ -713,7 +720,7 @@ function AmbientSessionContent() {
     }
 
     const [nextPopup, ...remainingQueue] = cptPopupQueue;
-    console.log("[Medexa CPT] showing popup", nextPopup.code);
+    debugLog("[Medexa CPT] showing popup", nextPopup.code);
     currentCptPopupRef.current = nextPopup;
     cptPopupQueueRef.current = remainingQueue;
     setCurrentCptPopup(nextPopup);
@@ -740,25 +747,25 @@ function AmbientSessionContent() {
     const rejectedUntil = rejectedCptPopupRef.current[normalizedSuggestion.code] || 0;
 
     if (rejectedUntil > now) {
-      console.log("[Medexa CPT DEBUG] rejected cooldown active", normalizedSuggestion.code);
+      debugLog("[Medexa CPT DEBUG] rejected cooldown active", normalizedSuggestion.code);
       return;
     }
 
     if (normalizedSuggestion.code === activeCptCodeRef.current) {
-      console.log("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", normalizedSuggestion.code);
+      debugLog("[Medexa CPT DEBUG] same as active CPT, ignoring duplicate", normalizedSuggestion.code);
       return;
     }
 
     const lastShownAt = lastShownCptAtRef.current[normalizedSuggestion.code] || 0;
     if (now - lastShownAt < 30000) {
-      console.log("[Medexa CPT DEBUG] same CPT shown within 30s, ignoring duplicate", normalizedSuggestion.code);
+      debugLog("[Medexa CPT DEBUG] same CPT shown within 30s, ignoring duplicate", normalizedSuggestion.code);
       return;
     }
     lastShownCptAtRef.current[normalizedSuggestion.code] = now;
 
-    console.log("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
-    console.log("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
-    console.log("[Medexa CPT DEBUG] show or queue popup", normalizedSuggestion);
+    debugLog("[Medexa CPT DEBUG] activeCptCode", activeCptCodeRef.current);
+    debugLog("[Medexa CPT DEBUG] current popup", currentCptPopupRef.current);
+    debugLog("[Medexa CPT DEBUG] show or queue popup", normalizedSuggestion);
 
     setCurrentCptPopup((current) => {
       if (current) {
@@ -769,7 +776,7 @@ function AmbientSessionContent() {
 
           const nextQueue = [...queue, normalizedSuggestion];
           cptPopupQueueRef.current = nextQueue;
-          console.log("[Medexa CPT DEBUG] queue", nextQueue);
+          debugLog("[Medexa CPT DEBUG] queue", nextQueue);
           return nextQueue;
         });
         setCptDetectionStatus(`Detected ${normalizedSuggestion.code}`);
@@ -777,7 +784,7 @@ function AmbientSessionContent() {
       }
 
       currentCptPopupRef.current = normalizedSuggestion;
-      console.log("[Medexa CPT DEBUG] showing popup", normalizedSuggestion.code);
+      debugLog("[Medexa CPT DEBUG] showing popup", normalizedSuggestion.code);
       setCptDetectionStatus(`Detected ${normalizedSuggestion.code}`);
       return normalizedSuggestion;
     });
@@ -808,7 +815,7 @@ function AmbientSessionContent() {
         currentCptPopupRef.current = nextPopup ?? null;
         setCurrentCptPopup(nextPopup ?? null);
         if (nextPopup) {
-          console.log("[Medexa CPT DEBUG] showing popup", nextPopup.code);
+          debugLog("[Medexa CPT DEBUG] showing popup", nextPopup.code);
         }
       }, 0);
 
@@ -868,8 +875,8 @@ function AmbientSessionContent() {
         setLastDetectedCptCode(matches[0].code);
         setLastDetectionSource("frontend_fallback");
       }
-      console.log("[Medexa CPT] handleLiveTranscript", { latestText: normalizedLatestText, fullText: normalizedFullText, source });
-      console.log("[Medexa CPT] matches", matches);
+      debugLog("[Medexa CPT] handleLiveTranscript", { latestText: normalizedLatestText, fullText: normalizedFullText, source });
+      debugLog("[Medexa CPT] matches", matches);
       matches.forEach((match) => queueOrShowCptPopup(match));
     },
     [queueOrShowCptPopup],
@@ -1059,14 +1066,14 @@ function AmbientSessionContent() {
     setCptDebugText(latestChunkText || fullTranscriptForCptDetection);
 
     if (recordingStatus !== "recording") {
-      console.log("[Medexa CPT DEBUG] skipped because recordingStatus:", recordingStatus);
+      debugLog("[Medexa CPT DEBUG] skipped because recordingStatus:", recordingStatus);
       setCptDebugMatches([]);
       setFinalCptMatchesUsed([]);
       return;
     }
 
     if (!latestChunkText && !fullTranscriptForCptDetection) {
-      console.log("[Medexa CPT DEBUG] no transcript available yet");
+      debugLog("[Medexa CPT DEBUG] no transcript available yet");
       setCptDebugMatches([]);
       setFinalCptMatchesUsed([]);
       return;
@@ -1080,15 +1087,15 @@ function AmbientSessionContent() {
     setFinalCptMatchesUsed(instantCptSuggestions);
     setCptDebugMatches(instantCptSuggestions);
 
-    console.log("[Medexa CPT] latestChunkForCptDetection", latestChunkText);
-    console.log("[Medexa CPT] fullTranscriptForCptDetection", fullTranscriptForCptDetection);
-    console.log("[Medexa CPT] matches", instantCptSuggestions);
-    console.log("[Frontend CPT] latest transcript:", latestChunkText);
-    console.log("[Frontend CPT] full transcript:", fullTranscriptForCptDetection);
-    console.log("[Frontend CPT] matches:", instantCptSuggestions);
-    console.log("[Medexa CPT DEBUG] latestChunkForCptDetection:", latestChunkText);
-    console.log("[Medexa CPT DEBUG] fullTranscriptForCptDetection:", fullTranscriptForCptDetection);
-    console.log("[Medexa CPT DEBUG] matches:", instantCptSuggestions);
+    debugLog("[Medexa CPT] latestChunkForCptDetection", latestChunkText);
+    debugLog("[Medexa CPT] fullTranscriptForCptDetection", fullTranscriptForCptDetection);
+    debugLog("[Medexa CPT] matches", instantCptSuggestions);
+    debugLog("[Frontend CPT] latest transcript:", latestChunkText);
+    debugLog("[Frontend CPT] full transcript:", fullTranscriptForCptDetection);
+    debugLog("[Frontend CPT] matches:", instantCptSuggestions);
+    debugLog("[Medexa CPT DEBUG] latestChunkForCptDetection:", latestChunkText);
+    debugLog("[Medexa CPT DEBUG] fullTranscriptForCptDetection:", fullTranscriptForCptDetection);
+    debugLog("[Medexa CPT DEBUG] matches:", instantCptSuggestions);
 
     if (instantCptSuggestions.length > 0) {
       enqueueCptPopups(instantCptSuggestions);
@@ -1165,7 +1172,7 @@ function AmbientSessionContent() {
             .filter((item) => appliedSuggestions[item.id])
             .map((item) => item.text),
         });
-        console.log("[Medexa] backend analysis", backendAnalysis);
+        debugLog("[Medexa] backend analysis", backendAnalysis);
         setBackendCptDebugSuggestions(backendAnalysis?.cpt_timer_suggestions ?? []);
         if (backendAnalysis?.cpt_timer_suggestions?.length) {
           setLastMatchedPhrase(backendAnalysis.cpt_timer_suggestions[0].matched_phrase ?? "none");
@@ -1618,9 +1625,9 @@ function AmbientSessionContent() {
     }
 
     setRecordingStatus("recording");
-    console.log("[Medexa] Start Recording clicked");
-    console.log("[Medexa Recording] started");
-    console.log("[Medexa Recording] status", "recording");
+    debugLog("[Medexa] Start Recording clicked");
+    debugLog("[Medexa Recording] started");
+    debugLog("[Medexa Recording] status", "recording");
     setCptTimer((timer) =>
       timer.status === "paused"
         ? createLocalCptTimer("running", timer.seconds, timer.code, timer.source, timer.reason)
@@ -1644,7 +1651,7 @@ function AmbientSessionContent() {
       };
     });
     if (recordingStatus === "idle" || recordingStatus === "stopped") {
-      console.log("[Medexa] speechSession.startListening called");
+      debugLog("[Medexa] speechSession.startListening called");
       await speechSession.startListening();
     } else {
       speechSession.resumeListening();
@@ -1682,7 +1689,7 @@ function AmbientSessionContent() {
       return;
     }
     finalizingRef.current = true;
-    console.log("[Finalize Frontend] called once", sessionId);
+    debugLog("[Finalize Frontend] called once", sessionId);
 
     const finalCptTimer =
       cptTimer.status === "running" || cptTimer.status === "paused"
@@ -1760,10 +1767,10 @@ function AmbientSessionContent() {
       modifier59_suggestions: modifier59Suggestions,
       soap_draft: localSoapData,
     };
-    console.log("[Medexa] finalizing SOAP", finalizePayload);
+    debugLog("[Medexa] finalizing SOAP", finalizePayload);
     const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
-    console.log("[Finalize Frontend] response", finalized);
-    console.log("[Medexa] SOAP saved", finalized);
+    debugLog("[Finalize Frontend] response", finalized);
+    debugLog("[Medexa] SOAP saved", finalized);
 
     if (finalized?.soap_note) {
       updateSoapData(finalized.soap_note);
@@ -2009,14 +2016,6 @@ function AmbientSessionContent() {
     }
   };
 
-  const recordingStatusText =
-    recordingStatus === "stopped"
-      ? t("session.recordingStopped")
-      : recordingStatus === "recording"
-        ? t("session.recordingActive")
-      : recordingStatus === "paused"
-        ? t("session.recordingPaused")
-        : t("session.readyToRecord");
   const formattedRecordingDuration = formatDuration(recordingSeconds);
   const sessionUnits = recordingStatus === "idle" ? 0 : cptUnitsFromSeconds(recordingSeconds);
   const cptUnits = cptTimer.units;
@@ -2036,7 +2035,7 @@ function AmbientSessionContent() {
     cptTimer.status === "running" || cptTimer.status === "paused"
       ? "Say Stop Recording..."
       : recordingStatus === "idle"
-        ? "Say Hey Medexa start recording or press Start Recording."
+        ? "Say Hey Medexa start recording."
         : "Say Stop Recording...";
   const cptElapsedUnitText = `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`;
   const cptNextUnitText =
@@ -2165,131 +2164,136 @@ function AmbientSessionContent() {
           )}
         </div>
 
-        <div className="voice-debug-line" aria-live="polite">
-          <span>{voiceTriggerLabel}</span>
-          {showVoicePermissionMessage && <span>Microphone permission is required for Medexa voice trigger.</span>}
-          <span>CPT Detection: {cptDetectionStatus}</span>
-        </div>
+        {showDebug && (
+          <>
+            <div className="voice-debug-line" aria-live="polite">
+              <span>{voiceTriggerLabel}</span>
+              {showVoicePermissionMessage && <span>Microphone permission is required for Medexa voice trigger.</span>}
+              <span>CPT Detection: {cptDetectionStatus}</span>
+            </div>
 
-        <div className="cpt-debug-strip" aria-live="polite">
-          <span>sessionId: {sessionId}</span>
-          <span>source: {routeSource}</span>
-          <span>Recording status: {recordingStatus}</span>
-          <span>Speech listening: {speechSession.isListening ? "true" : "false"}</span>
-          <span>Mic permission: {speechSession.permissionStatus}</span>
-          <span>Total seconds: {recordingSeconds}</span>
-          <span>Redirect countdown: complete</span>
-          <span>Speech supported: {speechSession.isSupported ? "true" : "false"}</span>
-          <span>Speech error: {speechSession.error || "none"}</span>
-          <span>Last heard: {latestHeardTextRef.current || lastHeardText || "none"}</span>
-          <span>Detection text: {cptDebugText.slice(-80) || "none"}</span>
-          <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
-          <span>Last matched phrase: {lastMatchedPhrase}</span>
-          <span>Detected CPT code: {lastDetectedCptCode}</span>
-          <span>Detection source: {lastDetectionSource}</span>
-          <span>Latest transcript: {(latestHeardTextRef.current || lastHeardText || "none").slice(-80)}</span>
-          <span>Latest chunk CPT matches: {latestChunkCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
-          <span>Full transcript CPT matches: {fullTranscriptCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
-          <span>Final CPT matches used: {finalCptMatchesUsed.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
-          <span>Backend CPT suggestions: {backendCptDebugSuggestions.map((match) => match.code).filter(Boolean).join(", ") || "none"}</span>
-          <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
-          <span>Backend rules: {backendRulesStatus}</span>
-          <span>Popup CPT code: {currentCptPopup?.code || "none"}</span>
-          <span>Popup CPT display name: {currentCptPopup?.display_name || currentCptPopup?.displayName || "none"}</span>
-          <span>Active CPT code: {activeCptCode || "none"}</span>
-          <span>Queued CPT codes: {cptPopupQueue.map((item) => item.code).join(", ") || "none"}</span>
-          <span>
-            CPT records: {Object.values(cptRecords).map((record) => `${record.code}:${record.bodyRegion || "unspecified"}`).join(", ") || "none"}
-          </span>
-          <span>Modifier 59 suggestions count: {modifier59Suggestions.length}</span>
-          <span>Last modifier reason: {lastModifierReason}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setStatusMessage("Speak now...");
-              void speechSession.startListening();
-            }}
-          >
-            Test Microphone
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const testText = "Patient is doing neuromuscular reeducation and balance training for lower back.";
-              currentCptPopupRef.current = null;
-              cptPopupQueueRef.current = [];
-              lastShownCptAtRef.current = {};
-              setCurrentCptPopup(null);
-              setCptPopupQueue([]);
-              setManualLiveTranscriptText(testText);
-              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
-              if (recordingStatus === "recording") {
-                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
-              }
-            }}
-          >
-            Test Neuro 97112
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const testText = "Manual therapy and soft tissue mobilization were performed for lower back.";
-              currentCptPopupRef.current = null;
-              cptPopupQueueRef.current = [];
-              lastShownCptAtRef.current = {};
-              setCurrentCptPopup(null);
-              setCptPopupQueue([]);
-              setManualLiveTranscriptText(testText);
-              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
-              if (recordingStatus === "recording") {
-                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
-              }
-            }}
-          >
-            Test Manual 97140
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const testText = "Therapeutic activity and transfer training were performed.";
-              currentCptPopupRef.current = null;
-              cptPopupQueueRef.current = [];
-              lastShownCptAtRef.current = {};
-              setCurrentCptPopup(null);
-              setCptPopupQueue([]);
-              setManualLiveTranscriptText(testText);
-              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
-              if (recordingStatus === "recording") {
-                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
-              }
-            }}
-          >
-            Test Activity 97530
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const testText = "Therapeutic exercise and range of motion were performed.";
-              currentCptPopupRef.current = null;
-              cptPopupQueueRef.current = [];
-              lastShownCptAtRef.current = {};
-              setCurrentCptPopup(null);
-              setCptPopupQueue([]);
-              setManualLiveTranscriptText(testText);
-              handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
-              if (recordingStatus === "recording") {
-                void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
-              }
-            }}
-          >
-            Test Exercise 97110
-          </button>
-        </div>
+            <div className="cpt-debug-strip" aria-live="polite">
+              <span>sessionId: {sessionId}</span>
+              <span>source: {routeSource}</span>
+              <span>Recording status: {recordingStatus}</span>
+              <span>Speech listening: {speechSession.isListening ? "true" : "false"}</span>
+              <span>Mic permission: {speechSession.permissionStatus}</span>
+              <span>Total seconds: {recordingSeconds}</span>
+              <span>Redirect countdown: complete</span>
+              <span>Speech supported: {speechSession.isSupported ? "true" : "false"}</span>
+              <span>Speech error: {speechSession.error || "none"}</span>
+              <span>Last heard: {latestHeardTextRef.current || lastHeardText || "none"}</span>
+              <span>Detection text: {cptDebugText.slice(-80) || "none"}</span>
+              <span>CPT matches: {cptDebugMatches.map((match) => match.code).join(", ") || "none"}</span>
+              <span>Last matched phrase: {lastMatchedPhrase}</span>
+              <span>Detected CPT code: {lastDetectedCptCode}</span>
+              <span>Detection source: {lastDetectionSource}</span>
+              <span>Latest transcript: {(latestHeardTextRef.current || lastHeardText || "none").slice(-80)}</span>
+              <span>Latest chunk CPT matches: {latestChunkCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+              <span>Full transcript CPT matches: {fullTranscriptCptMatches.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+              <span>Final CPT matches used: {finalCptMatchesUsed.map((match) => `${match.code}:${match.matched_phrase ?? "phrase"}`).join(", ") || "none"}</span>
+              <span>Backend CPT suggestions: {backendCptDebugSuggestions.map((match) => match.code).filter(Boolean).join(", ") || "none"}</span>
+              <span>Full transcript length: {fullTranscriptRef.current.length || fullTranscript.length}</span>
+              <span>Backend rules: {backendRulesStatus}</span>
+              <span>Popup CPT code: {currentCptPopup?.code || "none"}</span>
+              <span>Popup CPT display name: {currentCptPopup?.display_name || currentCptPopup?.displayName || "none"}</span>
+              <span>Active CPT code: {activeCptCode || "none"}</span>
+              <span>Queued CPT codes: {cptPopupQueue.map((item) => item.code).join(", ") || "none"}</span>
+              <span>
+                CPT records: {Object.values(cptRecords).map((record) => `${record.code}:${record.bodyRegion || "unspecified"}`).join(", ") || "none"}
+              </span>
+              <span>Modifier 59 suggestions count: {modifier59Suggestions.length}</span>
+              <span>Last modifier reason: {lastModifierReason}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusMessage("Speak now...");
+                  void speechSession.startListening();
+                }}
+              >
+                Test Microphone
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const testText = "Patient is doing neuromuscular reeducation and balance training for lower back.";
+                  currentCptPopupRef.current = null;
+                  cptPopupQueueRef.current = [];
+                  lastShownCptAtRef.current = {};
+                  setCurrentCptPopup(null);
+                  setCptPopupQueue([]);
+                  setManualLiveTranscriptText(testText);
+                  handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+                  if (recordingStatus === "recording") {
+                    void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+                  }
+                }}
+              >
+                Test Neuro 97112
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const testText = "Manual therapy and soft tissue mobilization were performed for lower back.";
+                  currentCptPopupRef.current = null;
+                  cptPopupQueueRef.current = [];
+                  lastShownCptAtRef.current = {};
+                  setCurrentCptPopup(null);
+                  setCptPopupQueue([]);
+                  setManualLiveTranscriptText(testText);
+                  handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+                  if (recordingStatus === "recording") {
+                    void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+                  }
+                }}
+              >
+                Test Manual 97140
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const testText = "Therapeutic activity and transfer training were performed.";
+                  currentCptPopupRef.current = null;
+                  cptPopupQueueRef.current = [];
+                  lastShownCptAtRef.current = {};
+                  setCurrentCptPopup(null);
+                  setCptPopupQueue([]);
+                  setManualLiveTranscriptText(testText);
+                  handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+                  if (recordingStatus === "recording") {
+                    void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+                  }
+                }}
+              >
+                Test Activity 97530
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const testText = "Therapeutic exercise and range of motion were performed.";
+                  currentCptPopupRef.current = null;
+                  cptPopupQueueRef.current = [];
+                  lastShownCptAtRef.current = {};
+                  setCurrentCptPopup(null);
+                  setCptPopupQueue([]);
+                  setManualLiveTranscriptText(testText);
+                  handleLiveTranscript(testText, [fullTranscriptRef.current, testText].filter(Boolean).join(" "), "final");
+                  if (recordingStatus === "recording") {
+                    void createAiSummarySegment(Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current + 1), testText);
+                  }
+                }}
+              >
+                Test Exercise 97110
+              </button>
+            </div>
+          </>
+        )}
 
-        <div className="session-status-row" aria-live="polite">
-          <p className={`recording-status is-${recordingStatus}`}>{recordingStatusText}</p>
-          {statusMessage && <p className="status-message">{statusMessage}</p>}
-        </div>
+        {statusMessage && (
+          <div className="session-status-row" aria-live="polite">
+            <p className="status-message">{statusMessage}</p>
+          </div>
+        )}
 
         <p className="processing-text">{t("session.processingInsights")}</p>
 
@@ -2440,39 +2444,43 @@ function AmbientSessionContent() {
               <div className="speech-alert">{t("session.webSpeechUnsupported")}</div>
             )}
             {speechSession.permissionError && (
-              <div className="speech-alert">{t("session.microphoneRequired")}</div>
+              <div className="speech-alert">Microphone permission is required to continue recording.</div>
             )}
 
-            <div className="speech-debug-line">
-              <span>
-                {t("session.speechStatus")}: <strong>{listeningStatus}</strong>
-              </span>
-              <div className="speech-debug-actions">
-                <button type="button" onClick={handleGenerateTestSummary}>
-                  {t("session.generateTestSummary")}
-                </button>
-                <button
-                  type="button"
-                  disabled={audioUploadStatus === "uploading"}
-                  onClick={() => audioInputRef.current?.click()}
-                >
-                  {audioUploadStatus === "uploading" ? "Transcribing audio..." : "Upload Audio for Test"}
-                </button>
-                <input
-                  ref={audioInputRef}
-                  type="file"
-                  accept="audio/*"
-                  className="sr-only"
-                  onChange={handleAudioUpload}
-                />
-              </div>
-            </div>
+            {showDebug && (
+              <>
+                <div className="speech-debug-line">
+                  <span>
+                    {t("session.speechStatus")}: <strong>{listeningStatus}</strong>
+                  </span>
+                  <div className="speech-debug-actions">
+                    <button type="button" onClick={handleGenerateTestSummary}>
+                      {t("session.generateTestSummary")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={audioUploadStatus === "uploading"}
+                      onClick={() => audioInputRef.current?.click()}
+                    >
+                      {audioUploadStatus === "uploading" ? "Transcribing audio..." : "Upload Audio for Test"}
+                    </button>
+                    <input
+                      ref={audioInputRef}
+                      type="file"
+                      accept="audio/*"
+                      className="sr-only"
+                      onChange={handleAudioUpload}
+                    />
+                  </div>
+                </div>
 
-            {audioUploadStatus === "success" && (
-              <div className="speech-alert is-success">Audio transcript generated</div>
-            )}
-            {audioUploadStatus === "error" && (
-              <div className="speech-alert">{audioUploadError || "Audio transcription failed. Please check backend."}</div>
+                {audioUploadStatus === "success" && (
+                  <div className="speech-alert is-success">Audio transcript generated</div>
+                )}
+                {audioUploadStatus === "error" && (
+                  <div className="speech-alert">{audioUploadError || "Audio transcription failed. Please check backend."}</div>
+                )}
+              </>
             )}
 
             <div className="transcript-box">
@@ -2480,7 +2488,7 @@ function AmbientSessionContent() {
               <p>{fullTranscript || t("session.transcriptPlaceholder")}</p>
             </div>
 
-            {uploadedAudioTranscript && (
+            {showDebug && uploadedAudioTranscript && (
               <div className="transcript-box">
                 <h3>Uploaded Audio Transcript</h3>
                 <p>{uploadedAudioTranscript}</p>
