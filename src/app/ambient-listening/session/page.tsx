@@ -3328,24 +3328,12 @@ function AmbientSessionContent() {
         .insights-scroll-area {
           min-width: 0;
           min-height: 0;
-          max-height: calc(100vh - 300px);
-          overflow-y: auto;
-          overflow-x: hidden;
+          max-height: none;
+          overflow: visible;
           box-sizing: border-box;
           width: 100%;
-          padding-right: 8px;
-          padding-bottom: 120px;
-          scrollbar-width: thin;
-          scrollbar-color: #c9d4e5 transparent;
-        }
-
-        .insights-scroll-area::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        .insights-scroll-area::-webkit-scrollbar-thumb {
-          border-radius: 999px;
-          background: #c9d4e5;
+          padding-right: 0;
+          padding-bottom: 0;
         }
 
         .insight-timeline {
