@@ -2960,10 +2960,17 @@ function AmbientSessionContent() {
         .patient-strip {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 16px;
+          min-height: 122px;
+          padding: 24px 32px;
+          border: 1px solid rgba(81, 70, 245, 0.13);
+          border-radius: 8px;
+          background: #fff;
+          box-sizing: border-box;
         }
 
         .back-link {
+          flex: 0 0 auto;
           width: 20px;
           height: 30px;
           display: flex;
@@ -2976,6 +2983,7 @@ function AmbientSessionContent() {
         }
 
         .patient-avatar {
+          flex: 0 0 auto;
           width: 48px;
           height: 48px;
           border-radius: 50%;
@@ -2984,6 +2992,11 @@ function AmbientSessionContent() {
         }
 
         .patient-info {
+          display: flex;
+          min-height: 74px;
+          flex-direction: column;
+          justify-content: center;
+          row-gap: 16px;
           min-width: 0;
           flex: 1;
         }
@@ -2992,31 +3005,38 @@ function AmbientSessionContent() {
           margin: 0;
           font-size: 20px;
           font-weight: 500;
-          line-height: 1.1;
+          line-height: 1.3;
           color: #172033;
         }
 
         .patient-meta {
           display: grid;
           grid-template-columns: repeat(4, minmax(120px, 1fr));
-          gap: 22px;
+          align-items: center;
+          column-gap: 22px;
+          row-gap: 18px;
           max-width: 760px;
-          margin-top: 9px;
+          margin-top: 0;
         }
 
         .patient-meta p {
+          display: flex;
+          min-height: 40px;
+          flex-direction: column;
+          justify-content: center;
           margin: 0;
           color: #6b768a;
           font-size: 9px;
-          line-height: 1.3;
+          line-height: 1.45;
         }
 
         .patient-meta strong {
           display: block;
-          margin-top: 4px;
+          margin-top: 6px;
           color: #172033;
           font-size: 11px;
           font-weight: 800;
+          line-height: 1.35;
         }
 
         .patient-meta .blue-dot {
@@ -4218,11 +4238,23 @@ function AmbientSessionContent() {
 
           .patient-strip {
             align-items: flex-start;
+            gap: 12px;
+            min-height: 0;
+            padding: 20px 18px;
+          }
+
+          .patient-info {
+            min-height: 0;
+            row-gap: 14px;
           }
 
           .patient-meta {
             grid-template-columns: 1fr;
-            gap: 10px;
+            row-gap: 12px;
+          }
+
+          .patient-meta p {
+            min-height: 0;
           }
 
           .recording-card {
