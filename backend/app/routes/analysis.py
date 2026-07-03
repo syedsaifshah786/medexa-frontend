@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 
-from app.services.rule_engine import RULE_FILE_NAMES, RULES_DIR, analyze_transcript_chunk
+from app.services.rule_engine import RULE_FILE_NAMES, RULES_DIR, analyze_transcript_chunk, load_rules
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -47,6 +47,34 @@ def rules_health() -> dict:
     }
 
 
+@router.get("/cpt-lookup-health")
+def cpt_lookup_health() -> dict:
+    rules, warnings = load_rules()
+    sample = analyze_transcript_chunk(
+        "we did manual therapy and soft tissue mobilization. we are working on neuromuscular reeducation and balance training.",
+        "00:00",
+        "00:05",
+    )
+
+    def count(key: str) -> int:
+        value = rules.get(key, {})
+        return len(value) if hasattr(value, "__len__") else 0
+
+    return {
+        "medexa_cpt_lookup_exists": (RULES_DIR / RULE_FILE_NAMES["medexa_cpt_lookup"]).exists(),
+        "medexa_cpt_lookup_count": count("medexa_cpt_lookup"),
+        "medexa_icd10_lookup_exists": (RULES_DIR / RULE_FILE_NAMES["medexa_icd10_lookup"]).exists(),
+        "medexa_icd10_lookup_count": count("medexa_icd10_lookup"),
+        "cpt_billing_rules_count": count("cpt_billing_rules"),
+        "cpt_icd10_rules_count": count("cpt_icd10_rules"),
+        "cpt_mue_rules_count": count("cpt_mue_rules"),
+        "cpt_ptp_rules_count": count("cpt_ptp_rules"),
+        "cpt_addon_rules_count": count("cpt_addon_rules"),
+        "warnings": warnings,
+        "sample_detection": sample.get("cpt_timer_suggestions", []),
+    }
+
+
 @router.get("/cpt-detect")
 def debug_cpt_detect(text: str = Query(..., min_length=1), language: str = "en") -> dict:
     analysis = analyze_transcript_chunk(
@@ -61,4 +89,5 @@ def debug_cpt_detect(text: str = Query(..., min_length=1), language: str = "en")
         "text": text,
         "cpt_timer_suggestions": analysis.get("cpt_timer_suggestions", []),
         "cpt_suggestions": analysis.get("cpt_suggestions", []),
+        "live_suggestions": analysis.get("live_suggestions", []),
     }

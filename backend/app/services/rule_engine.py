@@ -19,6 +19,13 @@ from app.services.localization import (
 DISCLAIMER = "AI-assisted suggestions require clinician review."
 
 RULE_FILE_NAMES = {
+    "medexa_cpt_lookup": "medexa_cpt_lookup.json",
+    "medexa_icd10_lookup": "medexa_icd10_lookup.json",
+    "cpt_billing_rules": "cpt_billing_rules.json",
+    "cpt_icd10_rules": "cpt_icd10_rules.json",
+    "cpt_mue_rules": "cpt_mue_rules.json",
+    "cpt_ptp_rules": "cpt_ptp_rules.json",
+    "cpt_addon_rules": "cpt_addon_rules.json",
     "icd10_phrase_map": "icd10_phrase_map.json",
     "body_region_map": "body_region_map.json",
     "cpt_phrase_map": "cpt_phrase_map.json",
@@ -231,6 +238,8 @@ def load_rules() -> tuple[dict[str, Any], list[str]]:
 
     print("[RuleEngine] CPT phrase map loaded:", len(rules.get("cpt_phrase_map", {})))
     print("[RuleEngine] CPT rules loaded:", len(rules.get("cpt_rules", {})))
+    print("[RuleEngine] Medexa CPT lookup loaded:", len(rules.get("medexa_cpt_lookup", {})))
+    print("[RuleEngine] Medexa ICD10 lookup loaded:", len(rules.get("medexa_icd10_lookup", {})))
     print("[RuleEngine] body region map loaded:", len(rules.get("body_region_map", {})))
     return rules, warnings
 
@@ -274,11 +283,79 @@ def _normalize_cpt_phrase_text(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
 
 
+def _split_normalized_sentences(text: str) -> list[str]:
+    return [
+        _normalize_cpt_phrase_text(sentence)
+        for sentence in re.split(r"[.!?\n;]+", text or "")
+        if _normalize_cpt_phrase_text(sentence)
+    ]
+
+
 def _phrase_matches_exact(normalized_text: str, phrase: str) -> bool:
     normalized_phrase = _normalize_cpt_phrase_text(phrase)
     if not normalized_phrase or normalized_phrase in GENERIC_CPT_PHRASES:
         return False
     return re.search(rf"(^|\s){re.escape(normalized_phrase)}(\s|$)", normalized_text) is not None
+
+
+def _first_phrase_position(normalized_text: str, phrase: str) -> int:
+    normalized_phrase = _normalize_cpt_phrase_text(phrase)
+    match = re.search(rf"(^|\s){re.escape(normalized_phrase)}(\s|$)", normalized_text)
+    return match.start() if match else 10**9
+
+
+def _iter_lookup_records(lookup: Any) -> list[dict]:
+    if isinstance(lookup, dict):
+        return [item for item in lookup.values() if isinstance(item, dict) and item.get("code")]
+    if isinstance(lookup, list):
+        return [item for item in lookup if isinstance(item, dict) and item.get("code")]
+    return []
+
+
+def _index_rule_list(rule_items: Any, code_field: str = "cpt_code") -> dict[str, dict]:
+    if isinstance(rule_items, dict):
+        return {
+            str(key): value
+            for key, value in rule_items.items()
+            if isinstance(value, dict)
+        }
+    if isinstance(rule_items, list):
+        return {
+            str(item.get(code_field)): item
+            for item in rule_items
+            if isinstance(item, dict) and item.get(code_field)
+        }
+    return {}
+
+
+def _billing_rule_for_code(code: str) -> dict:
+    rules, _warnings = load_rules()
+    return _index_rule_list(rules.get("cpt_billing_rules", {})).get(str(code), {})
+
+
+def _icd10_rule_for_code(code: str) -> dict:
+    rules, _warnings = load_rules()
+    return _index_rule_list(rules.get("cpt_icd10_rules", {})).get(str(code), {})
+
+
+def _mue_rule_for_code(code: str) -> dict:
+    rules, _warnings = load_rules()
+    return _index_rule_list(rules.get("cpt_mue_rules", {})).get(str(code), {})
+
+
+def _addon_rule_for_code(code: str) -> dict:
+    rules, _warnings = load_rules()
+    return _index_rule_list(rules.get("cpt_addon_rules", {})).get(str(code), {})
+
+
+def _valid_icd10_codes_for_cpt(code: str) -> set[str]:
+    rule = _icd10_rule_for_code(code)
+    valid_codes = rule.get("valid_icd10_codes", [])
+    return {
+        str(item.get("code") if isinstance(item, dict) else item)
+        for item in valid_codes
+        if item
+    }
 
 
 def iter_cpt_phrases(phrase_map: Any) -> list[tuple[str, str]]:
@@ -359,10 +436,59 @@ def detect_body_regions(text: str) -> list[dict]:
 
 def suggest_icd10_codes(text: str) -> list[dict]:
     rules, _warnings = load_rules()
-    matches = find_phrase_matches(text, rules.get("icd10_phrase_map", {}))
     suggestions: list[dict] = []
     seen: set[tuple[str, str]] = set()
+    normalized = _normalize_cpt_phrase_text(text)
+    sentences = _split_normalized_sentences(text)
 
+    for record in _iter_lookup_records(rules.get("medexa_icd10_lookup", {})):
+        code = str(record.get("code") or "")
+        trigger_phrases = [str(phrase) for phrase in record.get("trigger_phrases", []) if str(phrase).strip()]
+        required_context = [str(phrase) for phrase in record.get("required_context", []) if str(phrase).strip()]
+        exclude_if_present = [str(phrase) for phrase in record.get("exclude_if_present", []) if str(phrase).strip()]
+
+        if not code or not trigger_phrases:
+            continue
+
+        for phrase in trigger_phrases:
+            if not _phrase_matches_exact(normalized, phrase):
+                continue
+
+            matched_sentence = next((sentence for sentence in sentences if _phrase_matches_exact(sentence, phrase)), normalized)
+            if any(_phrase_matches_exact(matched_sentence, excluded) for excluded in exclude_if_present):
+                continue
+
+            context_matched = [
+                context
+                for context in required_context
+                if _phrase_matches_exact(matched_sentence, context) or _phrase_matches_exact(normalized, context)
+            ]
+            if required_context and not context_matched:
+                continue
+
+            key = (phrase, code)
+            if key in seen:
+                continue
+
+            seen.add(key)
+            suggestions.append(
+                {
+                    "phrase": phrase,
+                    "code": code,
+                    "label": record.get("label", ""),
+                    "reason": f"Matched Medexa ICD-10 lookup phrase: {phrase}",
+                    "confidence": "high" if context_matched or len(phrase.split()) >= 3 else "medium",
+                    "source": "medexa_icd10_lookup",
+                    "required_context_matched": context_matched,
+                    "notes": record.get("notes", ""),
+                }
+            )
+            break
+
+    if suggestions:
+        return suggestions
+
+    matches = find_phrase_matches(text, rules.get("icd10_phrase_map", {}))
     for match in matches:
         code = str(match["value"])
         key = (match["phrase"], code)
@@ -376,6 +502,7 @@ def suggest_icd10_codes(text: str) -> list[dict]:
                 "code": code,
                 "reason": f"Matched transcript phrase: {match['phrase']}",
                 "confidence": match["confidence"],
+                "source": "icd10_phrase_map",
             }
         )
 
@@ -404,11 +531,73 @@ def _category_matches_by_code(text: str) -> dict[str, set[str]]:
 
 def suggest_cpt_codes(text: str) -> list[dict]:
     rules, _warnings = load_rules()
+    lookup = rules.get("medexa_cpt_lookup", {})
     matched_phrases_by_code: dict[str, set[str]] = {}
     normalized = _normalize_cpt_phrase_text(text)
+    sentences = _split_normalized_sentences(text)
     first_position_by_code: dict[str, int] = {}
+    lookup_suggestions: list[dict] = []
+    seen_lookup_codes: set[str] = set()
 
     print("[CPT Detect] transcript:", text)
+    for record in _iter_lookup_records(lookup):
+        code = str(record.get("code") or "")
+        trigger_phrases = [str(phrase) for phrase in record.get("trigger_phrases", []) if str(phrase).strip()]
+        required_context = [str(phrase) for phrase in record.get("required_context", []) if str(phrase).strip()]
+        exclude_if_present = [str(phrase) for phrase in record.get("exclude_if_present", []) if str(phrase).strip()]
+
+        if not code or not trigger_phrases:
+            continue
+
+        matched_phrases: list[str] = []
+        required_context_matched: list[str] = []
+        first_position = 10**9
+
+        for phrase in trigger_phrases:
+            if not _phrase_matches_exact(normalized, phrase):
+                continue
+
+            matched_sentence = next((sentence for sentence in sentences if _phrase_matches_exact(sentence, phrase)), normalized)
+            if any(_phrase_matches_exact(matched_sentence, excluded) for excluded in exclude_if_present):
+                continue
+
+            context_matches = [
+                context
+                for context in required_context
+                if _phrase_matches_exact(matched_sentence, context) or _phrase_matches_exact(normalized, context)
+            ]
+            if required_context and not context_matches:
+                continue
+
+            matched_phrases.append(phrase)
+            required_context_matched.extend(context_matches)
+            first_position = min(first_position, _first_phrase_position(normalized, phrase))
+
+        if not matched_phrases or code in seen_lookup_codes:
+            continue
+
+        seen_lookup_codes.add(code)
+        lookup_suggestions.append(
+            {
+                "code": code,
+                "label": record.get("label", ""),
+                "display_name": record.get("label") or code,
+                "matched_phrases": list(dict.fromkeys(matched_phrases)),
+                "matched_phrase": matched_phrases[0],
+                "required_context_matched": list(dict.fromkeys(required_context_matched)),
+                "ncci_conflicts": record.get("ncci_conflicts", []),
+                "notes": record.get("notes", ""),
+                "disciplines": record.get("disciplines", []),
+                "source": "medexa_cpt_lookup",
+                "confidence": "high" if required_context_matched or len(matched_phrases) > 1 else "medium",
+                "_position": first_position,
+            }
+        )
+        print("[CPT Detect] medexa lookup matched:", matched_phrases, "code:", code)
+
+    if lookup_suggestions:
+        return enrich_cpt_suggestions(sorted(lookup_suggestions, key=lambda suggestion: suggestion.get("_position", 10**9)))
+
     for phrase, code in iter_cpt_phrases(rules.get("cpt_phrase_map", {})):
         if _phrase_matches_exact(normalized, phrase):
             matched_phrases_by_code.setdefault(code, set()).add(phrase)
@@ -467,6 +656,38 @@ def _record_value(record: Any, key: str, default: Any = None) -> Any:
 
 def _ncci_conflict_for_codes(code_a: str, code_b: str) -> dict | None:
     rules, _warnings = load_rules()
+    code_a = str(code_a)
+    code_b = str(code_b)
+    ptp_rules = _index_rule_list(rules.get("cpt_ptp_rules", {}))
+    for source_code, rule in ptp_rules.items():
+        ptp = rule.get("ptp", {}) if isinstance(rule, dict) else {}
+        for item in ptp.get("bundled_into", []) if isinstance(ptp, dict) else []:
+            primary_code = str(item.get("primary_code", "")).split(".")[0]
+            if {source_code, primary_code} == {code_a, code_b}:
+                return {
+                    "cpt_a": source_code,
+                    "cpt_b": primary_code,
+                    "conflict_type": "ptp_bundled_into",
+                    "body_region_sensitive": False,
+                    "modifier_59_possible": str(item.get("modifier_indicator")) == "1",
+                    "modifier_indicator": item.get("modifier_indicator"),
+                    "explanation": f"PTP rule: {source_code} is bundled into {primary_code}. Clinician review is required before using Modifier 59.",
+                    "source": "cpt_ptp_rules",
+                }
+        for item in ptp.get("bundles_others", []) if isinstance(ptp, dict) else []:
+            bundled_code = str(item.get("bundled_code", "")).split(".")[0]
+            if {source_code, bundled_code} == {code_a, code_b}:
+                return {
+                    "cpt_a": source_code,
+                    "cpt_b": bundled_code,
+                    "conflict_type": "ptp_bundles_other",
+                    "body_region_sensitive": False,
+                    "modifier_59_possible": str(item.get("modifier_indicator")) == "1",
+                    "modifier_indicator": item.get("modifier_indicator"),
+                    "explanation": f"PTP rule: {bundled_code} is bundled with {source_code}. Clinician review is required before using Modifier 59.",
+                    "source": "cpt_ptp_rules",
+                }
+
     pair = frozenset([str(code_a), str(code_b)])
     for rule in rules.get("ncci_conflicts", []):
         if not isinstance(rule, dict) or not rule.get("cpt_a") or not rule.get("cpt_b"):
@@ -560,6 +781,8 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_
     body_region_display = body_region["display"] if body_region else None
     body_region_code = body_region["region"] if body_region else None
     cpt_suggestions = suggest_cpt_codes(clean_text)
+    if not cpt_suggestions and full_transcript:
+        cpt_suggestions = suggest_cpt_codes(full_transcript)
     cpt_timer_suggestions: list[dict] = []
 
     for suggestion in cpt_suggestions:
@@ -572,9 +795,17 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_
                 "display_name": translate_cpt_display_name(suggestion["code"], suggestion["display_name"], language),
                 "matched_phrase": matched_phrase,
                 "matched_phrases": suggestion.get("matched_phrases", []),
+                "required_context_matched": suggestion.get("required_context_matched", []),
                 "body_region": body_region_display or "unspecified",
                 "body_region_code": body_region_code,
                 "billing_category": billing_category,
+                "ncci_conflicts": suggestion.get("ncci_conflicts", []),
+                "notes": suggestion.get("notes", ""),
+                "source": suggestion.get("source", "cpt_phrase_map"),
+                "description": suggestion.get("description", ""),
+                "isEightMinuteRule": suggestion.get("isEightMinuteRule", False),
+                "mue": suggestion.get("mue", {}),
+                "addon_rule": suggestion.get("addon_rule", {}),
                 "reason": (
                     f"Transcript mentions {matched_phrase or suggestion['display_name']} for {body_region_display}."
                     if body_region_display
@@ -598,6 +829,7 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_
 def enrich_cpt_suggestions(cpt_codes: list) -> list[dict]:
     rules, _warnings = load_rules()
     cpt_rules = rules.get("cpt_rules", {})
+    medexa_lookup = rules.get("medexa_cpt_lookup", {})
     enriched: list[dict] = []
     seen_codes: set[str] = set()
 
@@ -608,8 +840,18 @@ def enrich_cpt_suggestions(cpt_codes: list) -> list[dict]:
 
         seen_codes.add(code)
         details = cpt_rules.get(code, {}) if isinstance(cpt_rules, dict) else {}
+        lookup_details = medexa_lookup.get(code, {}) if isinstance(medexa_lookup, dict) else {}
+        billing_details = _billing_rule_for_code(code)
+        mue_details = _mue_rule_for_code(code).get("mue", {})
+        addon_details = _addon_rule_for_code(code)
         label = str(details.get("label") or suggestion.get("label") or "")
-        display_name = str(details.get("display_name") or _display_label(label or code))
+        display_name = str(
+            suggestion.get("display_name")
+            or details.get("display_name")
+            or lookup_details.get("label")
+            or billing_details.get("description")
+            or _display_label(label or code)
+        )
         matched_phrases = list(dict.fromkeys(suggestion.get("matched_phrases", [])))
         phrase_list = ", ".join(matched_phrases[:4]) or "clinical activity"
 
@@ -618,12 +860,23 @@ def enrich_cpt_suggestions(cpt_codes: list) -> list[dict]:
                 "code": code,
                 "label": label,
                 "display_name": display_name,
-                "descriptor": details.get("descriptor", ""),
+                "descriptor": details.get("descriptor", "") or billing_details.get("description", ""),
                 "matched_phrases": matched_phrases,
+                "matched_phrase": suggestion.get("matched_phrase") or (matched_phrases[0] if matched_phrases else ""),
                 "documentation_requirements": details.get("documentation_requirements", []),
                 "billing_caveats": details.get("billing_caveats", {}),
-                "reason": f"Transcript mentions {phrase_list}, which maps to {display_name}.",
-                "confidence": details.get("confidence") or ("high" if len(matched_phrases) > 1 else "medium"),
+                "reason": suggestion.get("reason") or f"Transcript mentions {phrase_list}, which maps to {display_name}.",
+                "confidence": suggestion.get("confidence") or details.get("confidence") or ("high" if len(matched_phrases) > 1 else "medium"),
+                "required_context_matched": suggestion.get("required_context_matched", []),
+                "body_region": suggestion.get("body_region"),
+                "ncci_conflicts": suggestion.get("ncci_conflicts", lookup_details.get("ncci_conflicts", [])),
+                "notes": suggestion.get("notes", lookup_details.get("notes", "")),
+                "disciplines": suggestion.get("disciplines", lookup_details.get("disciplines", [])),
+                "source": suggestion.get("source", "cpt_phrase_map"),
+                "description": billing_details.get("description", ""),
+                "isEightMinuteRule": bool(billing_details.get("isEightMinuteRule", False)),
+                "mue": mue_details,
+                "addon_rule": addon_details,
             }
         )
 
@@ -638,22 +891,20 @@ def _region_family(region: str) -> str:
 
 
 def detect_ncci_conflicts(cpt_codes: list, body_regions: list) -> list[dict]:
-    rules, _warnings = load_rules()
-    conflict_rules = [
-        item
-        for item in rules.get("ncci_conflicts", [])
-        if isinstance(item, dict) and item.get("cpt_a") and item.get("cpt_b")
-    ]
     codes = [str(item.get("code", item)) for item in cpt_codes]
     code_pairs = {frozenset(pair) for pair in combinations(dict.fromkeys(codes), 2)}
     region_families = {_region_family(str(region.get("region", ""))) for region in body_regions if region.get("region")}
     clearly_different_regions = len(region_families) > 1
     warnings: list[dict] = []
 
-    for rule in conflict_rules:
-        pair = frozenset([str(rule["cpt_a"]), str(rule["cpt_b"])])
-        if pair not in code_pairs:
+    for pair in code_pairs:
+        pair_codes = list(pair)
+        if len(pair_codes) != 2:
             continue
+        rule = _ncci_conflict_for_codes(pair_codes[0], pair_codes[1])
+        if not rule:
+            continue
+        pair = frozenset([str(rule["cpt_a"]), str(rule["cpt_b"])])
 
         body_region_sensitive = bool(rule.get("body_region_sensitive"))
         severity = "info" if body_region_sensitive and clearly_different_regions else "warning"
@@ -666,10 +917,104 @@ def detect_ncci_conflicts(cpt_codes: list, body_regions: list) -> list[dict]:
                 "modifier_59_possible": bool(rule.get("modifier_59_possible")),
                 "explanation": rule.get("explanation", "NCCI conflict requires clinician billing review."),
                 "severity": severity,
+                "source": rule.get("source", "ncci_conflicts"),
             }
         )
 
     return warnings
+
+
+def build_rule_live_suggestions(cpt_suggestions: list[dict], icd10_suggestions: list[dict], cpt_records: list, language: str = "en") -> list[dict]:
+    detected_codes = [str(suggestion.get("code")) for suggestion in cpt_suggestions if suggestion.get("code")]
+    existing_codes = [str(_record_value(record, "code", "") or "") for record in cpt_records or []]
+    all_codes = list(dict.fromkeys([*existing_codes, *detected_codes]))
+    detected_icds = {str(suggestion.get("code")) for suggestion in icd10_suggestions if suggestion.get("code")}
+    suggestions: list[dict] = []
+
+    for suggestion in cpt_suggestions:
+        code = str(suggestion.get("code") or "")
+        if not code:
+            continue
+
+        valid_icds = _valid_icd10_codes_for_cpt(code)
+        if valid_icds and detected_icds and detected_icds.isdisjoint(valid_icds):
+            suggestions.append(
+                {
+                    "id": f"cpt-icd10-{code}",
+                    "type": "alert",
+                    "title": "CPT / ICD-10 compatibility review",
+                    "description": f"CPT {code} was detected, but the detected ICD-10 suggestions do not appear in its configured valid diagnosis list.",
+                    "action_label": apply_label(language),
+                    "status": "pending",
+                    "codes": [code],
+                    "requires_clinician_review": True,
+                    "source": "cpt_icd10_rules",
+                }
+            )
+
+        mue = suggestion.get("mue") or _mue_rule_for_code(code).get("mue", {})
+        limit = int(mue.get("limit") or 0) if isinstance(mue, dict) else 0
+        record_units = [
+            int(_record_value(record, "units", 0) or 0)
+            for record in cpt_records or []
+            if str(_record_value(record, "code", "") or "") == code
+        ]
+        if limit and record_units and max(record_units) > limit:
+            suggestions.append(
+                {
+                    "id": f"mue-{code}",
+                    "type": "alert",
+                    "title": f"MUE warning for CPT {code}",
+                    "description": f"CPT {code} units exceed configured MUE limit {limit}. Review billing units before claim submission.",
+                    "action_label": apply_label(language),
+                    "status": "pending",
+                    "codes": [code],
+                    "requires_clinician_review": True,
+                    "source": "cpt_mue_rules",
+                }
+            )
+
+        addon_rule = suggestion.get("addon_rule") or _addon_rule_for_code(code)
+        if addon_rule.get("isAddonCode"):
+            parent_code = str(addon_rule.get("parentCode") or "")
+            if parent_code and parent_code not in all_codes:
+                suggestions.append(
+                    {
+                        "id": f"addon-parent-{code}",
+                        "type": "alert",
+                        "title": f"Add-on CPT parent required for {code}",
+                        "description": f"CPT {code} is configured as an add-on code and requires parent CPT {parent_code}.",
+                        "action_label": apply_label(language),
+                        "status": "pending",
+                        "codes": [code, parent_code],
+                        "requires_clinician_review": True,
+                        "source": "cpt_addon_rules",
+                    }
+                )
+
+    for code_a, code_b in combinations(all_codes, 2):
+        rule = _ncci_conflict_for_codes(code_a, code_b)
+        if not rule:
+            continue
+        suggestions.append(
+            {
+                "id": f"ptp-{code_a}-{code_b}",
+                "type": "alert",
+                "title": modifier59_title(language),
+                "description": rule.get("explanation", "PTP/NCCI conflict requires clinician review before billing."),
+                "action_label": apply_label(language),
+                "status": "pending",
+                "codes": [code_a, code_b],
+                "modifier": "59" if rule.get("modifier_59_possible") else None,
+                "requires_clinician_review": True,
+                "source": rule.get("source", "cpt_ptp_rules"),
+            }
+        )
+
+    unique: dict[str, dict] = {}
+    for suggestion in suggestions:
+        unique[suggestion["id"]] = suggestion
+    return list(unique.values())
 
 
 def _symptoms_from_text(text: str, icd_suggestions: list[dict]) -> list[str]:
@@ -757,6 +1102,8 @@ def analyze_transcript_chunk(
     icd10_suggestions = suggest_icd10_codes(clean_text)
     body_regions = detect_body_regions(clean_text)
     cpt_suggestions = suggest_cpt_codes(clean_text)
+    if not cpt_suggestions and full_transcript:
+        cpt_suggestions = suggest_cpt_codes(full_transcript)
     cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [], full_transcript, language)
     ncci_conflicts = detect_ncci_conflicts(cpt_suggestions, body_regions)
     symptoms = _symptoms_from_text(clean_text, icd10_suggestions)
@@ -854,6 +1201,8 @@ def analyze_transcript_chunk(
             }
         )
 
+    live_suggestions.extend(build_rule_live_suggestions(cpt_suggestions, icd10_suggestions, existing_cpt_records or [], language))
+
     if symptoms:
         live_suggestions.append(
             {
@@ -915,3 +1264,44 @@ def analyze_transcript_chunk(
         "rule_warnings": rule_warnings,
         "rules_loaded": any(bool(rules.get(key)) for key in RULE_FILE_NAMES),
     }
+
+
+def enrich_billing_payload(payload: dict) -> dict:
+    next_payload = {
+        **payload,
+        "cptCodes": [item.copy() for item in payload.get("cptCodes", [])],
+    }
+
+    for item in next_payload["cptCodes"]:
+        code = str(item.get("code") or "")
+        if not code:
+            continue
+
+        billing_rule = _billing_rule_for_code(code)
+        mue = _mue_rule_for_code(code).get("mue", {})
+        addon_rule = _addon_rule_for_code(code)
+        warnings = []
+        units = int(item.get("units") or 0)
+        mue_limit = int(mue.get("limit") or 0) if isinstance(mue, dict) else 0
+
+        if billing_rule:
+            item.setdefault("description", billing_rule.get("description", item.get("title", "")))
+            item["isEightMinuteRule"] = bool(billing_rule.get("isEightMinuteRule", False))
+
+        if mue:
+            item["mue"] = mue
+        if mue_limit and units > mue_limit:
+            warnings.append(f"Units exceed MUE limit {mue_limit}.")
+
+        if addon_rule:
+            item["addonRule"] = addon_rule
+            parent_code = str(addon_rule.get("parentCode") or "")
+            existing_codes = {str(cpt.get("code") or "") for cpt in next_payload["cptCodes"]}
+            if addon_rule.get("isAddonCode") and parent_code and parent_code not in existing_codes:
+                warnings.append(f"Add-on code requires parent CPT {parent_code}.")
+
+        if warnings:
+            item["ruleWarnings"] = warnings
+            item["warning"] = item.get("warning") or warnings[0]
+
+    return next_payload

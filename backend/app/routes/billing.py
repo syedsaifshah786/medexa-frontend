@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app import data
 from app.schemas import CptPayload
+from app.services.rule_engine import enrich_billing_payload
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -9,7 +10,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 @router.get("/{session_id}")
 def get_billing(session_id: str) -> dict:
     data.ensure_session(session_id)
-    return data.billing_by_session[session_id]
+    return enrich_billing_payload(data.billing_by_session[session_id])
 
 
 @router.post("/{session_id}/cpt")
