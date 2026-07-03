@@ -38,10 +38,9 @@ function StartSessionContent() {
 
   const routeSessionId = searchParams.get("sessionId") ?? "new-session";
   const source = searchParams.get("source") ?? "manual";
-  const autoStartRecording = searchParams.get("autoStartRecording") ?? "1";
+  const shouldAutoStartRecording = searchParams.get("autoStartRecording") !== "0";
   const selectedSession = useMemo(() => getSessionById(routeSessionId), [routeSessionId]);
   const isVoiceFlow = source === "voice";
-  const isRecording = liveSession.recordingStatus === "recording";
   const isActive = true;
   const hasMicWarning =
     liveSession.permissionStatus === "denied" ||
@@ -50,9 +49,6 @@ function StartSessionContent() {
   const commandText = isVoiceFlow
     ? `Hey Medexa, start a new session with ${selectedSession.name}`
     : `Start a new session with ${selectedSession.name}`;
-  const statusDescription = isRecording
-    ? "Recording will continue into the live session screen."
-    : "Syncing Patient Context...";
 
   const beginRecording = useCallback(async () => {
     if (isStarting || hasStartedRedirect) {
@@ -91,13 +87,13 @@ function StartSessionContent() {
   ]);
 
   useEffect(() => {
-    if (autoStartHandledRef.current) {
+    if (!shouldAutoStartRecording || autoStartHandledRef.current) {
       return;
     }
 
     autoStartHandledRef.current = true;
     void beginRecording();
-  }, [beginRecording]);
+  }, [beginRecording, shouldAutoStartRecording]);
 
   useEffect(() => {
     if (!hasStartedRedirect) {
@@ -143,17 +139,11 @@ function StartSessionContent() {
         <div className="status-section">
           <p className="listening-status">Medexa is listening</p>
           <h1>Starting the Session...</h1>
-          <p>{statusDescription}</p>
+          <p>Syncing Patient Context...</p>
         </div>
 
         <div className="timer" dir="ltr">
           {formatDuration(liveSession.totalSeconds)}
-        </div>
-
-        <div className={`frequency-bars ${isActive ? "is-active" : ""}`} aria-hidden="true">
-          {Array.from({ length: 13 }, (_, index) => (
-            <i key={index} />
-          ))}
         </div>
 
         {hasMicWarning && (
@@ -165,52 +155,6 @@ function StartSessionContent() {
         {hasStartedRedirect && (
           <p className="redirect-text">Redirecting to live session in {countdown}s</p>
         )}
-
-        <details className="debug-details">
-          <summary>Debug details</summary>
-          <dl>
-            <div>
-              <dt>sessionId</dt>
-              <dd>{routeSessionId}</dd>
-            </div>
-            <div>
-              <dt>source</dt>
-              <dd>{source}</dd>
-            </div>
-            <div>
-              <dt>autoStartRecording</dt>
-              <dd>{autoStartRecording}</dd>
-            </div>
-            <div>
-              <dt>recordingStatus</dt>
-              <dd>{liveSession.recordingStatus}</dd>
-            </div>
-            <div>
-              <dt>isListening</dt>
-              <dd>{liveSession.isListening ? "true" : "false"}</dd>
-            </div>
-            <div>
-              <dt>permissionStatus</dt>
-              <dd>{liveSession.permissionStatus}</dd>
-            </div>
-            <div>
-              <dt>totalSeconds</dt>
-              <dd>{liveSession.totalSeconds}</dd>
-            </div>
-            <div>
-              <dt>latestHeardText</dt>
-              <dd>{liveSession.lastHeardText || "none"}</dd>
-            </div>
-            <div>
-              <dt>fullTranscript length</dt>
-              <dd>{liveSession.liveTranscript.length}</dd>
-            </div>
-            <div>
-              <dt>redirect countdown</dt>
-              <dd>{hasStartedRedirect ? countdown : "idle"}</dd>
-            </div>
-          </dl>
-        </details>
       </section>
 
       <style>{`
@@ -277,7 +221,7 @@ function StartSessionContent() {
           background:
             radial-gradient(circle at 50% 0%, rgba(236, 242, 255, 0.92), rgba(255, 255, 255, 0.98) 46%),
             #ffffff;
-          padding: 30px 28px 22px;
+          padding: 30px 28px 26px;
           text-align: center;
           box-shadow:
             0 24px 70px rgba(36, 46, 83, 0.15),
@@ -408,83 +352,19 @@ function StartSessionContent() {
         }
 
         .timer {
-          min-width: 112px;
-          margin-top: 20px;
+          min-width: 92px;
+          margin-top: 18px;
           border: 1px solid #e6ebf7;
-          border-radius: 15px;
+          border-radius: 14px;
           background: #f8faff;
           color: #0800d8;
-          padding: 9px 14px;
-          font-size: 31px;
+          padding: 8px 12px;
+          font-size: 24px;
           font-weight: 900;
           line-height: 1;
           font-variant-numeric: tabular-nums;
           box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
         }
-
-        .frequency-bars {
-          height: 34px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 5px;
-          margin-top: 18px;
-        }
-
-        .frequency-bars i {
-          width: 4px;
-          height: 9px;
-          border-radius: 999px;
-          background: linear-gradient(180deg, #7c3aed 0%, #001eff 100%);
-          opacity: 0.38;
-        }
-
-        .frequency-bars i:nth-child(2),
-        .frequency-bars i:nth-child(12) {
-          height: 14px;
-        }
-
-        .frequency-bars i:nth-child(3),
-        .frequency-bars i:nth-child(11) {
-          height: 19px;
-        }
-
-        .frequency-bars i:nth-child(4),
-        .frequency-bars i:nth-child(10) {
-          height: 25px;
-        }
-
-        .frequency-bars i:nth-child(5),
-        .frequency-bars i:nth-child(9) {
-          height: 18px;
-        }
-
-        .frequency-bars i:nth-child(6),
-        .frequency-bars i:nth-child(8) {
-          height: 28px;
-        }
-
-        .frequency-bars i:nth-child(7) {
-          height: 32px;
-        }
-
-        .frequency-bars.is-active i {
-          opacity: 1;
-          animation: bar-pulse 0.86s ease-in-out infinite;
-        }
-
-        .frequency-bars i:nth-child(2) { animation-delay: 0.05s; }
-        .frequency-bars i:nth-child(3) { animation-delay: 0.1s; }
-        .frequency-bars i:nth-child(4) { animation-delay: 0.15s; }
-        .frequency-bars i:nth-child(5) { animation-delay: 0.2s; }
-        .frequency-bars i:nth-child(6) { animation-delay: 0.25s; }
-        .frequency-bars i:nth-child(7) { animation-delay: 0.3s; }
-        .frequency-bars i:nth-child(8) { animation-delay: 0.35s; }
-        .frequency-bars i:nth-child(9) { animation-delay: 0.4s; }
-        .frequency-bars i:nth-child(10) { animation-delay: 0.45s; }
-        .frequency-bars i:nth-child(11) { animation-delay: 0.5s; }
-        .frequency-bars i:nth-child(12) { animation-delay: 0.55s; }
-        .frequency-bars i:nth-child(13) { animation-delay: 0.6s; }
 
         .permission-card {
           width: 100%;
@@ -500,62 +380,12 @@ function StartSessionContent() {
           line-height: 1.45;
         }
 
-        .debug-details summary:focus-visible {
-          outline: 3px solid rgba(0, 30, 255, 0.18);
-          outline-offset: 3px;
-        }
-
         .redirect-text {
           margin: 17px 0 0;
           color: #001eff;
           font-size: 13px;
           font-weight: 900;
           line-height: 1.45;
-        }
-
-        .debug-details {
-          width: 100%;
-          margin-top: 18px;
-          color: #667085;
-          font-size: 11px;
-          text-align: left;
-        }
-
-        .debug-details summary {
-          width: max-content;
-          margin: 0 auto;
-          border-radius: 999px;
-          color: #667085;
-          cursor: pointer;
-          font-weight: 800;
-          list-style-position: inside;
-        }
-
-        .debug-details dl {
-          display: grid;
-          gap: 7px;
-          margin: 12px 0 0;
-          border: 1px solid #e6ebf7;
-          border-radius: 14px;
-          background: #f8faff;
-          padding: 12px;
-        }
-
-        .debug-details div {
-          display: grid;
-          grid-template-columns: 120px 1fr;
-          gap: 10px;
-        }
-
-        .debug-details dt,
-        .debug-details dd {
-          margin: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .debug-details dt {
-          color: #344054;
-          font-weight: 900;
         }
 
         @keyframes radar-pulse {
@@ -580,16 +410,6 @@ function StartSessionContent() {
           }
         }
 
-        @keyframes bar-pulse {
-          0%,
-          100% {
-            transform: scaleY(0.45);
-          }
-          50% {
-            transform: scaleY(1.16);
-          }
-        }
-
         @media (max-width: 480px) {
           .start-session-page {
             align-items: flex-start;
@@ -611,12 +431,7 @@ function StartSessionContent() {
           }
 
           .timer {
-            font-size: 28px;
-          }
-
-          .debug-details div {
-            grid-template-columns: 1fr;
-            gap: 2px;
+            font-size: 23px;
           }
         }
       `}</style>
