@@ -6,7 +6,7 @@ import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
-import { formatDateTime, translateCptDisplayName } from "@/lib/translations";
+import { formatDateTime, formatNumber, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
 type CptStatus = "pending" | "approved" | "rejected";
 
@@ -76,6 +76,7 @@ export default function BillingIntelligencePage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formValues, setFormValues] = useState<CptForm>(emptyCptForm);
   const { language, t } = useLanguage();
+  const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -213,10 +214,10 @@ export default function BillingIntelligencePage() {
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              {t("common.duration")}: <strong dir="ltr">52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">{displayText("52:22")}</strong>
             </p>
             <p>
-              {t("session.units")}: <strong dir="ltr">4</strong>
+              {t("session.units")}: <strong dir="ltr">{formatNumber(4, language)}</strong>
             </p>
           </div>
         </section>
@@ -238,7 +239,7 @@ export default function BillingIntelligencePage() {
             <div className="metric-grid">
               <article className="metric-card">
                 <p>{t("billing.sessionTime")}</p>
-                <strong dir="ltr">{sessionDuration}</strong>
+                <strong dir="ltr">{displayText(sessionDuration)}</strong>
                 <span>{t("billing.threshold")}</span>
               </article>
               <article className="metric-card">
@@ -246,7 +247,7 @@ export default function BillingIntelligencePage() {
                   <p>{t("billing.sessionUnits")}</p>
                   <span>ⓘ</span>
                 </div>
-                <strong dir="ltr">{sessionUnits} {t("session.units")}</strong>
+                <strong dir="ltr">{formatNumber(sessionUnits, language)} {t("session.units")}</strong>
                 <em>{t("billing.eightMinuteRule")}</em>
               </article>
             </div>
@@ -320,7 +321,7 @@ export default function BillingIntelligencePage() {
                         {item.code} - {translateCptDisplayName(item.code, item.title, language)}
                       </h3>
                       <p>
-                        {t("billing.unitDuration", { units: item.units, duration: item.duration })}
+                        {t("billing.unitDuration", { units: formatNumber(item.units, language), duration: displayText(item.duration) })}
                       </p>
                     </div>
 
@@ -332,7 +333,7 @@ export default function BillingIntelligencePage() {
                       )}
                       {item.warning && (
                         <span className="modifier-badge">
-                          {item.warning === "Modifier 59 Required" ? t("modifier.required") : item.warning}
+                          {item.warning === "Modifier 59 Required" ? t("modifier.required") : displayText(item.warning)}
                         </span>
                       )}
                       <button
@@ -348,7 +349,7 @@ export default function BillingIntelligencePage() {
 
                   {item.note && (
                     <>
-                      <p className="conflict-note">{item.note}</p>
+                      <p className="conflict-note">{displayText(item.note)}</p>
                       <div className="review-actions">
                         <button type="button" onClick={() => updateCptStatus(item.id, "rejected")}>
                           × {t("common.reject")}
@@ -379,11 +380,11 @@ export default function BillingIntelligencePage() {
                 <span className="range-marker" />
               </div>
               <div className="range-ticks">
-                <span>1</span>
-                <span>2</span>
-                <span>3</span>
-                <span>4</span>
-                <span>5</span>
+                <span>{formatNumber(1, language)}</span>
+                <span>{formatNumber(2, language)}</span>
+                <span>{formatNumber(3, language)}</span>
+                <span>{formatNumber(4, language)}</span>
+                <span>{formatNumber(5, language)}</span>
               </div>
             </div>
           </section>

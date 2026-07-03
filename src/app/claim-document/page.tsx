@@ -7,7 +7,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
-import { formatUnits } from "@/lib/translations";
+import { formatNumber, formatUnits, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
 type CptItem = {
   id: string;
@@ -122,6 +122,7 @@ export default function ClaimDocumentPage() {
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
   const { language, t } = useLanguage();
+  const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
   const query = headerSearch.trim().toLowerCase();
 
@@ -355,7 +356,7 @@ export default function ClaimDocumentPage() {
             </div>
             <div>
               <span>{t("claim.sessionMeta")}</span>
-              <strong>{meta.session}</strong>
+              <strong>{displayText(meta.session)}</strong>
             </div>
             <div>
               <span>{t("session.payorSource")}</span>
@@ -393,7 +394,7 @@ export default function ClaimDocumentPage() {
         <section className="content-section">
           <div className="section-heading">
             <h2>
-              {t("claim.sessionListItems")} <span>{billableUnits} {t("claim.billableUnits")}</span>
+              {t("claim.sessionListItems")} <span>{formatNumber(billableUnits, language)} {t("claim.billableUnits")}</span>
             </h2>
             <button type="button" onClick={() => setShowCptForm(true)}>
               + {t("billing.addMoreCpts")}
@@ -470,11 +471,11 @@ export default function ClaimDocumentPage() {
                 <span>
                   <strong>{item.code}</strong>
                 </span>
-                <span>{item.description}</span>
+                <span>{translateCptDisplayName(item.code, item.description, language)}</span>
                 <span>{formatUnits(Number.parseInt(item.units, 10) || 0, language)}</span>
-                <span>{item.duration}</span>
+                <span>{displayText(item.duration)}</span>
                 <span>
-                  {item.modifier ? <em>{item.modifier}</em> : <small>--</small>}
+                  {item.modifier ? <em>{displayText(item.modifier)}</em> : <small>--</small>}
                 </span>
               </div>
             ))}
@@ -545,9 +546,9 @@ export default function ClaimDocumentPage() {
               <article className="diagnosis-card" key={item.id}>
                 <div>
                   <span>{item.code}</span>
-                  <p>{item.description}</p>
+                  <p>{displayText(item.description)}</p>
                 </div>
-                <em>{item.type}</em>
+                <em>{item.type === "Primary" ? t("common.primary") : t("common.secondary")}</em>
               </article>
             ))}
             {filteredDiagnosis.length === 0 && (

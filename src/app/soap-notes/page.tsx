@@ -12,7 +12,7 @@ import {
 } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi, type ApiFinalizeSessionResponse, type ApiSoapNoteResponse } from "@/lib/api";
-import { formatDateTime, formatUnits } from "@/lib/translations";
+import { formatClockTime, formatDateTime, formatNumber, formatUnits, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
 const debugLog = (...args: Parameters<typeof console.log>) => {
   if (process.env.NODE_ENV === "development") {
@@ -325,6 +325,9 @@ function SoapNotesContent() {
     billingRecords.length > 0
       ? billingRecords.reduce((total, record) => total + record.units, 0)
       : billingSummary?.units ?? 0;
+  const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
+  const displayDuration = billingSummary ? formatClockTime(billingSummary.total_seconds, language) : translateDynamicMessage("52:22", language);
+  const displayBillingUnits = formatNumber(billingUnits || 3, language);
 
   return (
     <main className="ambient-page">
@@ -348,10 +351,10 @@ function SoapNotesContent() {
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              {t("common.duration")}: <strong dir="ltr">{billingSummary ? `${Math.floor(billingSummary.total_seconds / 60)}:${String(billingSummary.total_seconds % 60).padStart(2, "0")}` : "52:22"}</strong>
+              {t("common.duration")}: <strong dir="ltr">{displayDuration}</strong>
             </p>
             <p>
-              {t("session.units")}: <strong dir="ltr">{billingUnits || 3}</strong>
+              {t("session.units")}: <strong dir="ltr">{displayBillingUnits}</strong>
             </p>
           </div>
         </section>
@@ -406,7 +409,7 @@ function SoapNotesContent() {
                   <Field
                     label={t("soap.chiefComplaint")}
                     multiline
-                    value={soapData.subjective.chiefComplaint}
+                    value={displayText(soapData.subjective.chiefComplaint)}
                   />
                 )}
                 <div className="field-grid two">
@@ -435,8 +438,8 @@ function SoapNotesContent() {
                     </>
                   ) : (
                     <>
-                      <Field label={`${t("soap.painScale")} (0-10)`} value={soapData.subjective.painScale} />
-                      <Field label={t("common.duration")} value={soapData.subjective.duration} />
+                      <Field label={`${t("soap.painScale")} (0-10)`} value={displayText(soapData.subjective.painScale)} />
+                      <Field label={t("common.duration")} value={displayText(soapData.subjective.duration)} />
                     </>
                   )}
                 </div>
@@ -472,7 +475,7 @@ function SoapNotesContent() {
                   <Field
                     label={t("soap.observationNotes")}
                     multiline
-                    value={soapData.objective.observationNotes}
+                    value={displayText(soapData.objective.observationNotes)}
                   />
                 )}
                 <div className="field-grid three">
@@ -511,9 +514,9 @@ function SoapNotesContent() {
                     </>
                   ) : (
                     <>
-                      <Field label={t("soap.rangeOfMotion")} value={soapData.objective.rangeOfMotion} />
-                      <Field label={t("soap.affect")} value={soapData.objective.affect} />
-                      <Field label={t("soap.vitalSigns")} value={soapData.objective.vitalSigns} />
+                      <Field label={t("soap.rangeOfMotion")} value={displayText(soapData.objective.rangeOfMotion)} />
+                      <Field label={t("soap.affect")} value={displayText(soapData.objective.affect)} />
+                      <Field label={t("soap.vitalSigns")} value={displayText(soapData.objective.vitalSigns)} />
                     </>
                   )}
                 </div>
@@ -549,7 +552,7 @@ function SoapNotesContent() {
                   <Field
                     label={t("soap.diagnosisSummary")}
                     multiline
-                    value={soapData.assessment.diagnosisSummary}
+                    value={displayText(soapData.assessment.diagnosisSummary)}
                   />
                 )}
                 <div className="field-grid two">
@@ -580,9 +583,9 @@ function SoapNotesContent() {
                     <>
                       <Field
                         label={t("soap.primaryDiagnosisCode")}
-                        value={soapData.assessment.primaryDiagnosisCode}
+                        value={displayText(soapData.assessment.primaryDiagnosisCode)}
                       />
-                      <Field label={t("soap.severity")} value={soapData.assessment.severity} />
+                      <Field label={t("soap.severity")} value={displayText(soapData.assessment.severity)} />
                     </>
                   )}
                 </div>
@@ -615,7 +618,7 @@ function SoapNotesContent() {
                     }
                   />
                 ) : (
-                  <Field label={t("soap.followUpPlan")} multiline value={soapData.plan.followUpPlan} />
+                  <Field label={t("soap.followUpPlan")} multiline value={displayText(soapData.plan.followUpPlan)} />
                 )}
               </div>
             </NoteCard>
@@ -631,8 +634,8 @@ function SoapNotesContent() {
                   billingRecords.map((record) => (
                     <div className="billing-summary-row" key={record.code}>
                       <strong className="billing-cpt-code" dir="ltr">{record.code}</strong>
-                      <span className="billing-cpt-title">{record.displayName}</span>
-                      <span className="billing-cpt-duration" dir="ltr">{Math.floor(record.seconds / 60)}:{String(record.seconds % 60).padStart(2, "0")}</span>
+                      <span className="billing-cpt-title">{translateCptDisplayName(record.code, record.displayName, language)}</span>
+                      <span className="billing-cpt-duration" dir="ltr">{formatClockTime(record.seconds, language)}</span>
                       <span className="billing-cpt-units">{formatUnits(record.units, language)}</span>
                     </div>
                   ))
@@ -640,7 +643,7 @@ function SoapNotesContent() {
                   <div className="billing-summary-row">
                     <strong className="billing-cpt-code" dir="ltr">{billingSummary.cpt_code ?? t("billing.noCpt")}</strong>
                     <span className="billing-cpt-title">{t("soap.requiresReview")}</span>
-                    <span className="billing-cpt-duration" dir="ltr">{Math.floor((billingSummary.cpt_seconds ?? 0) / 60)}:{String((billingSummary.cpt_seconds ?? 0) % 60).padStart(2, "0")}</span>
+                    <span className="billing-cpt-duration" dir="ltr">{formatClockTime(billingSummary.cpt_seconds ?? 0, language)}</span>
                     <span className="billing-cpt-units">{formatUnits(billingSummary.units ?? 0, language)}</span>
                   </div>
                 )}

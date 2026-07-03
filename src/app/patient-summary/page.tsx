@@ -7,12 +7,17 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
-import { formatDateTime } from "@/lib/translations";
+import { formatDateTime, formatNumber, translateDynamicMessage } from "@/lib/translations";
+
+const cleanSummaryTextAr =
+  "في ١٨ يونيو ٢٠٢٦، أكمل Samuel الجلسة ٤ من ١٢ مع Dr. Sarah Miller، مع التركيز على تدريب المشي والتمارين العلاجية لدعم ألم أسفل الظهر وتقليل التعب وتحسين القوة والتوازن. أظهر أداء جيدا واحتاج إلى بعض المساعدة في الحركة، وهذا متوقع في هذه المرحلة من الرعاية. تحسنت مرونة الركبة بمقدار ١٥ درجة مقارنة بجلسة خط الأساس. تشمل الخطوات التالية متابعة تحليل الدهون مع طبيب الرعاية الأولية في ديسمبر ٢٠٢٦، والاستمرار في جلسات العلاج أيام الاثنين والأربعاء والجمعة، وتتبع الألم يوميا في دفتر الألم، وإكمال تمارين المنزل مثل رفع الركبتين أثناء الجلوس ورفع الكعبين.";
 
 const summaryText =
   "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
 const summaryTextAr =
   "في 18 يونيو 2026، أكمل Samuel الجلسة 4 من 12 مع Dr. Sarah Miller، مع التركيز على تدريب المشي والتمارين العلاجية لدعم ألم أسفل الظهر وتقليل التعب وتحسين القوة والتوازن. أظهر أداء جيدا واحتاج إلى بعض المساعدة في الحركة، وهذا متوقع في هذه المرحلة من الرعاية. تحسنت مرونة الركبة بمقدار 15 درجة مقارنة بجلسة خط الأساس. تشمل الخطوات التالية متابعة تحليل الدهون مع طبيب الرعاية الأولية في ديسمبر 2026، والاستمرار في جلسات العلاج أيام الاثنين والأربعاء والجمعة، وتتبع الألم يوميا في دفتر الألم، وإكمال تمارين المنزل مثل رفع الركبتين أثناء الجلوس ورفع الكعبين.";
+
+void summaryTextAr;
 
 export default function PatientSummaryPage() {
   const [headerSearch, setHeaderSearch] = useState("");
@@ -24,13 +29,14 @@ export default function PatientSummaryPage() {
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
   const { language, t } = useLanguage();
+  const displaySummary = translateDynamicMessage(summaryNote, language);
 
   useEffect(() => {
     if (hasGeneratedDocumentation || isEditing) {
       return;
     }
 
-    const localizedSummary = language === "ar" ? summaryTextAr : summaryText;
+    const localizedSummary = language === "ar" ? cleanSummaryTextAr : summaryText;
     setSummaryNote(localizedSummary);
     setDraftNote(localizedSummary);
   }, [hasGeneratedDocumentation, isEditing, language]);
@@ -144,10 +150,10 @@ export default function PatientSummaryPage() {
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
             </p>
             <p>
-              {t("common.duration")}: <strong dir="ltr">52:22</strong>
+              {t("common.duration")}: <strong dir="ltr">{translateDynamicMessage("52:22", language)}</strong>
             </p>
             <p>
-              {t("session.units")}: <strong dir="ltr">3</strong>
+              {t("session.units")}: <strong dir="ltr">{formatNumber(3, language)}</strong>
             </p>
           </div>
         </section>
@@ -212,7 +218,7 @@ export default function PatientSummaryPage() {
                 </div>
               </div>
             ) : (
-              <p>{summaryNote}</p>
+              <p>{displaySummary}</p>
             )
           ) : (
             <div className="empty-state">{t("summary.noMatch")}</div>

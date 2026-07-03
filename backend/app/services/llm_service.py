@@ -154,6 +154,11 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     )
     pain_scale = _detect_pain_scale(transcript)
     duration = _detect_duration(transcript)
+    if is_arabic(language):
+        if pain_scale == "Requires clinician review":
+            pain_scale = clinician_review(language)
+        if duration == "Current session":
+            duration = "الجلسة الحالية"
 
     cpt_lines = [
         (
@@ -251,6 +256,162 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
         "vital_signs": clinician_review(language),
         "summary": fallback_soap_text("summary", language),
         "billing_summary": billing_summary,
+    }
+
+
+def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
+    if log:
+        print("[Medexa LLM] Falling back to deterministic SOAP generation.")
+
+    language = payload.get("language", "en")
+    transcript = " ".join(str(payload.get("transcript", "")).split())
+    total_seconds = int(payload.get("total_seconds") or 0)
+    cpt_records = payload.get("cpt_records") or []
+    detected_cpts = payload.get("detected_cpt_suggestions") or []
+    detected_icds = payload.get("detected_icd10_suggestions") or []
+    ncci_conflicts = payload.get("ncci_conflicts") or []
+    applied_suggestions = payload.get("applied_suggestions") or []
+    approved_insights = payload.get("approved_insights") or []
+    normalized_transcript = transcript.lower()
+    chief_phrase = _find_first_phrase(
+        transcript,
+        ["lower back pain", "back pain", "knee pain", "shoulder pain", "difficulty walking", "weakness", "balance"],
+    )
+    pain_scale = _detect_pain_scale(transcript)
+    duration = _detect_duration(transcript)
+
+    if is_arabic(language):
+        if pain_scale == "Requires clinician review":
+            pain_scale = clinician_review(language)
+        if duration == "Current session":
+            duration = "الجلسة الحالية"
+
+    activity_terms: list[str] = []
+    for phrase, en_label, ar_label in [
+        ("therapeutic exercise", "therapeutic exercise", "التمارين العلاجية"),
+        ("range of motion", "range of motion", "مدى الحركة"),
+        ("strengthening", "strengthening", "تمارين التقوية"),
+        ("gait training", "gait training", "تدريب المشي"),
+        ("stair training", "stair training", "تدريب السلالم"),
+        ("manual therapy", "manual therapy", "العلاج اليدوي"),
+        ("soft tissue mobilization", "soft tissue mobilization", "تحريك الأنسجة الرخوة"),
+        ("joint mobilization", "joint mobilization", "تحريك المفاصل"),
+        ("balance training", "balance training", "تدريب التوازن"),
+        ("transfer training", "transfer training", "تدريب الانتقال"),
+    ]:
+        if phrase in normalized_transcript:
+            activity_terms.append(ar_label if is_arabic(language) else en_label)
+
+    for record in cpt_records:
+        label = translate_cpt_display_name(
+            str(record.get("code") or ""),
+            record.get("displayName") or record.get("display_name") or record.get("code"),
+            language,
+        )
+        if label:
+            activity_terms.append(str(label))
+
+    activity_summary = ", ".join(dict.fromkeys(activity_terms)) or (
+        "تتطلب الأنشطة العلاجية مراجعة الطبيب" if is_arabic(language) else "therapy activities require clinician review"
+    )
+    cpt_lines = [
+        (
+            f"{record.get('code')} {translate_cpt_display_name(str(record.get('code') or ''), record.get('displayName') or record.get('display_name') or '', language)} "
+            f"لمدة {int(record.get('seconds') or 0)} ثانية، {int(record.get('units') or 0)} وحدة"
+            if is_arabic(language)
+            else f"{record.get('code')} {record.get('displayName') or record.get('display_name') or ''} "
+            f"for {int(record.get('seconds') or 0)} seconds, {int(record.get('units') or 0)} unit(s)"
+        )
+        for record in cpt_records
+        if record.get("code")
+    ]
+    suggested_cpts = [
+        f"{item.get('code')} {translate_cpt_display_name(str(item.get('code') or ''), item.get('display_name', ''), language)}".strip()
+        for item in detected_cpts
+        if item.get("code")
+    ]
+    suggested_icds = [
+        (
+            f"{item.get('code')} من العبارة '{item.get('phrase')}'"
+            if is_arabic(language)
+            else f"{item.get('code')} from phrase '{item.get('phrase')}'"
+        )
+        for item in detected_icds
+        if item.get("code")
+    ]
+    ncci_notes = [item.get("explanation", clinician_review(language)) for item in ncci_conflicts]
+    insufficient_transcript_message = fallback_soap_text("insufficient", language)
+    transcript_excerpt = transcript[:600]
+    chief_complaint = (
+        (f"يفيد المريض بـ {chief_phrase}" if is_arabic(language) else f"Patient reports {chief_phrase}")
+        if chief_phrase
+        else transcript[:180] or insufficient_transcript_message
+    )
+
+    if is_arabic(language):
+        objective = " ".join(
+            [
+                fallback_soap_text("draft", language),
+                f"الأنشطة العلاجية الموضوعية الموثقة: {activity_summary}.",
+                f"سجلات CPT المطبقة: {'; '.join(cpt_lines) or fallback_soap_text('none', language)}.",
+                f"الرؤى المعتمدة: {_as_text(approved_insights) or fallback_soap_text('none', language)}.",
+                f"الاقتراحات المطبقة: {_as_text(applied_suggestions) or fallback_soap_text('none', language)}.",
+            ]
+        )
+        assessment = " ".join(
+            [
+                fallback_soap_text("assessment", language),
+                f"ICD-10 المقترح: {', '.join(suggested_icds[:5]) or fallback_soap_text('none', language)}.",
+                f"CPT المقترح: {', '.join(suggested_cpts[:5]) or fallback_soap_text('none', language)}.",
+                f"ملاحظات NCCI / الفوترة: {' '.join(ncci_notes[:3]) or fallback_soap_text('none', language)}.",
+            ]
+        )
+        observation_notes = f"الأنشطة العلاجية المرصودة أو الموثقة من التفريغ: {activity_summary}."
+        range_of_motion = "تمت الإشارة إلى مدى الحركة في التفريغ." if "range of motion" in normalized_transcript else clinician_review(language)
+    else:
+        objective = " ".join(
+            [
+                fallback_soap_text("draft", language),
+                f"Objective therapy activities documented: {activity_summary}.",
+                f"Applied CPT records: {'; '.join(cpt_lines) or 'None applied'}.",
+                f"Approved insights: {_as_text(approved_insights) or 'None'}.",
+                f"Applied suggestions: {_as_text(applied_suggestions) or 'None'}.",
+            ]
+        )
+        assessment = " ".join(
+            [
+                fallback_soap_text("assessment", language),
+                f"Suggested ICD-10: {', '.join(suggested_icds[:5]) or 'None detected'}.",
+                f"Suggested CPT: {', '.join(suggested_cpts[:5]) or 'None detected'}.",
+                f"NCCI / billing caveats: {' '.join(ncci_notes[:3]) or 'None detected'}.",
+            ]
+        )
+        observation_notes = f"Therapy activities observed or documented from transcript: {activity_summary}."
+        range_of_motion = "Range of motion referenced in transcript." if "range of motion" in normalized_transcript else clinician_review(language)
+
+    return {
+        "llm_used": False,
+        "llm_fallback_reason": reason or "deterministic_fallback",
+        "chief_complaint": chief_complaint,
+        "pain_scale": pain_scale,
+        "duration": duration,
+        "subjective": transcript_excerpt or insufficient_transcript_message,
+        "objective": objective,
+        "assessment": assessment,
+        "plan": fallback_soap_text("plan", language),
+        "diagnosis_summary": fallback_soap_text("diagnosis", language),
+        "observation_notes": observation_notes,
+        "range_of_motion": range_of_motion,
+        "affect": clinician_review(language),
+        "vital_signs": clinician_review(language),
+        "summary": fallback_soap_text("summary", language),
+        "billing_summary": {
+            "total_seconds": total_seconds,
+            "cpt_records": cpt_records,
+            "suggested_cpt_codes": suggested_cpts,
+            "suggested_icd10_codes": suggested_icds,
+            "ncci_conflicts": ncci_conflicts,
+        },
     }
 
 

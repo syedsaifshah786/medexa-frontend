@@ -21,7 +21,7 @@ import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { detectCptFromText } from "@/lib/cptDetector";
 import { getSessionById } from "@/lib/sessions";
-import { formatUnits, translateCptDisplayName } from "@/lib/translations";
+import { formatClockTime, formatNumber, formatUnits, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
 import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
@@ -636,9 +636,10 @@ function AmbientSessionContent() {
     }
     return {
       ...item,
-      tag: item.tag === "Billing" ? t("common.billing") : item.tag === "Protocol Ask" ? t("session.protocolAsk") : item.tag,
-      label: item.label === "Billing" ? t("common.billing") : item.label,
-      note: item.note.replace("Requires clinician review.", t("soap.requiresReview")),
+      tag: item.tag === "Billing" ? t("common.billing") : item.tag === "Protocol Ask" ? t("session.protocolAsk") : translateDynamicMessage(item.tag, language),
+      text: translateDynamicMessage(item.text, language),
+      label: item.label === "Billing" ? t("common.billing") : translateDynamicMessage(item.label, language),
+      note: translateDynamicMessage(item.note, language),
     };
   };
   const localizeSuggestion = (item: SuggestionItem) => {
@@ -651,7 +652,11 @@ function AmbientSessionContent() {
     if (item.id === "snf-validation") {
       return { ...item, title: t("session.snfValidationAlert"), text: t("session.snfValidationText") };
     }
-    return item;
+    return {
+      ...item,
+      title: translateDynamicMessage(item.title, language),
+      text: translateDynamicMessage(item.text, language),
+    };
   };
 
   useEffect(() => {
@@ -2195,8 +2200,9 @@ function AmbientSessionContent() {
     }
   };
 
-  const formattedRecordingDuration = formatDuration(recordingSeconds);
+  const formattedRecordingDuration = formatClockTime(recordingSeconds, language);
   const sessionUnits = recordingStatus === "idle" ? 0 : cptUnitsFromSeconds(recordingSeconds);
+  const formattedSessionUnits = formatNumber(sessionUnits, language);
   const cptUnits = cptTimer.units;
   const cptCode = cptTimer.code || currentCptPopup?.code || selectedSession.cpt || "";
   const nextCptUnit = cptUnits + 1;
@@ -2220,8 +2226,8 @@ function AmbientSessionContent() {
         ? t("session.pressPlay")
         : t("session.sayStopRecording");
   const cptElapsedUnitText = t("session.unitProgress", {
-    duration: formatDuration(cptTimer.seconds),
-    units: cptUnits,
+    duration: formatClockTime(cptTimer.seconds, language),
+    units: formatNumber(cptUnits, language),
     unitLabel: cptUnits === 1 ? t("unit.one") : t("unit.other"),
   });
   const cptNextUnitText =
@@ -2231,9 +2237,9 @@ function AmbientSessionContent() {
   const localizedCptNextUnitText =
     cptTimer.status === "running" || cptTimer.status === "paused" || cptTimer.status === "stopped"
       ? t("session.nextUnit", {
-          unit: nextCptUnit,
-          duration: formatDuration(cptTimer.nextUnitAtSeconds),
-          left: formatDuration(cptTimer.secondsLeftToNextUnit),
+          unit: formatNumber(nextCptUnit, language),
+          duration: formatClockTime(cptTimer.nextUnitAtSeconds, language),
+          left: formatClockTime(cptTimer.secondsLeftToNextUnit, language),
         })
       : `CPT ${formatUnits(0, language)}`;
   const primaryControlLabel =
@@ -2279,11 +2285,11 @@ function AmbientSessionContent() {
             <div className="patient-meta">
               <p>
                 {t("session.ageSex")}
-                <strong>{selectedSession.ageSex}</strong>
+                <strong>{translateDynamicMessage(selectedSession.ageSex, language)}</strong>
               </p>
               <p>
                 {t("session.weight")}
-                <strong>{selectedSession.weight}</strong>
+                <strong>{translateDynamicMessage(selectedSession.weight, language)}</strong>
               </p>
               <p>
                 {t("session.mrnNumber")}
@@ -2295,7 +2301,7 @@ function AmbientSessionContent() {
               </p>
               <p>
                 {t("session.careType")}
-                <strong>{selectedSession.careType}</strong>
+                <strong>{translateDynamicMessage(selectedSession.careType, language)}</strong>
               </p>
               <p>
                 {t("session.cptIcd")}
@@ -2305,7 +2311,7 @@ function AmbientSessionContent() {
               </p>
               <p>
                 {t("session.sessionTime")}
-                <strong>{selectedSession.time}</strong>
+                <strong>{translateDynamicMessage(selectedSession.time, language)}</strong>
               </p>
             </div>
           </div>
@@ -2335,7 +2341,7 @@ function AmbientSessionContent() {
                 <b dir="ltr">{cptElapsedUnitText}</b>
               ) : (
                 <>
-                  {t("session.sessionUnitsCount", { units: sessionUnits })}
+                  {t("session.sessionUnitsCount", { units: formattedSessionUnits })}
                 </>
               )}
             </p>
@@ -2578,7 +2584,7 @@ function AmbientSessionContent() {
           <aside className="suggestions-panel">
             <div className="suggestions-heading">
               <h2>{t("session.suggestions")}</h2>
-              <span>{filteredSuggestions.length}</span>
+              <span>{formatNumber(filteredSuggestions.length, language)}</span>
             </div>
 
             <div className="suggestions-list">
@@ -2702,7 +2708,7 @@ function AmbientSessionContent() {
                 <h3>{t("session.soapSuggestions")}</h3>
                 <ul>
                   {generatedSoapSuggestions.slice(-3).map((suggestion, index) => (
-                    <li key={`${suggestion}-${index}`}>{suggestion}</li>
+                    <li key={`${suggestion}-${index}`}>{translateDynamicMessage(suggestion, language)}</li>
                   ))}
                 </ul>
               </div>
@@ -2738,7 +2744,7 @@ function AmbientSessionContent() {
 
                   <div className="segment-section">
                     <h3>{t("ambient.summarized")}</h3>
-                    <p>{segment.analysis.summary}</p>
+                    <p>{translateDynamicMessage(segment.analysis.summary, language)}</p>
                   </div>
 
                   <div className="segment-columns">
@@ -2746,7 +2752,7 @@ function AmbientSessionContent() {
                       <h3>{t("session.aiClinicalImpressions")}</h3>
                       <ul>
                         {segment.analysis.possibleDiagnoses.map((diagnosis) => (
-                          <li key={diagnosis}>{diagnosis}</li>
+                          <li key={diagnosis}>{translateDynamicMessage(diagnosis, language)}</li>
                         ))}
                       </ul>
                     </div>
@@ -2754,7 +2760,7 @@ function AmbientSessionContent() {
                       <h3>{t("session.symptomsDetected")}</h3>
                       <ul>
                         {segment.analysis.symptoms.map((symptom) => (
-                          <li key={symptom}>{symptom}</li>
+                          <li key={symptom}>{translateDynamicMessage(symptom, language)}</li>
                         ))}
                       </ul>
                     </div>
@@ -2766,7 +2772,7 @@ function AmbientSessionContent() {
                       <ul>
                         {segment.analysis.icd10Suggestions.map((suggestion) => (
                           <li key={`${suggestion.code}-${suggestion.phrase}`}>
-                            <strong dir="ltr">{suggestion.code}</strong> - {suggestion.phrase}. {suggestion.reason}.{" "}
+                            <strong dir="ltr">{suggestion.code}</strong> - {translateDynamicMessage(suggestion.phrase, language)}. {translateDynamicMessage(suggestion.reason, language)}.{" "}
                             <span>{t("session.confidence")}: {suggestion.confidence}</span>
                           </li>
                         ))}
@@ -2785,15 +2791,15 @@ function AmbientSessionContent() {
 
                           return (
                             <li key={suggestion.code}>
-                              <strong dir="ltr">{suggestion.code}</strong> - {suggestion.displayName}.{" "}
+                              <strong dir="ltr">{suggestion.code}</strong> - {translateCptDisplayName(suggestion.code, suggestion.displayName, language)}.{" "}
                               {suggestion.matchedPhrases.length > 0 && (
-                                <span>{t("session.matched")}: {suggestion.matchedPhrases.join(", ")}. </span>
+                                <span>{t("session.matched")}: {suggestion.matchedPhrases.map((phrase) => translateDynamicMessage(phrase, language)).join(", ")}. </span>
                               )}
-                              <span>{suggestion.reason} </span>
+                              <span>{translateDynamicMessage(suggestion.reason, language)} </span>
                               {suggestion.documentationRequirements.length > 0 && (
-                                <span>{t("session.documentation")}: {suggestion.documentationRequirements.slice(0, 2).join(" | ")}. </span>
+                                <span>{t("session.documentation")}: {suggestion.documentationRequirements.slice(0, 2).map((item) => translateDynamicMessage(item, language)).join(" | ")}. </span>
                               )}
-                              {caveats.length > 0 && <span>{t("session.billingCaveats")}: {caveats.join(" | ")}. </span>}
+                              {caveats.length > 0 && <span>{t("session.billingCaveats")}: {caveats.map((item) => translateDynamicMessage(item, language)).join(" | ")}. </span>}
                               <span>{t("session.confidence")}: {suggestion.confidence}</span>
                             </li>
                           );
@@ -2829,7 +2835,7 @@ function AmbientSessionContent() {
                               <strong dir="ltr">
                                 {conflict.cptA} / {conflict.cptB}
                               </strong>{" "}
-                              - {conflict.conflictType}. {conflict.explanation} {t("modifier.required")}:{" "}
+                              - {translateDynamicMessage(conflict.conflictType, language)}. {translateDynamicMessage(conflict.explanation, language)} {t("modifier.required")}:{" "}
                               {conflict.modifier59Possible ? t("common.approve") : t("common.reject")}. {t("soap.severity")}: {conflict.severity}.
                             </li>
                           ))}
@@ -2842,17 +2848,17 @@ function AmbientSessionContent() {
 
                   <div className="segment-section">
                     <h3>{t("session.soapSuggestions")}</h3>
-                    <p>{segment.analysis.soapUpdate.subjective}</p>
-                    <p>{segment.analysis.soapUpdate.objective}</p>
-                    <p>{segment.analysis.soapUpdate.assessment}</p>
-                    <p>{segment.analysis.soapUpdate.plan}</p>
+                    <p>{translateDynamicMessage(segment.analysis.soapUpdate.subjective, language)}</p>
+                    <p>{translateDynamicMessage(segment.analysis.soapUpdate.objective, language)}</p>
+                    <p>{translateDynamicMessage(segment.analysis.soapUpdate.assessment, language)}</p>
+                    <p>{translateDynamicMessage(segment.analysis.soapUpdate.plan, language)}</p>
                   </div>
 
                   <div className="segment-section">
                     <h3>{t("session.billingHints")}</h3>
                     <ul>
                       {segment.analysis.billingHints.map((hint) => (
-                        <li key={hint}>{hint}</li>
+                        <li key={hint}>{translateDynamicMessage(hint, language)}</li>
                       ))}
                     </ul>
                   </div>
@@ -2860,7 +2866,7 @@ function AmbientSessionContent() {
                   <p className="confidence-line">
                     {t("session.confidence")}: <strong>{segment.analysis.confidence}</strong>
                   </p>
-                  <p className="confidence-line">{segment.analysis.disclaimer}</p>
+                  <p className="confidence-line">{translateDynamicMessage(segment.analysis.disclaimer, language)}</p>
                 </article>
               ))}
             </div>

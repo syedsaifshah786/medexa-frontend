@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { apiSessionToUpcomingSession, medexaApi, type ApiTranscript } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
+import { formatNumber, translateDynamicMessage, translateStatus } from "@/lib/translations";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
 import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
@@ -490,7 +491,7 @@ export default function AmbientListeningPage() {
           <div className="section-heading">
             <div>
               <h2>{t("ambient.upcomingSessions")}</h2>
-              <p>{sessionItems.length} {t("ambient.sessionsRemaining")}</p>
+              <p>{formatNumber(sessionItems.length, language)} {t("ambient.sessionsRemaining")}</p>
             </div>
             <div className="heading-actions">
               <button type="button" onClick={() => setIsSessionsModalOpen(true)}>
@@ -561,17 +562,17 @@ export default function AmbientListeningPage() {
                       showSessionStatus(session);
                     }}
                   >
-                    {session.status}
+                    {translateStatus(session.status, language)}
                   </button>
                 )}
                 <h3>{session.name}</h3>
                 <p className="care-type">
-                  <span /> {session.careType}
+                  <span /> {translateDynamicMessage(session.careType, language)}
                 </p>
                 <p className="codes">
                   CPT: {session.cpt}&nbsp;&nbsp;ICD: {session.icd}
                 </p>
-                <p className="session-time">{session.time}</p>
+                <p className="session-time">{translateDynamicMessage(session.time, language)}</p>
               </article>
             ))}
             {filteredSessions.length === 0 && (
@@ -587,7 +588,7 @@ export default function AmbientListeningPage() {
                 <div className="sessions-modal-heading">
                   <div>
                     <h3 id="sessions-modal-title">{t("ambient.allUpcoming")}</h3>
-                    <p>{sessionItems.length} {t("ambient.sessionsScheduled")}</p>
+                    <p>{formatNumber(sessionItems.length, language)} {t("ambient.sessionsScheduled")}</p>
                   </div>
                   <button type="button" onClick={() => setIsSessionsModalOpen(false)}>
                     {t("common.close")}
@@ -605,10 +606,10 @@ export default function AmbientListeningPage() {
                       <img src={session.img} alt="" />
                       <span>
                         <strong>{session.name}</strong>
-                        <em>{session.careType}</em>
+                        <em>{translateDynamicMessage(session.careType, language)}</em>
                       </span>
-                      <time>{session.time}</time>
-                      <b>{session.status}</b>
+                      <time>{translateDynamicMessage(session.time, language)}</time>
+                      <b>{translateStatus(session.status, language)}</b>
                     </button>
                   ))}
                 </div>
@@ -658,7 +659,7 @@ export default function AmbientListeningPage() {
                   <img src={item.img} alt="" />
                   <strong>{item.name}</strong>
                 </div>
-                <time>{item.time}</time>
+                <time>{translateDynamicMessage(item.time, language)}</time>
                 <button
                   type="button"
                   className={
@@ -708,7 +709,7 @@ export default function AmbientListeningPage() {
                   <img src={selectedTranscript.img} alt="" />
                   <div>
                     <h3>{selectedTranscript.name}</h3>
-                    <time>{selectedTranscript.time}</time>
+                    <time>{translateDynamicMessage(selectedTranscript.time, language)}</time>
                   </div>
                 </div>
                 <span
@@ -725,17 +726,17 @@ export default function AmbientListeningPage() {
               <div className="detail-body">
                 <div>
                   <h4>{t("ambient.summarized")}</h4>
-                  <p>{selectedTranscript.summary}</p>
+                  <p>{translateDynamicMessage(selectedTranscript.summary, language)}</p>
                 </div>
                 <div>
                   <h4>{t("ambient.transcript")}</h4>
-                  <p>{selectedTranscript.transcript}</p>
+                  <p>{translateDynamicMessage(selectedTranscript.transcript, language)}</p>
                 </div>
               </div>
 
               <div className="detail-actions">
-                <button type="button" onClick={() => setTranscriptMessage(selectedTranscript.summary)}>
-                  View Summary
+                <button type="button" onClick={() => setTranscriptMessage(translateDynamicMessage(selectedTranscript.summary, language))}>
+                  {t("ambient.openTranscript")}
                 </button>
                 {selectedTranscript.status === "SUMMARY PENDING" && (
                   <button type="button" onClick={() => generateSummary(selectedTranscript.id)}>
@@ -743,7 +744,7 @@ export default function AmbientListeningPage() {
                   </button>
                 )}
                 <button type="button" onClick={() => markAsSummarized(selectedTranscript.id)}>
-                  Mark as Summarized
+                  {t("ambient.summarized")}
                 </button>
                 <button type="button" onClick={() => setSelectedTranscriptId(null)}>
                   {t("common.close")}
@@ -759,7 +760,7 @@ export default function AmbientListeningPage() {
                 disabled={visibleTranscriptPage === 1}
                 onClick={() => setCurrentTranscriptPage((page) => Math.max(1, page - 1))}
               >
-                ‹ Previous
+                {t("pagination.previous")}
               </button>
               {[1, 2, 3].map((page) => (
                 <button
@@ -769,7 +770,7 @@ export default function AmbientListeningPage() {
                   className={page === visibleTranscriptPage ? "current-page" : ""}
                   onClick={() => setCurrentTranscriptPage(page)}
                 >
-                  {page}
+                  {formatNumber(page, language)}
                 </button>
               ))}
               <button
@@ -779,7 +780,7 @@ export default function AmbientListeningPage() {
                   setCurrentTranscriptPage((page) => Math.min(totalTranscriptPages, page + 1))
                 }
               >
-                Next ›
+                {t("pagination.next")}
               </button>
             </nav>
           )}
