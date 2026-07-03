@@ -536,9 +536,15 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         }
 
         .medexa-menu {
-          left: 0;
-          width: 230px;
+          position: fixed;
+          top: 78px;
+          left: 16px;
+          right: auto;
+          width: min(230px, calc(100vw - 32px));
+          max-width: calc(100vw - 32px);
+          overflow-x: hidden;
           padding: 10px;
+          transform-origin: top left;
         }
 
         :global(html[dir="rtl"]) .medexa-brand {
@@ -553,7 +559,8 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
         :global(html[dir="rtl"]) .medexa-menu {
           left: auto;
-          right: 0;
+          right: 16px;
+          transform-origin: top right;
         }
 
         :global(html[dir="rtl"]) .medexa-dropdown {
@@ -710,7 +717,14 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           }
 
           .medexa-menu {
-            left: 0;
+            left: 16px;
+            right: auto;
+            top: 74px;
+          }
+
+          :global(html[dir="rtl"]) .medexa-menu {
+            left: auto;
+            right: 16px;
           }
         }
       `}</style>
