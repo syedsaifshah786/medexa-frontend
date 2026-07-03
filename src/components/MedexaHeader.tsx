@@ -131,121 +131,139 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           />
         </label>
 
-        <div className="medexa-action-wrap medexa-bell-wrap">
-          <button
-            className="medexa-icon-button medexa-bell"
-            aria-label={t("header.notifications")}
-            aria-expanded={isNotificationsOpen}
-            type="button"
-            onClick={toggleNotifications}
-          />
-
-          {isNotificationsOpen && (
-            <div className="medexa-dropdown medexa-notifications" role="menu">
-              <strong>{t("header.notifications")}</strong>
-              {notifications.map((notification) => (
-                <button key={notification} type="button" role="menuitem">
-                  {t(notification)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="medexa-action-wrap">
-          <button
-            className="medexa-language-button"
-            aria-label={`${t("header.chooseLanguage")}: ${t(selectedLanguage.labelKey)}`}
-            aria-expanded={isLanguageOpen}
-            type="button"
-            onClick={toggleLanguage}
-          >
-            <svg
-              aria-hidden="true"
-              className="medexa-language-icon"
-              viewBox="0 0 24 24"
-              fill="none"
+        <div className="medexa-actions">
+          <div className="medexa-action-wrap medexa-bell-wrap">
+            <button
+              className="medexa-icon-button medexa-bell"
+              aria-label={t("header.notifications")}
+              aria-expanded={isNotificationsOpen}
+              type="button"
+              onClick={toggleNotifications}
             >
-              <path
-                d="M4 5h9M9 3v2m1.5 12 4-9m2 9-4-9m1 6h5M6.5 8c.7 2.1 2.2 3.8 4.5 5M11 8c-.8 2.9-3 5.1-6 6.3"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span>{selectedLanguage.short}</span>
-          </button>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M18 9.8c0-3.3-2.3-5.8-6-5.8s-6 2.5-6 5.8c0 4.8-2 5.5-2 6.7h16c0-1.2-2-1.9-2-6.7Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M9.8 19a2.4 2.4 0 0 0 4.4 0"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
 
-          {isLanguageOpen && (
-            <div className="medexa-dropdown medexa-language-menu" role="menu">
-              {languages.map((language) => (
-                <button
-                  key={language.value}
-                  type="button"
-                  role="menuitem"
-                  className={language.value === selectedLanguage.value ? "is-selected" : ""}
-                  onClick={() => {
-                    setLanguage(language.value as Language);
-                    setIsLanguageOpen(false);
-                  }}
-                >
-                  {t(language.labelKey)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="medexa-action-wrap medexa-profile-wrap">
-          <button
-            className="medexa-profile"
-            type="button"
-            aria-label={t("header.chooseProvider")}
-            aria-expanded={isProfileOpen}
-            onClick={toggleProfile}
-          >
-            <img src={selectedDoctor.avatar} alt="" />
-            <div>
-              <strong>{selectedDoctor.name}</strong>
-              <span>{selectedDoctor.role}</span>
-            </div>
-            <span className="medexa-chevron">v</span>
-          </button>
-
-          {isProfileOpen && (
-            <div className="medexa-dropdown medexa-profile-menu" role="menu">
-              {doctors.map((doctor) => (
-                <button
-                  key={doctor.name}
-                  type="button"
-                  role="menuitem"
-                  className={doctor.name === selectedDoctor.name ? "is-selected doctor-option" : "doctor-option"}
-                  onClick={() => {
-                    setSelectedDoctor(doctor);
-                    setIsProfileOpen(false);
-                  }}
-                >
-                  <img src={doctor.avatar} alt="" />
-                  <span>
-                    <strong>{doctor.name}</strong>
-                    <em>{doctor.role}</em>
-                  </span>
-                </button>
-              ))}
-              <div className="medexa-profile-actions">
-                <button type="button" role="menuitem">
-                  {t("header.profile")}
-                </button>
-                <button type="button" role="menuitem">
-                  {t("header.settings")}
-                </button>
-                <button type="button" role="menuitem">
-                  {t("header.logout")}
-                </button>
+            {isNotificationsOpen && (
+              <div className="medexa-dropdown medexa-notifications" role="menu">
+                <strong>{t("header.notifications")}</strong>
+                {notifications.map((notification) => (
+                  <button key={notification} type="button" role="menuitem">
+                    {t(notification)}
+                  </button>
+                ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="medexa-action-wrap">
+            <button
+              className="medexa-language-button"
+              aria-label={`${t("header.chooseLanguage")}: ${t(selectedLanguage.labelKey)}`}
+              aria-expanded={isLanguageOpen}
+              type="button"
+              onClick={toggleLanguage}
+            >
+              <svg
+                aria-hidden="true"
+                className="medexa-language-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M4 5h9M9 3v2m1.5 12 4-9m2 9-4-9m1 6h5M6.5 8c.7 2.1 2.2 3.8 4.5 5M11 8c-.8 2.9-3 5.1-6 6.3"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>{selectedLanguage.short}</span>
+            </button>
+
+            {isLanguageOpen && (
+              <div className="medexa-dropdown medexa-language-menu" role="menu">
+                {languages.map((language) => (
+                  <button
+                    key={language.value}
+                    type="button"
+                    role="menuitem"
+                    className={language.value === selectedLanguage.value ? "is-selected" : ""}
+                    onClick={() => {
+                      setLanguage(language.value as Language);
+                      setIsLanguageOpen(false);
+                    }}
+                  >
+                    {t(language.labelKey)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="medexa-action-wrap medexa-profile-wrap">
+            <button
+              className="medexa-profile"
+              type="button"
+              aria-label={t("header.chooseProvider")}
+              aria-expanded={isProfileOpen}
+              onClick={toggleProfile}
+            >
+              <img src={selectedDoctor.avatar} alt="" />
+              <div>
+                <strong>{selectedDoctor.name}</strong>
+                <span>{selectedDoctor.role}</span>
+              </div>
+              <span className="medexa-chevron">v</span>
+            </button>
+
+            {isProfileOpen && (
+              <div className="medexa-dropdown medexa-profile-menu" role="menu">
+                {doctors.map((doctor) => (
+                  <button
+                    key={doctor.name}
+                    type="button"
+                    role="menuitem"
+                    className={doctor.name === selectedDoctor.name ? "is-selected doctor-option" : "doctor-option"}
+                    onClick={() => {
+                      setSelectedDoctor(doctor);
+                      setIsProfileOpen(false);
+                    }}
+                  >
+                    <img src={doctor.avatar} alt="" />
+                    <span>
+                      <strong>{doctor.name}</strong>
+                      <em>{doctor.role}</em>
+                    </span>
+                  </button>
+                ))}
+                <div className="medexa-profile-actions">
+                  <button type="button" role="menuitem">
+                    {t("header.profile")}
+                  </button>
+                  <button type="button" role="menuitem">
+                    {t("header.settings")}
+                  </button>
+                  <button type="button" role="menuitem">
+                    {t("header.logout")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -256,10 +274,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           z-index: 20;
           width: 100%;
           box-sizing: border-box;
-          height: 64px;
+          height: 68px;
           display: flex;
           align-items: center;
-          gap: 16px;
+          gap: 18px;
           padding: 0 32px;
           background: rgba(255, 255, 255, 0.86);
           border-bottom: 1px solid rgba(229, 231, 235, 0.86);
@@ -278,11 +296,12 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         .medexa-action-wrap {
           position: relative;
           flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
         }
 
         .medexa-menu-button,
         .medexa-icon-button {
-          border: 0;
           flex: 0 0 auto;
           display: inline-flex;
           align-items: center;
@@ -295,6 +314,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           height: 34px;
           flex-direction: column;
           gap: 4px;
+          border: 0;
           border-radius: 8px;
           background: rgba(81, 70, 245, 0.09);
           transition: transform 0.16s ease, background 0.16s ease;
@@ -313,6 +333,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         }
 
         .medexa-brand {
+          flex: 0 0 auto;
           margin-right: 12px;
           color: var(--medexa-primary);
           font-size: 20px;
@@ -322,9 +343,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         }
 
         .medexa-search {
-          flex: 1 1 auto;
-          max-width: 520px;
-          height: 34px;
+          flex: 0 1 540px;
+          max-width: 560px;
+          min-width: 280px;
+          height: 38px;
           box-sizing: border-box;
           display: flex;
           align-items: center;
@@ -383,43 +405,47 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           transform: rotate(45deg);
         }
 
-        .medexa-bell-wrap {
+        .medexa-actions {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          gap: 14px;
           margin-left: auto;
         }
 
         .medexa-bell {
           position: relative;
-          width: 30px;
-          height: 30px;
-          background: transparent;
-        }
-
-        .medexa-bell::before {
-          content: "";
-          width: 11px;
-          height: 14px;
-          border: 2px solid var(--medexa-primary);
-          border-bottom: 0;
-          border-radius: 8px 8px 2px 2px;
-        }
-
-        .medexa-bell::after {
-          content: "";
-          position: absolute;
-          bottom: 7px;
-          width: 16px;
-          height: 2px;
+          width: 40px;
+          height: 40px;
+          border: 1px solid var(--medexa-border);
           border-radius: 999px;
-          background: var(--medexa-primary);
+          background: #fff;
+          color: var(--medexa-primary);
+          box-shadow: 0 8px 18px rgba(28, 35, 90, 0.04);
+          transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, transform 0.16s ease;
+        }
+
+        .medexa-bell:hover,
+        .medexa-bell[aria-expanded="true"] {
+          border-color: rgba(81, 70, 245, 0.34);
+          background: #f5f7ff;
+          box-shadow: 0 12px 26px rgba(28, 35, 90, 0.09);
+          transform: translateY(-1px);
+        }
+
+        .medexa-bell svg {
+          width: 20px;
+          height: 20px;
+          display: block;
         }
 
         .medexa-language-button {
-          height: 32px;
+          height: 40px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           gap: 6px;
-          padding: 0 10px;
+          padding: 0 12px;
           border: 1px solid var(--medexa-border);
           border-radius: 999px;
           background: #ffffff;
@@ -455,6 +481,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           display: flex;
           align-items: center;
           gap: 8px;
+          height: 40px;
           min-width: 0;
           border: 0;
           background: transparent;
@@ -519,7 +546,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           margin-left: 12px;
         }
 
-        :global(html[dir="rtl"]) .medexa-bell-wrap {
+        :global(html[dir="rtl"]) .medexa-actions {
           margin-left: 0;
           margin-right: auto;
         }
@@ -642,6 +669,26 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           border-top: 1px solid #eef1f6;
         }
 
+        @media (max-width: 1020px) {
+          .medexa-header {
+            gap: 14px;
+            padding: 0 24px;
+          }
+
+          .medexa-search {
+            flex-basis: 420px;
+            min-width: 180px;
+          }
+
+          .medexa-actions {
+            gap: 10px;
+          }
+
+          .medexa-profile strong {
+            max-width: 110px;
+          }
+        }
+
         @media (max-width: 760px) {
           .medexa-header {
             gap: 10px;
@@ -652,6 +699,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           .medexa-profile div,
           .medexa-profile .medexa-chevron {
             display: none;
+          }
+
+          .medexa-actions {
+            gap: 10px;
           }
 
           .medexa-dropdown {
