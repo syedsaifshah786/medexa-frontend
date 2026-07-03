@@ -262,13 +262,13 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       setPermissionStatus("unsupported");
       setPermissionError("Voice recognition is supported in Chrome/Edge. Please use a supported browser.");
       setTriggerPermissionStatus("unsupported");
-      return;
+      return false;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setPermissionStatus("unsupported");
       setPermissionError("Microphone access is not available in this browser.");
-      return;
+      return false;
     }
 
     console.log("[WebSpeech] requesting microphone permission");
@@ -288,13 +288,13 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       shouldKeepListeningRef.current = false;
       isManuallyStoppedRef.current = true;
       setIsListening(false);
-      return;
+      return false;
     }
 
     const recognition = recognitionRef.current ?? createRecognition();
 
     if (!recognition) {
-      return;
+      return false;
     }
 
     shouldKeepListeningRef.current = true;
@@ -308,6 +308,8 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     } catch {
       // start() throws if recognition is already active.
     }
+
+    return true;
   }, [createRecognition]);
 
   const autoStartTriggerMode = useCallback(() => {

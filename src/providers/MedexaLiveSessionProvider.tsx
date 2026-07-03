@@ -31,7 +31,7 @@ type MedexaLiveSessionContextValue = ReturnType<typeof useWebSpeechSession> & {
   setTotalSeconds: Dispatch<SetStateAction<number>>;
   setCptRecords: Dispatch<SetStateAction<Record<string, ApiCptRecord>>>;
   setActiveCptCode: Dispatch<SetStateAction<string | null>>;
-  startRecording: (nextSessionId: string) => Promise<void>;
+  startRecording: (nextSessionId: string) => Promise<boolean>;
   stopRecording: () => void;
   pauseRecording: () => void;
   resumeRecording: () => Promise<void>;
@@ -76,7 +76,6 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
       const isNewSession = nextSessionId !== sessionId;
 
       setSessionId(nextSessionId);
-      setRecordingStatus("recording");
       if (isNewSession || recordingStatus === "idle" || recordingStatus === "stopped") {
         setTotalSeconds(0);
         setStartedAt(Date.now());
@@ -85,7 +84,15 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
         setStartedAt(Date.now());
       }
 
-      await speechSession.startListening();
+      const didStartListening = await speechSession.startListening();
+
+      if (!didStartListening) {
+        setRecordingStatus("idle");
+        return false;
+      }
+
+      setRecordingStatus("recording");
+      return true;
     },
     [recordingStatus, sessionId, speechSession, startedAt],
   );

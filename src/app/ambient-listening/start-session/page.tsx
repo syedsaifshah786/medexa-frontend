@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
@@ -37,6 +37,7 @@ function StartSessionContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [countdown, setCountdown] = useState(REDIRECT_SECONDS);
   const [hasStartedRedirect, setHasStartedRedirect] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const autoStartHandledRef = useRef(false);
   const redirectStartedAtRef = useRef<number | null>(null);
 
@@ -44,9 +45,19 @@ function StartSessionContent() {
   const source = searchParams.get("source") ?? "manual";
   const shouldAutoStartRecording = searchParams.get("autoStartRecording") === "1";
   const selectedSession = useMemo(() => getSessionById(routeSessionId), [routeSessionId]);
-  const isActive = liveSession.recordingStatus === "recording" && liveSession.isListening;
+  const isRecording = liveSession.recordingStatus === "recording";
+  const isListening = isRecording && liveSession.isListening;
+  const hasMicWarning =
+    liveSession.permissionStatus === "denied" ||
+    liveSession.triggerPermissionStatus === "required" ||
+    Boolean(liveSession.permissionError);
 
-  const beginRecording = async () => {
+  const beginRecording = useCallback(async () => {
+    if (isStarting || hasStartedRedirect) {
+      return;
+    }
+
+    setIsStarting(true);
     setActiveSessionId(routeSessionId);
     medexaApi.startSession({
       session_id: routeSessionId,
@@ -55,12 +66,27 @@ function StartSessionContent() {
       therapist_id: selectedDoctor.name,
       session_type: selectedSession.careType,
     });
+    const didStartRecording = await liveSession.startRecording(routeSessionId);
+
+    if (!didStartRecording) {
+      setIsStarting(false);
+      return;
+    }
+
     medexaApi.startSessionTimer(routeSessionId);
-    await liveSession.startRecording(routeSessionId);
     setHasStartedRedirect(true);
     redirectStartedAtRef.current = Date.now();
     setCountdown(REDIRECT_SECONDS);
-  };
+    setIsStarting(false);
+  }, [
+    hasStartedRedirect,
+    isStarting,
+    liveSession,
+    routeSessionId,
+    selectedDoctor.name,
+    selectedSession.careType,
+    selectedSession.name,
+  ]);
 
   useEffect(() => {
     if (!shouldAutoStartRecording || autoStartHandledRef.current) {
@@ -69,7 +95,7 @@ function StartSessionContent() {
 
     autoStartHandledRef.current = true;
     void beginRecording();
-  }, [shouldAutoStartRecording]);
+  }, [beginRecording, shouldAutoStartRecording]);
 
   useEffect(() => {
     if (!hasStartedRedirect) {
@@ -99,219 +125,278 @@ function StartSessionContent() {
     <main className="start-session-page">
       <MedexaHeader searchValue={searchQuery} onSearchChange={setSearchQuery} />
 
-      <section className="start-session-content">
+      <section className="start-session-shell">
         <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
-          ‹
+          &larr; Ambient Listening
         </Link>
 
-        <section className="patient-band">
-          <img src={selectedSession.img} alt="" />
-          <div>
-            <h1>{hasStartedRedirect ? "Starting Session" : "Medexa is ready"}</h1>
-            <p>{selectedSession.name} · {selectedSession.careType}</p>
-          </div>
-          <strong dir="ltr">{formatDuration(liveSession.totalSeconds)}</strong>
-        </section>
-
-        <section className="listening-stage">
-          <div className={`radar ${isActive ? "is-active" : ""}`} aria-hidden="true">
-            <span />
-            <span />
-            <span />
+        <section className="start-session-card" aria-live="polite">
+          <div className={`avatar-radar ${isListening ? "is-active" : ""}`}>
+            <span className="radar-ring ring-one" aria-hidden="true" />
+            <span className="radar-ring ring-two" aria-hidden="true" />
+            <span className="radar-ring ring-three" aria-hidden="true" />
+            <span className="radar-scan" aria-hidden="true" />
+            <span className="avatar-frame">
+              <img src={selectedSession.img} alt="" />
+            </span>
+            <span className="mic-dot" aria-hidden="true">
+              <span />
+            </span>
           </div>
 
-          <div className="stage-copy">
-            <p className={`status-pill is-${liveSession.recordingStatus}`}>
-              {isActive ? "Medexa is listening" : hasStartedRedirect ? "Medexa is connecting" : "Ready to record"}
-            </p>
-            <h2>{hasStartedRedirect ? "Medexa is preparing your session" : "Start recording when you are ready"}</h2>
+          <div className={`status-pill ${isRecording ? "is-recording" : "is-idle"}`}>
+            <span aria-hidden="true" />
+            {isRecording ? "Medexa is listening" : "Medexa is ready"}
+          </div>
+
+          <div className="session-heading">
+            <h1>{isRecording ? "Starting Session" : "Start Session"}</h1>
             <p>
-              {hasStartedRedirect
-                ? "Recording has started. You will be redirected shortly."
-                : "Recording will continue into the live session screen."}
+              <strong>{selectedSession.name}</strong>
+              <span>{selectedSession.careType}</span>
             </p>
+          </div>
 
-            <div className={`frequency-bars ${isActive ? "is-active" : ""}`} aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
+          <div className="timer" dir="ltr">
+            {formatDuration(liveSession.totalSeconds)}
+          </div>
+
+          <div className={`audio-bars ${isListening ? "is-active" : ""}`} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </div>
+
+          {hasMicWarning && (
+            <div className="permission-card">
+              Microphone permission is required to start recording.
             </div>
+          )}
 
-            {hasStartedRedirect ? (
-              <span className="redirect-copy">Redirecting to live session in {countdown} seconds...</span>
-            ) : (
-              <button type="button" className="start-button" onClick={() => void beginRecording()}>
-                Start Recording
+          <div className="session-actions">
+            {!hasStartedRedirect && (
+              <button
+                type="button"
+                className="start-recording-button"
+                disabled={isStarting}
+                onClick={() => void beginRecording()}
+              >
+                {isStarting ? "Starting..." : "Start Recording"}
               </button>
             )}
-
-            {liveSession.recordingStatus === "recording" && (
-              <button type="button" className="secondary-button" onClick={liveSession.stopRecording}>
+            {isRecording && (
+              <button type="button" className="stop-button" onClick={liveSession.stopRecording}>
                 Cancel and Stop
               </button>
             )}
           </div>
-        </section>
 
-        <div className="debug-strip" aria-live="polite">
-          <span>sessionId: {routeSessionId}</span>
-          <span>source: {source}</span>
-          <span>recordingStatus: {liveSession.recordingStatus}</span>
-          <span>isListening: {liveSession.isListening ? "true" : "false"}</span>
-          <span>permissionStatus: {liveSession.permissionStatus}</span>
-          <span>totalSeconds: {liveSession.totalSeconds}</span>
-          <span>latestHeardText: {liveSession.lastHeardText || "none"}</span>
-          <span>fullTranscript length: {liveSession.liveTranscript.length}</span>
-          <span>redirect countdown: {hasStartedRedirect ? countdown : "idle"}</span>
-        </div>
+          <p className="support-text">
+            {isRecording
+              ? "Recording will continue into the live session screen."
+              : "Ready to record"}
+          </p>
+
+          {hasStartedRedirect && (
+            <p className="redirect-text">
+              Redirecting to live session in {countdown} seconds...
+            </p>
+          )}
+
+          <div className="debug-strip">
+            <span>sessionId: {routeSessionId}</span>
+            <span>source: {source}</span>
+            <span>recordingStatus: {liveSession.recordingStatus}</span>
+            <span>isListening: {liveSession.isListening ? "true" : "false"}</span>
+            <span>permissionStatus: {liveSession.permissionStatus}</span>
+            <span>totalSeconds: {liveSession.totalSeconds}</span>
+            <span>latestHeardText: {liveSession.lastHeardText || "none"}</span>
+            <span>fullTranscript length: {liveSession.liveTranscript.length}</span>
+            <span>redirect countdown: {hasStartedRedirect ? countdown : "idle"}</span>
+          </div>
+        </section>
       </section>
 
-      <style jsx>{`
+      <style>{`
         .start-session-page {
           min-height: 100vh;
           background: #fbfbfc;
           color: #172033;
         }
 
-        .start-session-content {
-          width: min(100%, 1040px);
+        .start-session-shell {
           box-sizing: border-box;
-          margin: 0 auto;
-          padding: 28px clamp(16px, 4vw, 34px) 42px;
+          min-height: calc(100vh - 64px);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 18px;
+          padding: 30px clamp(16px, 4vw, 40px) 44px;
         }
 
         .back-link {
-          width: 34px;
-          height: 34px;
+          align-self: flex-start;
           display: inline-flex;
           align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          background: #fff;
+          gap: 8px;
+          height: 36px;
+          border: 1px solid #dfe6f4;
+          border-radius: 999px;
+          background: #ffffff;
           color: #001eff;
+          padding: 0 14px;
+          font-size: 12px;
+          font-weight: 800;
           text-decoration: none;
-          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
         }
 
-        .patient-band {
-          display: grid;
-          grid-template-columns: 58px minmax(0, 1fr) auto;
+        .start-session-card {
+          width: min(100%, 680px);
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
           align-items: center;
-          gap: 16px;
-          margin-top: 22px;
-          padding-bottom: 24px;
-          border-bottom: 1px solid #e8edf5;
+          border: 1px solid #edf1f7;
+          border-radius: 28px;
+          background:
+            radial-gradient(circle at top, rgba(0, 30, 255, 0.07), transparent 38%),
+            #ffffff;
+          padding: clamp(26px, 5vw, 44px);
+          text-align: center;
+          box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
         }
 
-        .patient-band img {
-          width: 58px;
-          height: 58px;
+        .avatar-radar {
+          position: relative;
+          width: 190px;
+          aspect-ratio: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 22px;
+          border-radius: 50%;
+        }
+
+        .radar-ring,
+        .radar-scan {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+        }
+
+        .ring-one {
+          inset: 30px;
+          border: 1px solid rgba(0, 30, 255, 0.14);
+          background: rgba(0, 30, 255, 0.035);
+        }
+
+        .ring-two {
+          inset: 14px;
+          border: 1px solid rgba(105, 65, 198, 0.16);
+        }
+
+        .ring-three {
+          border: 1px solid rgba(0, 30, 255, 0.1);
+        }
+
+        .radar-scan {
+          opacity: 0;
+          background: conic-gradient(from 0deg, rgba(0, 30, 255, 0.2), rgba(105, 65, 198, 0.04) 42deg, transparent 86deg);
+        }
+
+        .avatar-radar.is-active .radar-scan {
+          opacity: 1;
+          animation: radar-sweep 2.2s linear infinite;
+        }
+
+        .avatar-radar.is-active .radar-ring {
+          animation: radar-pulse 1.8s ease-out infinite;
+        }
+
+        .avatar-radar.is-active .ring-two {
+          animation-delay: 0.28s;
+        }
+
+        .avatar-radar.is-active .ring-three {
+          animation-delay: 0.56s;
+        }
+
+        .avatar-frame {
+          position: relative;
+          z-index: 2;
+          width: 96px;
+          height: 96px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 7px solid #ffffff;
+          border-radius: 50%;
+          background: #eef2ff;
+          box-shadow: 0 18px 38px rgba(0, 30, 255, 0.18);
+        }
+
+        .avatar-frame img {
+          width: 100%;
+          height: 100%;
           border-radius: 50%;
           object-fit: cover;
         }
 
-        .patient-band h1,
-        .patient-band p {
-          margin: 0;
-        }
-
-        .patient-band h1 {
-          font-size: clamp(26px, 4vw, 40px);
-          font-weight: 400;
-          line-height: 1.1;
-        }
-
-        .patient-band p {
-          margin-top: 7px;
-          color: #667085;
-          font-size: 13px;
-        }
-
-        .patient-band strong {
-          color: #001eff;
-          font-size: 32px;
-        }
-
-        .listening-stage {
-          min-height: 420px;
-          display: grid;
-          grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 1.1fr);
+        .mic-dot {
+          position: absolute;
+          right: 42px;
+          bottom: 34px;
+          z-index: 3;
+          width: 36px;
+          height: 36px;
+          display: flex;
           align-items: center;
-          gap: clamp(28px, 6vw, 72px);
-        }
-
-        .radar {
-          position: relative;
-          width: min(72vw, 360px);
-          aspect-ratio: 1;
-          justify-self: center;
-          border: 1px solid #d9e2ff;
+          justify-content: center;
+          border: 4px solid #ffffff;
           border-radius: 50%;
-          background:
-            radial-gradient(circle at center, rgba(0, 30, 255, 0.14) 0 8%, transparent 9%),
-            conic-gradient(from 0deg, rgba(0, 30, 255, 0.16), transparent 45%, transparent);
-          overflow: hidden;
+          background: #0800d8;
+          box-shadow: 0 10px 22px rgba(8, 0, 216, 0.24);
         }
 
-        .radar::before {
-          content: "";
-          position: absolute;
-          inset: 10%;
-          border: 1px solid #d9e2ff;
-          border-radius: 50%;
-        }
-
-        .radar::after {
-          content: "";
-          position: absolute;
-          inset: 22%;
-          border: 1px solid #d9e2ff;
-          border-radius: 50%;
-        }
-
-        .radar span {
-          position: absolute;
-          inset: 50%;
-          border-radius: 50%;
-          border: 1px solid rgba(0, 30, 255, 0.3);
-          transform: translate(-50%, -50%);
-          opacity: 0;
-        }
-
-        .radar.is-active {
-          animation: radar-scan 2.4s linear infinite;
-        }
-
-        .radar.is-active span {
-          animation: radar-pulse 1.8s ease-out infinite;
-        }
-
-        .radar span:nth-child(2) {
-          animation-delay: 0.45s;
-        }
-
-        .radar span:nth-child(3) {
-          animation-delay: 0.9s;
-        }
-
-        .stage-copy h2,
-        .stage-copy p {
-          margin: 0;
+        .mic-dot span {
+          width: 10px;
+          height: 14px;
+          border-radius: 999px;
+          background: #ffffff;
         }
 
         .status-pill {
-          width: fit-content;
-          margin-bottom: 16px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 30px;
           border-radius: 999px;
-          background: #f1f3f6;
-          color: #667085;
-          padding: 7px 12px;
-          font-size: 11px;
-          font-weight: 800;
+          padding: 0 13px;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .status-pill span {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+
+        .status-pill.is-idle {
+          background: #f3f5fa;
+          color: #5d687a;
+        }
+
+        .status-pill.is-idle span {
+          background: #9aa6ba;
         }
 
         .status-pill.is-recording {
@@ -319,97 +404,194 @@ function StartSessionContent() {
           color: #087c4a;
         }
 
-        .stage-copy h2 {
-          color: #172033;
-          font-size: clamp(28px, 4vw, 44px);
-          font-weight: 400;
-          line-height: 1.08;
+        .status-pill.is-recording span {
+          background: #10c978;
+          box-shadow: 0 0 0 5px rgba(16, 201, 120, 0.15);
         }
 
-        .stage-copy > p {
-          max-width: 430px;
-          margin-top: 14px;
-          color: #667085;
-          font-size: 15px;
-          line-height: 1.5;
+        .session-heading {
+          margin-top: 18px;
         }
 
-        .frequency-bars {
-          height: 54px;
+        .session-heading h1 {
+          margin: 0;
+          color: #141824;
+          font-size: clamp(30px, 5vw, 44px);
+          font-weight: 500;
+          line-height: 1.05;
+        }
+
+        .session-heading p {
           display: flex;
           align-items: center;
-          gap: 7px;
-          margin: 26px 0;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 10px 0 0;
+          color: #667085;
+          font-size: 14px;
         }
 
-        .frequency-bars i {
+        .session-heading strong {
+          color: #172033;
+          font-weight: 900;
+        }
+
+        .session-heading span::before {
+          content: "";
+          width: 4px;
+          height: 4px;
+          display: inline-block;
+          margin: 0 8px 2px 0;
+          border-radius: 50%;
+          background: #001eff;
+        }
+
+        .timer {
+          margin-top: 26px;
+          color: #001eff;
+          font-size: clamp(54px, 11vw, 82px);
+          font-weight: 800;
+          line-height: 0.95;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .audio-bars {
+          height: 58px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          margin: 24px 0 8px;
+        }
+
+        .audio-bars i {
           width: 7px;
           height: 18px;
           border-radius: 999px;
-          background: #001eff;
+          background: linear-gradient(180deg, #6941c6 0%, #001eff 100%);
           opacity: 0.35;
         }
 
-        .frequency-bars.is-active i {
-          animation: wave 0.85s ease-in-out infinite;
+        .audio-bars.is-active i {
           opacity: 1;
+          animation: audio-wave 0.82s ease-in-out infinite;
         }
 
-        .frequency-bars i:nth-child(2) { animation-delay: 0.08s; }
-        .frequency-bars i:nth-child(3) { animation-delay: 0.16s; }
-        .frequency-bars i:nth-child(4) { animation-delay: 0.24s; }
-        .frequency-bars i:nth-child(5) { animation-delay: 0.32s; }
-        .frequency-bars i:nth-child(6) { animation-delay: 0.4s; }
-        .frequency-bars i:nth-child(7) { animation-delay: 0.48s; }
+        .audio-bars i:nth-child(2) { animation-delay: 0.06s; height: 28px; }
+        .audio-bars i:nth-child(3) { animation-delay: 0.12s; height: 40px; }
+        .audio-bars i:nth-child(4) { animation-delay: 0.18s; height: 26px; }
+        .audio-bars i:nth-child(5) { animation-delay: 0.24s; height: 48px; }
+        .audio-bars i:nth-child(6) { animation-delay: 0.3s; height: 30px; }
+        .audio-bars i:nth-child(7) { animation-delay: 0.36s; height: 42px; }
+        .audio-bars i:nth-child(8) { animation-delay: 0.42s; height: 24px; }
+        .audio-bars i:nth-child(9) { animation-delay: 0.48s; height: 34px; }
 
-        .redirect-copy {
-          display: block;
-          color: #001eff;
-          font-size: 13px;
-          font-weight: 800;
-        }
-
-        .start-button,
-        .secondary-button {
-          height: 42px;
-          border-radius: 999px;
-          padding: 0 18px;
+        .permission-card {
+          width: min(100%, 430px);
+          box-sizing: border-box;
+          margin-top: 14px;
+          border: 1px solid #ffd7a8;
+          border-radius: 14px;
+          background: #fff8ec;
+          color: #8a4b00;
+          padding: 11px 14px;
           font-size: 12px;
           font-weight: 800;
-          cursor: pointer;
         }
 
-        .start-button {
+        .session-actions {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 22px;
+        }
+
+        .start-recording-button,
+        .stop-button {
+          min-width: 154px;
+          height: 44px;
+          border-radius: 999px;
+          padding: 0 20px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+          transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+
+        .start-recording-button {
           border: 0;
           background: #0800d8;
-          color: #fff;
+          color: #ffffff;
+          box-shadow: 0 14px 28px rgba(8, 0, 216, 0.24);
         }
 
-        .secondary-button {
-          margin-left: 10px;
+        .start-recording-button:hover:not(:disabled) {
+          background: #001eff;
+          transform: translateY(-1px);
+          box-shadow: 0 18px 34px rgba(0, 30, 255, 0.26);
+        }
+
+        .start-recording-button:disabled {
+          cursor: wait;
+          opacity: 0.72;
+        }
+
+        .stop-button {
           border: 1px solid #d8deea;
-          background: #fff;
+          background: #ffffff;
           color: #172033;
         }
 
+        .stop-button:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .support-text,
+        .redirect-text {
+          margin: 16px 0 0;
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .support-text {
+          color: #667085;
+        }
+
+        .redirect-text {
+          color: #001eff;
+          font-weight: 900;
+        }
+
         .debug-strip {
+          width: 100%;
+          box-sizing: border-box;
           display: flex;
           flex-wrap: wrap;
+          justify-content: center;
           gap: 7px;
-          border-top: 1px solid #e8edf5;
-          padding-top: 14px;
-          color: #667085;
+          margin-top: 28px;
+          border: 1px solid #e1e8f5;
+          border-radius: 16px;
+          background: #f7f9ff;
+          padding: 12px;
+          color: #5d687a;
           font-size: 10px;
+          line-height: 1.35;
+          text-align: left;
         }
 
         .debug-strip span {
           border-radius: 999px;
-          background: #fff;
-          padding: 6px 9px;
-          box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+          background: #ffffff;
+          padding: 5px 8px;
+          box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
         }
 
-        @keyframes radar-scan {
+        @keyframes radar-sweep {
           to {
             transform: rotate(360deg);
           }
@@ -417,35 +599,56 @@ function StartSessionContent() {
 
         @keyframes radar-pulse {
           0% {
-            width: 0;
-            height: 0;
-            opacity: 0.7;
+            transform: scale(0.72);
+            opacity: 0.72;
           }
           100% {
-            width: 95%;
-            height: 95%;
-            opacity: 0;
+            transform: scale(1.08);
+            opacity: 0.08;
           }
         }
 
-        @keyframes wave {
-          0%, 100% { height: 16px; }
-          50% { height: 48px; }
+        @keyframes audio-wave {
+          0%, 100% {
+            transform: scaleY(0.55);
+          }
+          50% {
+            transform: scaleY(1.25);
+          }
         }
 
         @media (max-width: 760px) {
-          .patient-band {
-            grid-template-columns: 48px minmax(0, 1fr);
+          .start-session-shell {
+            justify-content: flex-start;
+            padding-top: 20px;
           }
 
-          .patient-band strong {
-            grid-column: 1 / -1;
-            font-size: 28px;
+          .back-link {
+            align-self: stretch;
+            justify-content: center;
           }
 
-          .listening-stage {
-            grid-template-columns: 1fr;
-            padding: 28px 0;
+          .start-session-card {
+            border-radius: 20px;
+            padding: 24px 18px;
+          }
+
+          .avatar-radar {
+            width: 158px;
+          }
+
+          .avatar-frame {
+            width: 82px;
+            height: 82px;
+          }
+
+          .mic-dot {
+            right: 32px;
+            bottom: 28px;
+          }
+
+          .debug-strip {
+            justify-content: flex-start;
           }
         }
       `}</style>
