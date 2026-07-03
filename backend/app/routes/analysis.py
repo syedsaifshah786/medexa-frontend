@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.services.rule_engine import RULE_FILE_NAMES, RULES_DIR, analyze_transcript_chunk
 
@@ -44,4 +44,21 @@ def rules_health() -> dict:
             }
             for suggestion in sample.get("cpt_suggestions", [])
         ],
+    }
+
+
+@router.get("/cpt-detect")
+def debug_cpt_detect(text: str = Query(..., min_length=1), language: str = "en") -> dict:
+    analysis = analyze_transcript_chunk(
+        text,
+        "00:00",
+        "00:05",
+        full_transcript=text,
+        language=language,
+    )
+
+    return {
+        "text": text,
+        "cpt_timer_suggestions": analysis.get("cpt_timer_suggestions", []),
+        "cpt_suggestions": analysis.get("cpt_suggestions", []),
     }

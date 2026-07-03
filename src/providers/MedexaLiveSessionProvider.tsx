@@ -25,6 +25,9 @@ type MedexaLiveSessionContextValue = ReturnType<typeof useWebSpeechSession> & {
   recordingStatus: RecordingStatus;
   totalSeconds: number;
   startedAt: number | null;
+  latestHeardText: string;
+  fullTranscript: string;
+  currentChunkText: string;
   cptRecords: Record<string, ApiCptRecord>;
   activeCptCode: string | null;
   setRecordingStatus: Dispatch<SetStateAction<RecordingStatus>>;
@@ -45,12 +48,19 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [latestHeardText, setLatestHeardText] = useState("");
+  const [fullTranscript, setFullTranscript] = useState("");
+  const [currentChunkText, setCurrentChunkText] = useState("");
   const [cptRecords, setCptRecords] = useState<Record<string, ApiCptRecord>>({});
   const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
   const subscribersRef = useRef(new Set<TranscriptSubscriber>());
 
   const speechSession = useWebSpeechSession({
+    clinicalSpeechLanguage: "en-US",
     onTranscriptUpdate: (latestText, fullText, source) => {
+      setLatestHeardText(latestText);
+      setFullTranscript(fullText);
+      setCurrentChunkText(latestText);
       subscribersRef.current.forEach((subscriber) => {
         subscriber(latestText, fullText, source);
       });
@@ -79,6 +89,9 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
       if (isNewSession || recordingStatus === "idle" || recordingStatus === "stopped") {
         setTotalSeconds(0);
         setStartedAt(Date.now());
+        setLatestHeardText("");
+        setFullTranscript("");
+        setCurrentChunkText("");
         speechSession.resetTranscript();
       } else if (!startedAt) {
         setStartedAt(Date.now());
@@ -130,6 +143,9 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
       recordingStatus,
       totalSeconds,
       startedAt,
+      latestHeardText,
+      fullTranscript,
+      currentChunkText,
       cptRecords,
       activeCptCode,
       setRecordingStatus,
@@ -145,6 +161,9 @@ export function MedexaLiveSessionProvider({ children }: { children: ReactNode })
     [
       activeCptCode,
       cptRecords,
+      currentChunkText,
+      fullTranscript,
+      latestHeardText,
       pauseRecording,
       recordingStatus,
       resumeRecording,

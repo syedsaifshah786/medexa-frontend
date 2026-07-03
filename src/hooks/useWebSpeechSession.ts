@@ -11,6 +11,7 @@ export type TranscriptSegment = {
 
 type UseWebSpeechSessionOptions = {
   lang?: string;
+  clinicalSpeechLanguage?: string;
   onSpeechText?: (text: string) => void;
   onTranscriptUpdate?: (latestText: string, fullText: string, source: "interim" | "final") => void;
 };
@@ -36,7 +37,12 @@ const getRecognitionConstructor = () => {
   return SpeechRecognition ?? window.SpeechRecognition ?? window.webkitSpeechRecognition;
 };
 
-export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscriptUpdate }: UseWebSpeechSessionOptions = {}) {
+export function useWebSpeechSession({
+  clinicalSpeechLanguage,
+  lang = "en-US",
+  onSpeechText,
+  onTranscriptUpdate,
+}: UseWebSpeechSessionOptions = {}) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
   const liveTranscriptRef = useRef("");
@@ -143,8 +149,9 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = lang;
+    recognition.lang = clinicalSpeechLanguage || lang || "en-US";
     recognition.maxAlternatives = 1;
+    debugLog("[WebSpeech] clinical recognition language", recognition.lang);
 
     recognition.onstart = () => {
       debugLog("[WebSpeech] recognition started");
@@ -260,7 +267,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
 
     recognitionRef.current = recognition;
     return recognition;
-  }, [appendFinalTranscript, lang, onSpeechText, onTranscriptUpdate, syncTranscriptState]);
+  }, [appendFinalTranscript, clinicalSpeechLanguage, lang, onSpeechText, onTranscriptUpdate, syncTranscriptState]);
 
   const startListening = useCallback(async () => {
     if (!getRecognitionConstructor()) {

@@ -35,6 +35,8 @@ const debugLog = (...args: Parameters<typeof console.log>) => {
 
 debugLog("[Frontend CPT] detector imported");
 
+const normalizeLiveCptText = (text: string) => text.replace(/\s+/g, " ").trim();
+
 const defaultInsights = [
   {
     id: "family-history",
@@ -601,6 +603,7 @@ function AmbientSessionContent() {
   const latestNcciConflictsRef = useRef<ApiTranscriptAnalysis["ncci_conflicts"]>([]);
   const latestHeardTextRef = useRef("");
   const fullTranscriptRef = useRef("");
+  const lastBackendCptChunkRef = useRef("");
   const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
   const { language, t } = useLanguage();
@@ -1435,6 +1438,117 @@ function AmbientSessionContent() {
       window.clearInterval(summaryTimerId);
     };
   }, [createAiSummarySegment, recordingStatus]);
+
+  const analyzeLiveCptChunk = useCallback(async () => {
+    if (recordingStatus !== "recording" || !sessionId) {
+      return;
+    }
+
+    const latestChunkText = normalizeLiveCptText(
+      speechSession.currentChunkTranscript ||
+        speechSession.currentChunkText ||
+        speechSession.lastHeardText ||
+        visibleLatestHeardText ||
+        latestHeardTextRef.current,
+    );
+
+    if (!latestChunkText || latestChunkText === lastBackendCptChunkRef.current) {
+      debugLog("[CPT Pipeline] backend probe skipped", {
+        reason: latestChunkText ? "duplicate chunk" : "empty chunk",
+        latestChunkText,
+      });
+      return;
+    }
+
+    lastBackendCptChunkRef.current = latestChunkText;
+    const endSecond = Math.max(recordingSecondsRef.current, lastAnalyzedSecondRef.current);
+    const startSecond = Math.max(0, endSecond - 5);
+    const completeTranscript = normalizeLiveCptText(
+      fullTranscriptRef.current || visibleFullTranscript || speechSession.liveTranscript || fullTranscript,
+    );
+
+    debugLog("[CPT Pipeline] backend probe", {
+      latestChunkText,
+      completeTranscript,
+      recordingStatus,
+    });
+
+    try {
+      const backendAnalysis = await medexaApi.analyzeTranscriptChunk(sessionId, {
+        chunk_text: latestChunkText,
+        full_transcript: completeTranscript,
+        start_time: formatDuration(startSecond),
+        end_time: formatDuration(endSecond),
+        existing_cpt_codes: Object.keys(cptRecords),
+        active_cpt_code: activeCptCode,
+        cpt_records: Object.values(cptRecords),
+        approved_insights: insightItems
+          .filter((item) => insightStates[item.id]?.approved && !insightStates[item.id]?.ignored)
+          .map((item) => item.note || item.text),
+        applied_suggestions: suggestionItems
+          .filter((item) => appliedSuggestions[item.id])
+          .map((item) => item.text),
+      }, language);
+
+      const backendCptSuggestions = backendAnalysis?.cpt_timer_suggestions?.length
+        ? backendAnalysis.cpt_timer_suggestions
+        : backendAnalysis?.cpt_timer_suggestion?.should_start
+          ? [backendAnalysis.cpt_timer_suggestion]
+          : [];
+
+      setBackendCptDebugSuggestions(backendCptSuggestions);
+      debugLog("[CPT Pipeline] backend suggestions", backendCptSuggestions);
+
+      if (backendCptSuggestions.length === 0) {
+        return;
+      }
+
+      setLastMatchedPhrase(backendCptSuggestions[0].matched_phrase ?? "none");
+      setLastDetectedCptCode(backendCptSuggestions[0].code ?? "none");
+      setLastDetectionSource("backend_json_rules");
+      enqueueCptPopups(
+        backendCptSuggestions.map((suggestion) => ({
+          ...suggestion,
+          detection_source: "backend_json_rules" as const,
+        })),
+      );
+    } catch (error) {
+      debugLog("[CPT Pipeline] backend probe failed", error);
+    }
+  }, [
+    activeCptCode,
+    appliedSuggestions,
+    cptRecords,
+    enqueueCptPopups,
+    fullTranscript,
+    insightItems,
+    insightStates,
+    language,
+    recordingStatus,
+    sessionId,
+    speechSession.currentChunkText,
+    speechSession.currentChunkTranscript,
+    speechSession.lastHeardText,
+    speechSession.liveTranscript,
+    suggestionItems,
+    visibleFullTranscript,
+    visibleLatestHeardText,
+  ]);
+
+  useEffect(() => {
+    if (recordingStatus !== "recording") {
+      return;
+    }
+
+    void analyzeLiveCptChunk();
+    const cptProbeTimerId = window.setInterval(() => {
+      void analyzeLiveCptChunk();
+    }, 4000);
+
+    return () => {
+      window.clearInterval(cptProbeTimerId);
+    };
+  }, [analyzeLiveCptChunk, recordingStatus]);
 
   const filteredSuggestions = useMemo(() => {
     if (!query) {
