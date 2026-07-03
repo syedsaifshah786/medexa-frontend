@@ -1,16 +1,12 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
 import { medexaApi } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { getSessionById } from "@/lib/sessions";
 import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
-
-/* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
 const REDIRECT_SECONDS = 6;
 
@@ -34,7 +30,6 @@ function StartSessionContent() {
   const searchParams = useSearchParams();
   const { selectedDoctor } = useSelectedDoctor();
   const liveSession = useMedexaLiveSession();
-  const [searchQuery, setSearchQuery] = useState("");
   const [countdown, setCountdown] = useState(REDIRECT_SECONDS);
   const [hasStartedRedirect, setHasStartedRedirect] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -45,12 +40,22 @@ function StartSessionContent() {
   const source = searchParams.get("source") ?? "manual";
   const shouldAutoStartRecording = searchParams.get("autoStartRecording") === "1";
   const selectedSession = useMemo(() => getSessionById(routeSessionId), [routeSessionId]);
+  const isVoiceFlow = source === "voice";
   const isRecording = liveSession.recordingStatus === "recording";
-  const isListening = isRecording && liveSession.isListening;
+  const isActive = isStarting || isRecording || liveSession.isListening || hasStartedRedirect;
   const hasMicWarning =
     liveSession.permissionStatus === "denied" ||
     liveSession.triggerPermissionStatus === "required" ||
     Boolean(liveSession.permissionError);
+  const commandText = isVoiceFlow
+    ? `Hey Medexa, start a new session with ${selectedSession.name}`
+    : `Start a new session with ${selectedSession.name}`;
+  const statusTitle = isActive ? "Starting the Session..." : "Medexa is ready";
+  const statusDescription = isActive
+    ? isRecording
+      ? "Recording will continue into the live session screen."
+      : "Syncing Patient Context..."
+    : "Start recording when you are ready";
 
   const beginRecording = useCallback(async () => {
     if (isStarting || hasStartedRedirect) {
@@ -123,415 +128,386 @@ function StartSessionContent() {
 
   return (
     <main className="start-session-page">
-      <MedexaHeader searchValue={searchQuery} onSearchChange={setSearchQuery} />
+      <div className="start-session-glow glow-one" aria-hidden="true" />
+      <div className="start-session-glow glow-two" aria-hidden="true" />
 
-      <section className="start-session-shell">
-        <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
-          &larr; Ambient Listening
-        </Link>
+      <section className="start-session-card" aria-live="polite">
+        <p className="command-text">{commandText}</p>
 
-        <section className="start-session-card" aria-live="polite">
-          <div className={`avatar-radar ${isListening ? "is-active" : ""}`}>
-            <span className="radar-ring ring-one" aria-hidden="true" />
-            <span className="radar-ring ring-two" aria-hidden="true" />
-            <span className="radar-ring ring-three" aria-hidden="true" />
-            <span className="radar-scan" aria-hidden="true" />
-            <span className="avatar-frame">
-              <img src={selectedSession.img} alt="" />
-            </span>
-            <span className="mic-dot" aria-hidden="true">
-              <span />
-            </span>
+        <div className={`radar-wrap ${isActive ? "is-active" : "is-idle"}`}>
+          <span className="radar-ring ring-one" aria-hidden="true" />
+          <span className="radar-ring ring-two" aria-hidden="true" />
+          <span className="radar-ring ring-three" aria-hidden="true" />
+          <span className="radar-center" aria-hidden="true">
+            <span />
+          </span>
+        </div>
+
+        <div className="status-section">
+          <h1>{statusTitle}</h1>
+          <p>{statusDescription}</p>
+        </div>
+
+        <div className="timer" dir="ltr">
+          {formatDuration(liveSession.totalSeconds)}
+        </div>
+
+        <div className={`frequency-bars ${isActive ? "is-active" : ""}`} aria-hidden="true">
+          {Array.from({ length: 13 }, (_, index) => (
+            <i key={index} />
+          ))}
+        </div>
+
+        {hasMicWarning && (
+          <div className="permission-card">
+            Microphone permission is required to start recording.
           </div>
+        )}
 
-          <div className={`status-pill ${isRecording ? "is-recording" : "is-idle"}`}>
-            <span aria-hidden="true" />
-            {isRecording ? "Medexa is listening" : "Medexa is ready"}
-          </div>
+        {!hasStartedRedirect && !isRecording && (
+          <button
+            type="button"
+            className="start-recording-button"
+            disabled={isStarting}
+            onClick={() => void beginRecording()}
+          >
+            {isStarting ? "Starting..." : "Start Recording"}
+          </button>
+        )}
 
-          <div className="session-heading">
-            <h1>{isRecording ? "Starting Session" : "Start Session"}</h1>
-            <p>
-              <strong>{selectedSession.name}</strong>
-              <span>{selectedSession.careType}</span>
-            </p>
-          </div>
+        {hasStartedRedirect && (
+          <p className="redirect-text">Redirecting to live session in {countdown}s</p>
+        )}
 
-          <div className="timer" dir="ltr">
-            {formatDuration(liveSession.totalSeconds)}
-          </div>
-
-          <div className={`audio-bars ${isListening ? "is-active" : ""}`} aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
-
-          {hasMicWarning && (
-            <div className="permission-card">
-              Microphone permission is required to start recording.
+        <details className="debug-details">
+          <summary>Debug details</summary>
+          <dl>
+            <div>
+              <dt>sessionId</dt>
+              <dd>{routeSessionId}</dd>
             </div>
-          )}
-
-          <div className="session-actions">
-            {!hasStartedRedirect && (
-              <button
-                type="button"
-                className="start-recording-button"
-                disabled={isStarting}
-                onClick={() => void beginRecording()}
-              >
-                {isStarting ? "Starting..." : "Start Recording"}
-              </button>
-            )}
-            {isRecording && (
-              <button type="button" className="stop-button" onClick={liveSession.stopRecording}>
-                Cancel and Stop
-              </button>
-            )}
-          </div>
-
-          <p className="support-text">
-            {isRecording
-              ? "Recording will continue into the live session screen."
-              : "Ready to record"}
-          </p>
-
-          {hasStartedRedirect && (
-            <p className="redirect-text">
-              Redirecting to live session in {countdown} seconds...
-            </p>
-          )}
-
-          <div className="debug-strip">
-            <span>sessionId: {routeSessionId}</span>
-            <span>source: {source}</span>
-            <span>recordingStatus: {liveSession.recordingStatus}</span>
-            <span>isListening: {liveSession.isListening ? "true" : "false"}</span>
-            <span>permissionStatus: {liveSession.permissionStatus}</span>
-            <span>totalSeconds: {liveSession.totalSeconds}</span>
-            <span>latestHeardText: {liveSession.lastHeardText || "none"}</span>
-            <span>fullTranscript length: {liveSession.liveTranscript.length}</span>
-            <span>redirect countdown: {hasStartedRedirect ? countdown : "idle"}</span>
-          </div>
-        </section>
+            <div>
+              <dt>source</dt>
+              <dd>{source}</dd>
+            </div>
+            <div>
+              <dt>recordingStatus</dt>
+              <dd>{liveSession.recordingStatus}</dd>
+            </div>
+            <div>
+              <dt>isListening</dt>
+              <dd>{liveSession.isListening ? "true" : "false"}</dd>
+            </div>
+            <div>
+              <dt>permissionStatus</dt>
+              <dd>{liveSession.permissionStatus}</dd>
+            </div>
+            <div>
+              <dt>totalSeconds</dt>
+              <dd>{liveSession.totalSeconds}</dd>
+            </div>
+            <div>
+              <dt>latestHeardText</dt>
+              <dd>{liveSession.lastHeardText || "none"}</dd>
+            </div>
+            <div>
+              <dt>fullTranscript length</dt>
+              <dd>{liveSession.liveTranscript.length}</dd>
+            </div>
+            <div>
+              <dt>redirect countdown</dt>
+              <dd>{hasStartedRedirect ? countdown : "idle"}</dd>
+            </div>
+          </dl>
+        </details>
       </section>
 
       <style>{`
         .start-session-page {
+          position: relative;
           min-height: 100vh;
-          background: #fbfbfc;
-          color: #172033;
-        }
-
-        .start-session-shell {
           box-sizing: border-box;
-          min-height: calc(100vh - 64px);
           display: flex;
-          flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 18px;
-          padding: 30px clamp(16px, 4vw, 40px) 44px;
+          overflow: hidden;
+          background:
+            radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.96) 0 11%, transparent 30%),
+            linear-gradient(135deg, #f7f8fb 0%, #eef2f8 46%, #f7f7fb 100%);
+          color: #172033;
+          padding: 28px 16px;
         }
 
-        .back-link {
-          align-self: flex-start;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          height: 36px;
-          border: 1px solid #dfe6f4;
+        .start-session-page::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(115deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0)),
+            radial-gradient(circle at 22% 16%, rgba(87, 122, 255, 0.12), transparent 26%),
+            radial-gradient(circle at 76% 82%, rgba(132, 92, 255, 0.11), transparent 24%);
+          backdrop-filter: blur(6px);
+        }
+
+        .start-session-glow {
+          position: absolute;
           border-radius: 999px;
-          background: #ffffff;
-          color: #001eff;
-          padding: 0 14px;
-          font-size: 12px;
-          font-weight: 800;
-          text-decoration: none;
-          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+          filter: blur(28px);
+          opacity: 0.56;
+          pointer-events: none;
+        }
+
+        .glow-one {
+          width: 280px;
+          height: 280px;
+          top: 12%;
+          left: calc(50% - 340px);
+          background: rgba(0, 30, 255, 0.1);
+        }
+
+        .glow-two {
+          width: 240px;
+          height: 240px;
+          right: calc(50% - 330px);
+          bottom: 13%;
+          background: rgba(105, 65, 198, 0.1);
         }
 
         .start-session-card {
-          width: min(100%, 680px);
+          position: relative;
+          z-index: 1;
+          width: min(100%, 400px);
           box-sizing: border-box;
           display: flex;
           flex-direction: column;
           align-items: center;
-          border: 1px solid #edf1f7;
-          border-radius: 28px;
+          border: 1px solid rgba(124, 140, 255, 0.32);
+          border-radius: 22px;
           background:
-            radial-gradient(circle at top, rgba(0, 30, 255, 0.07), transparent 38%),
+            radial-gradient(circle at 50% 0%, rgba(236, 242, 255, 0.92), rgba(255, 255, 255, 0.98) 46%),
             #ffffff;
-          padding: clamp(26px, 5vw, 44px);
+          padding: 30px 28px 22px;
           text-align: center;
-          box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+          box-shadow:
+            0 24px 70px rgba(36, 46, 83, 0.15),
+            0 1px 0 rgba(255, 255, 255, 0.92) inset;
         }
 
-        .avatar-radar {
+        .command-text {
+          max-width: 320px;
+          min-height: 42px;
+          margin: 0;
+          color: #24304a;
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1.5;
+        }
+
+        .radar-wrap {
           position: relative;
-          width: 190px;
-          aspect-ratio: 1;
+          width: 156px;
+          height: 156px;
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 22px;
+          margin: 22px 0 19px;
           border-radius: 50%;
         }
 
-        .radar-ring,
-        .radar-scan {
+        .radar-ring {
           position: absolute;
-          inset: 0;
           border-radius: 50%;
+          border: 1px solid rgba(29, 78, 216, 0.2);
         }
 
         .ring-one {
-          inset: 30px;
-          border: 1px solid rgba(0, 30, 255, 0.14);
-          background: rgba(0, 30, 255, 0.035);
+          inset: 43px;
+          background: rgba(17, 90, 255, 0.06);
         }
 
         .ring-two {
-          inset: 14px;
-          border: 1px solid rgba(105, 65, 198, 0.16);
+          inset: 22px;
+          border-color: rgba(99, 102, 241, 0.22);
         }
 
         .ring-three {
-          border: 1px solid rgba(0, 30, 255, 0.1);
+          inset: 0;
+          border-color: rgba(104, 117, 245, 0.15);
         }
 
-        .radar-scan {
-          opacity: 0;
-          background: conic-gradient(from 0deg, rgba(0, 30, 255, 0.2), rgba(105, 65, 198, 0.04) 42deg, transparent 86deg);
-        }
-
-        .avatar-radar.is-active .radar-scan {
-          opacity: 1;
-          animation: radar-sweep 2.2s linear infinite;
-        }
-
-        .avatar-radar.is-active .radar-ring {
-          animation: radar-pulse 1.8s ease-out infinite;
-        }
-
-        .avatar-radar.is-active .ring-two {
-          animation-delay: 0.28s;
-        }
-
-        .avatar-radar.is-active .ring-three {
-          animation-delay: 0.56s;
-        }
-
-        .avatar-frame {
+        .radar-center {
           position: relative;
           z-index: 2;
-          width: 96px;
-          height: 96px;
+          width: 64px;
+          height: 64px;
           display: flex;
           align-items: center;
           justify-content: center;
-          border: 7px solid #ffffff;
           border-radius: 50%;
-          background: #eef2ff;
-          box-shadow: 0 18px 38px rgba(0, 30, 255, 0.18);
+          background: linear-gradient(145deg, #f7fbff, #edf3ff);
+          box-shadow:
+            0 18px 32px rgba(0, 30, 255, 0.16),
+            0 0 0 10px rgba(0, 30, 255, 0.04);
         }
 
-        .avatar-frame img {
-          width: 100%;
-          height: 100%;
-          border-radius: 50%;
-          object-fit: cover;
-        }
-
-        .mic-dot {
-          position: absolute;
-          right: 42px;
-          bottom: 34px;
-          z-index: 3;
-          width: 36px;
-          height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 4px solid #ffffff;
+        .radar-center span {
+          width: 20px;
+          height: 20px;
           border-radius: 50%;
           background: #0800d8;
-          box-shadow: 0 10px 22px rgba(8, 0, 216, 0.24);
+          box-shadow: 0 0 0 7px rgba(8, 0, 216, 0.12);
         }
 
-        .mic-dot span {
-          width: 10px;
-          height: 14px;
-          border-radius: 999px;
-          background: #ffffff;
+        .radar-wrap.is-active .radar-ring {
+          animation: radar-pulse 1.9s ease-out infinite;
         }
 
-        .status-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          min-height: 30px;
-          border-radius: 999px;
-          padding: 0 13px;
-          font-size: 12px;
-          font-weight: 900;
+        .radar-wrap.is-active .ring-two {
+          animation-delay: 0.25s;
         }
 
-        .status-pill span {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
+        .radar-wrap.is-active .ring-three {
+          animation-delay: 0.5s;
         }
 
-        .status-pill.is-idle {
-          background: #f3f5fa;
-          color: #5d687a;
+        .radar-wrap.is-active .radar-center {
+          animation: center-breathe 1.45s ease-in-out infinite;
         }
 
-        .status-pill.is-idle span {
-          background: #9aa6ba;
-        }
-
-        .status-pill.is-recording {
-          background: #eaf8f1;
-          color: #087c4a;
-        }
-
-        .status-pill.is-recording span {
-          background: #10c978;
-          box-shadow: 0 0 0 5px rgba(16, 201, 120, 0.15);
-        }
-
-        .session-heading {
-          margin-top: 18px;
-        }
-
-        .session-heading h1 {
+        .status-section h1 {
           margin: 0;
-          color: #141824;
-          font-size: clamp(30px, 5vw, 44px);
-          font-weight: 500;
-          line-height: 1.05;
+          color: #151c2f;
+          font-size: 20px;
+          font-weight: 800;
+          line-height: 1.2;
+          letter-spacing: 0;
         }
 
-        .session-heading p {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin: 10px 0 0;
+        .status-section p {
+          margin: 8px 0 0;
           color: #667085;
-          font-size: 14px;
-        }
-
-        .session-heading strong {
-          color: #172033;
-          font-weight: 900;
-        }
-
-        .session-heading span::before {
-          content: "";
-          width: 4px;
-          height: 4px;
-          display: inline-block;
-          margin: 0 8px 2px 0;
-          border-radius: 50%;
-          background: #001eff;
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 1.45;
         }
 
         .timer {
-          margin-top: 26px;
-          color: #001eff;
-          font-size: clamp(54px, 11vw, 82px);
-          font-weight: 800;
-          line-height: 0.95;
+          min-width: 112px;
+          margin-top: 20px;
+          border: 1px solid #e6ebf7;
+          border-radius: 15px;
+          background: #f8faff;
+          color: #0800d8;
+          padding: 9px 14px;
+          font-size: 31px;
+          font-weight: 900;
+          line-height: 1;
           font-variant-numeric: tabular-nums;
+          box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
         }
 
-        .audio-bars {
-          height: 58px;
+        .frequency-bars {
+          height: 34px;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 7px;
-          margin: 24px 0 8px;
+          gap: 5px;
+          margin-top: 18px;
         }
 
-        .audio-bars i {
-          width: 7px;
-          height: 18px;
+        .frequency-bars i {
+          width: 4px;
+          height: 9px;
           border-radius: 999px;
-          background: linear-gradient(180deg, #6941c6 0%, #001eff 100%);
-          opacity: 0.35;
+          background: linear-gradient(180deg, #7c3aed 0%, #001eff 100%);
+          opacity: 0.38;
         }
 
-        .audio-bars.is-active i {
+        .frequency-bars i:nth-child(2),
+        .frequency-bars i:nth-child(12) {
+          height: 14px;
+        }
+
+        .frequency-bars i:nth-child(3),
+        .frequency-bars i:nth-child(11) {
+          height: 19px;
+        }
+
+        .frequency-bars i:nth-child(4),
+        .frequency-bars i:nth-child(10) {
+          height: 25px;
+        }
+
+        .frequency-bars i:nth-child(5),
+        .frequency-bars i:nth-child(9) {
+          height: 18px;
+        }
+
+        .frequency-bars i:nth-child(6),
+        .frequency-bars i:nth-child(8) {
+          height: 28px;
+        }
+
+        .frequency-bars i:nth-child(7) {
+          height: 32px;
+        }
+
+        .frequency-bars.is-active i {
           opacity: 1;
-          animation: audio-wave 0.82s ease-in-out infinite;
+          animation: bar-pulse 0.86s ease-in-out infinite;
         }
 
-        .audio-bars i:nth-child(2) { animation-delay: 0.06s; height: 28px; }
-        .audio-bars i:nth-child(3) { animation-delay: 0.12s; height: 40px; }
-        .audio-bars i:nth-child(4) { animation-delay: 0.18s; height: 26px; }
-        .audio-bars i:nth-child(5) { animation-delay: 0.24s; height: 48px; }
-        .audio-bars i:nth-child(6) { animation-delay: 0.3s; height: 30px; }
-        .audio-bars i:nth-child(7) { animation-delay: 0.36s; height: 42px; }
-        .audio-bars i:nth-child(8) { animation-delay: 0.42s; height: 24px; }
-        .audio-bars i:nth-child(9) { animation-delay: 0.48s; height: 34px; }
+        .frequency-bars i:nth-child(2) { animation-delay: 0.05s; }
+        .frequency-bars i:nth-child(3) { animation-delay: 0.1s; }
+        .frequency-bars i:nth-child(4) { animation-delay: 0.15s; }
+        .frequency-bars i:nth-child(5) { animation-delay: 0.2s; }
+        .frequency-bars i:nth-child(6) { animation-delay: 0.25s; }
+        .frequency-bars i:nth-child(7) { animation-delay: 0.3s; }
+        .frequency-bars i:nth-child(8) { animation-delay: 0.35s; }
+        .frequency-bars i:nth-child(9) { animation-delay: 0.4s; }
+        .frequency-bars i:nth-child(10) { animation-delay: 0.45s; }
+        .frequency-bars i:nth-child(11) { animation-delay: 0.5s; }
+        .frequency-bars i:nth-child(12) { animation-delay: 0.55s; }
+        .frequency-bars i:nth-child(13) { animation-delay: 0.6s; }
 
         .permission-card {
-          width: min(100%, 430px);
+          width: 100%;
           box-sizing: border-box;
-          margin-top: 14px;
+          margin-top: 16px;
           border: 1px solid #ffd7a8;
           border-radius: 14px;
           background: #fff8ec;
           color: #8a4b00;
-          padding: 11px 14px;
+          padding: 11px 13px;
           font-size: 12px;
           font-weight: 800;
-        }
-
-        .session-actions {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-top: 22px;
-        }
-
-        .start-recording-button,
-        .stop-button {
-          min-width: 154px;
-          height: 44px;
-          border-radius: 999px;
-          padding: 0 20px;
-          font-size: 13px;
-          font-weight: 900;
-          cursor: pointer;
-          transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+          line-height: 1.45;
         }
 
         .start-recording-button {
+          width: 100%;
+          height: 46px;
+          margin-top: 20px;
           border: 0;
-          background: #0800d8;
+          border-radius: 14px;
+          background: linear-gradient(135deg, #0800d8, #001eff);
           color: #ffffff;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
           box-shadow: 0 14px 28px rgba(8, 0, 216, 0.24);
+          transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
         }
 
         .start-recording-button:hover:not(:disabled) {
-          background: #001eff;
           transform: translateY(-1px);
-          box-shadow: 0 18px 34px rgba(0, 30, 255, 0.26);
+          box-shadow: 0 18px 34px rgba(0, 30, 255, 0.28);
+        }
+
+        .start-recording-button:focus-visible,
+        .debug-details summary:focus-visible {
+          outline: 3px solid rgba(0, 30, 255, 0.18);
+          outline-offset: 3px;
         }
 
         .start-recording-button:disabled {
@@ -539,116 +515,118 @@ function StartSessionContent() {
           opacity: 0.72;
         }
 
-        .stop-button {
-          border: 1px solid #d8deea;
-          background: #ffffff;
-          color: #172033;
-        }
-
-        .stop-button:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-        }
-
-        .support-text,
         .redirect-text {
-          margin: 16px 0 0;
+          margin: 17px 0 0;
+          color: #001eff;
           font-size: 13px;
+          font-weight: 900;
           line-height: 1.45;
         }
 
-        .support-text {
-          color: #667085;
-        }
-
-        .redirect-text {
-          color: #001eff;
-          font-weight: 900;
-        }
-
-        .debug-strip {
+        .debug-details {
           width: 100%;
-          box-sizing: border-box;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 7px;
-          margin-top: 28px;
-          border: 1px solid #e1e8f5;
-          border-radius: 16px;
-          background: #f7f9ff;
-          padding: 12px;
-          color: #5d687a;
-          font-size: 10px;
-          line-height: 1.35;
+          margin-top: 18px;
+          color: #667085;
+          font-size: 11px;
           text-align: left;
         }
 
-        .debug-strip span {
+        .debug-details summary {
+          width: max-content;
+          margin: 0 auto;
           border-radius: 999px;
-          background: #ffffff;
-          padding: 5px 8px;
-          box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
+          color: #667085;
+          cursor: pointer;
+          font-weight: 800;
+          list-style-position: inside;
         }
 
-        @keyframes radar-sweep {
-          to {
-            transform: rotate(360deg);
-          }
+        .debug-details dl {
+          display: grid;
+          gap: 7px;
+          margin: 12px 0 0;
+          border: 1px solid #e6ebf7;
+          border-radius: 14px;
+          background: #f8faff;
+          padding: 12px;
+        }
+
+        .debug-details div {
+          display: grid;
+          grid-template-columns: 120px 1fr;
+          gap: 10px;
+        }
+
+        .debug-details dt,
+        .debug-details dd {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .debug-details dt {
+          color: #344054;
+          font-weight: 900;
         }
 
         @keyframes radar-pulse {
           0% {
-            transform: scale(0.72);
-            opacity: 0.72;
+            transform: scale(0.75);
+            opacity: 0.8;
           }
+          70%,
           100% {
-            transform: scale(1.08);
-            opacity: 0.08;
+            transform: scale(1.4);
+            opacity: 0;
           }
         }
 
-        @keyframes audio-wave {
-          0%, 100% {
-            transform: scaleY(0.55);
+        @keyframes center-breathe {
+          0%,
+          100% {
+            transform: scale(0.96);
           }
           50% {
-            transform: scaleY(1.25);
+            transform: scale(1.04);
           }
         }
 
-        @media (max-width: 760px) {
-          .start-session-shell {
-            justify-content: flex-start;
-            padding-top: 20px;
+        @keyframes bar-pulse {
+          0%,
+          100% {
+            transform: scaleY(0.45);
           }
+          50% {
+            transform: scaleY(1.16);
+          }
+        }
 
-          .back-link {
-            align-self: stretch;
-            justify-content: center;
+        @media (max-width: 480px) {
+          .start-session-page {
+            align-items: flex-start;
+            padding-top: 20px;
           }
 
           .start-session-card {
             border-radius: 20px;
-            padding: 24px 18px;
+            padding: 26px 20px 20px;
           }
 
-          .avatar-radar {
-            width: 158px;
+          .radar-wrap {
+            width: 138px;
+            height: 138px;
           }
 
-          .avatar-frame {
-            width: 82px;
-            height: 82px;
+          .status-section h1 {
+            font-size: 18px;
           }
 
-          .mic-dot {
-            right: 32px;
-            bottom: 28px;
+          .timer {
+            font-size: 28px;
           }
 
-          .debug-strip {
-            justify-content: flex-start;
+          .debug-details div {
+            grid-template-columns: 1fr;
+            gap: 2px;
           }
         }
       `}</style>
