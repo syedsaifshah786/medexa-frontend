@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useSelectedDoctor } from "@/components/DoctorContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -36,6 +37,7 @@ const languages = [
 ] as const;
 
 export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHeaderProps) {
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
@@ -101,7 +103,12 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
                 </button>
               </div>
               {navItems.map(([label, href]) => (
-                <Link key={href} href={href} onClick={() => setIsMenuOpen(false)}>
+                <Link
+                  key={href}
+                  href={href}
+                  className={pathname === href || (href !== "/" && pathname.startsWith(href)) ? "is-active" : ""}
+                  onClick={() => setIsMenuOpen(false)}
+                >
                   {t(label)}
                 </Link>
               ))}
@@ -244,7 +251,8 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
       <style>{`
         .medexa-header {
-          position: relative;
+          position: sticky;
+          top: 0;
           z-index: 20;
           width: 100%;
           box-sizing: border-box;
@@ -253,11 +261,12 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           align-items: center;
           gap: 16px;
           padding: 0 32px;
-          background: #ffffff;
-          border-bottom: 1px solid #eef1f6;
-          box-shadow: 0 1px 8px rgba(15, 23, 42, 0.03);
-          color: #151820;
-          font-family: Arial, Helvetica, sans-serif;
+          background: rgba(255, 255, 255, 0.86);
+          border-bottom: 1px solid rgba(229, 231, 235, 0.86);
+          box-shadow: 0 10px 30px rgba(28, 35, 90, 0.06);
+          color: var(--medexa-text);
+          font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+          backdrop-filter: blur(18px);
         }
 
         .medexa-header button,
@@ -287,22 +296,29 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           flex-direction: column;
           gap: 4px;
           border-radius: 8px;
-          background: #eef2ff;
+          background: rgba(81, 70, 245, 0.09);
+          transition: transform 0.16s ease, background 0.16s ease;
+        }
+
+        .medexa-menu-button:hover {
+          background: rgba(81, 70, 245, 0.14);
+          transform: translateY(-1px);
         }
 
         .medexa-menu-button span {
           width: 12px;
           height: 2px;
           border-radius: 99px;
-          background: #626b80;
+          background: #4f46e5;
         }
 
         .medexa-brand {
           margin-right: 12px;
-          color: #001eff;
+          color: var(--medexa-primary);
           font-size: 20px;
           font-weight: 800;
           text-decoration: none;
+          letter-spacing: 0;
         }
 
         .medexa-search {
@@ -314,11 +330,20 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           align-items: center;
           gap: 8px;
           padding: 0 18px;
-          border: 1px solid #e4e9f2;
+          border: 1px solid var(--medexa-border);
           border-radius: 999px;
+          background: rgba(255, 255, 255, 0.86);
           color: #9aa6ba;
           font-size: 12px;
           white-space: nowrap;
+          box-shadow: 0 8px 20px rgba(28, 35, 90, 0.04);
+          transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+
+        .medexa-search:focus-within {
+          border-color: rgba(81, 70, 245, 0.42);
+          background: #fff;
+          box-shadow: 0 0 0 4px rgba(81, 70, 245, 0.08);
         }
 
         .medexa-search input {
@@ -327,7 +352,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           border: 0;
           outline: 0;
           background: transparent;
-          color: #172033;
+          color: var(--medexa-text);
           font: inherit;
         }
 
@@ -340,9 +365,9 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           width: 12px;
           height: 12px;
           flex: 0 0 auto;
-          border: 2px solid #001eff;
+          border: 2px solid var(--medexa-primary);
           border-radius: 50%;
-          color: #001eff;
+          color: var(--medexa-primary);
           font-size: 12px;
         }
 
@@ -354,7 +379,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           width: 6px;
           height: 2px;
           border-radius: 999px;
-          background: #001eff;
+          background: var(--medexa-primary);
           transform: rotate(45deg);
         }
 
@@ -373,7 +398,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           content: "";
           width: 11px;
           height: 14px;
-          border: 2px solid #001eff;
+          border: 2px solid var(--medexa-primary);
           border-bottom: 0;
           border-radius: 8px 8px 2px 2px;
         }
@@ -385,7 +410,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           width: 16px;
           height: 2px;
           border-radius: 999px;
-          background: #001eff;
+          background: var(--medexa-primary);
         }
 
         .medexa-language-button {
@@ -395,10 +420,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           justify-content: center;
           gap: 6px;
           padding: 0 10px;
-          border: 1px solid #d7deea;
-          border-radius: 7px;
+          border: 1px solid var(--medexa-border);
+          border-radius: 999px;
           background: #ffffff;
-          color: #172033;
+          color: var(--medexa-text);
           font-size: 12px;
           font-weight: 700;
           line-height: 1;
@@ -407,8 +432,8 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
         .medexa-language-button:hover,
         .medexa-language-button[aria-expanded="true"] {
-          border-color: #c5d0e0;
-          background: #f8fafc;
+          border-color: rgba(81, 70, 245, 0.34);
+          background: rgba(81, 70, 245, 0.06);
         }
 
         .medexa-language-icon {
@@ -454,7 +479,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         .medexa-profile strong {
           max-width: 150px;
           overflow: hidden;
-          color: #172033;
+          color: var(--medexa-text);
           font-size: 12px;
           font-weight: 800;
           white-space: nowrap;
@@ -467,7 +492,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         }
 
         .medexa-profile .medexa-chevron {
-          color: #172033;
+          color: var(--medexa-text);
           font-size: 11px;
         }
 
@@ -477,10 +502,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           top: calc(100% + 10px);
           z-index: 30;
           box-sizing: border-box;
-          border: 1px solid #e4e9f2;
-          border-radius: 12px;
+          border: 1px solid rgba(229, 231, 235, 0.95);
+          border-radius: 14px;
           background: #fff;
-          box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+          box-shadow: 0 20px 52px rgba(28, 35, 90, 0.14);
         }
 
         .medexa-menu {
@@ -531,7 +556,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         .medexa-menu-title button {
           border: 0;
           background: transparent;
-          color: #001eff;
+          color: var(--medexa-primary);
           font-size: 11px;
           font-weight: 800;
           cursor: pointer;
@@ -544,9 +569,9 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           display: flex;
           align-items: center;
           border: 0;
-          border-radius: 8px;
+          border-radius: 10px;
           background: transparent;
-          color: #172033;
+          color: var(--medexa-text);
           padding: 9px 10px;
           text-align: left;
           text-decoration: none;
@@ -556,9 +581,10 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
         .medexa-menu a:hover,
         .medexa-dropdown button:hover,
+        .medexa-menu a.is-active,
         .medexa-dropdown button.is-selected {
-          background: #eef2ff;
-          color: #001eff;
+          background: rgba(81, 70, 245, 0.09);
+          color: var(--medexa-primary);
         }
 
         .medexa-dropdown {

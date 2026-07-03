@@ -22,6 +22,12 @@ const SpeechRecognition =
     ? window.SpeechRecognition || window.webkitSpeechRecognition
     : null;
 
+const debugLog = (...args: Parameters<typeof console.log>) => {
+  if (process.env.NODE_ENV === "development") {
+    console.log(...args);
+  }
+};
+
 const getRecognitionConstructor = () => {
   if (typeof window === "undefined") {
     return undefined;
@@ -141,7 +147,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
-      console.log("[WebSpeech] recognition started");
+      debugLog("[WebSpeech] recognition started");
       setIsListening(true);
       setPermissionError("");
       setPermissionStatus("granted");
@@ -176,7 +182,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     };
 
     recognition.onresult = (event) => {
-      console.log("[WebSpeech] onresult fired");
+      debugLog("[WebSpeech] onresult fired");
       const interimParts: string[] = [];
       const finalParts: string[] = [];
       let latestText = "";
@@ -223,20 +229,20 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       }
       const { fullText } = syncTranscriptState();
       if (latestText) {
-        console.log("[WebSpeech] latestText", latestText);
-        console.log("[WebSpeech] latestHeardText", latestText);
-        console.log("[WebSpeech] interim", interimTranscriptRef.current);
-        console.log("[WebSpeech] final", normalizeTranscript(finalParts.join(" ")));
-        console.log("[WebSpeech] finalTranscript", finalTranscriptRef.current);
-        console.log("[WebSpeech] fullText", fullText);
-        console.log("[WebSpeech] liveTranscript", fullText);
-        console.log("[WebSpeech] live", fullText);
+        debugLog("[WebSpeech] latestText", latestText);
+        debugLog("[WebSpeech] latestHeardText", latestText);
+        debugLog("[WebSpeech] interim", interimTranscriptRef.current);
+        debugLog("[WebSpeech] final", normalizeTranscript(finalParts.join(" ")));
+        debugLog("[WebSpeech] finalTranscript", finalTranscriptRef.current);
+        debugLog("[WebSpeech] fullText", fullText);
+        debugLog("[WebSpeech] liveTranscript", fullText);
+        debugLog("[WebSpeech] live", fullText);
         onTranscriptUpdate?.(latestText, fullText, latestSource);
       }
     };
 
     recognition.onend = () => {
-      console.log("[WebSpeech] ended");
+      debugLog("[WebSpeech] ended");
       setIsListening(false);
 
       if (shouldKeepListeningRef.current && !isManuallyStoppedRef.current && !isPausedRef.current) {
@@ -244,7 +250,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
           try {
             recognition.start();
             setIsListening(true);
-            console.log("[WebSpeech] restarted");
+            debugLog("[WebSpeech] restarted");
           } catch (error) {
             console.warn("[WebSpeech] restart failed", error);
           }
@@ -271,7 +277,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       return false;
     }
 
-    console.log("[WebSpeech] requesting microphone permission");
+    debugLog("[WebSpeech] requesting microphone permission");
     setPermissionStatus("prompt");
 
     try {
@@ -279,7 +285,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
       stream.getTracks().forEach((track) => track.stop());
       setPermissionStatus("granted");
       setPermissionError("");
-      console.log("[WebSpeech] microphone permission granted");
+      debugLog("[WebSpeech] microphone permission granted");
     } catch (error) {
       console.error("[WebSpeech] microphone permission denied", error);
       setPermissionStatus("denied");
@@ -304,7 +310,7 @@ export function useWebSpeechSession({ lang = "en-US", onSpeechText, onTranscript
     try {
       recognition.start();
       setIsListening(true);
-      console.log("[WebSpeech] recognition started");
+      debugLog("[WebSpeech] recognition started");
     } catch {
       // start() throws if recognition is already active.
     }

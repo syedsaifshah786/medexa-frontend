@@ -13,6 +13,12 @@ import {
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi, type ApiFinalizeSessionResponse, type ApiSoapNoteResponse } from "@/lib/api";
 
+const debugLog = (...args: Parameters<typeof console.log>) => {
+  if (process.env.NODE_ENV === "development") {
+    console.log(...args);
+  }
+};
+
 function Field({
   label,
   value,
@@ -90,10 +96,9 @@ function NoteCard({
         <h2>{title}</h2>
         {!isEditing && (
           <button type="button" className="edit-trigger" onClick={onEdit}>
-            ✎ {editLabel}
+            {editLabel}
           </button>
         )}
-        <button type="button">✎ {editLabel}</button>
       </div>
       {children}
       {isEditing && (
@@ -196,7 +201,7 @@ function SoapNotesContent() {
   useEffect(() => {
     const querySessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
     const activeSessionId = querySessionId || getActiveSessionId();
-    console.log("[SOAP Page] sessionId", activeSessionId);
+    debugLog("[SOAP Page] sessionId", activeSessionId);
     setSessionId(activeSessionId);
     setMissingSessionSoap(false);
 
@@ -226,7 +231,7 @@ function SoapNotesContent() {
       }
 
       const apiSoapData = await medexaApi.getSoapNote(activeSessionId);
-      console.log("[SOAP Page] backend data", apiSoapData);
+      debugLog("[SOAP Page] backend data", apiSoapData);
 
       if (isMounted && apiSoapData) {
         const { billing_summary: nextBillingSummary } = apiSoapData;
