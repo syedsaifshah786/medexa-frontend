@@ -10,13 +10,6 @@ import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
 const REDIRECT_SECONDS = 6;
 
-const formatDuration = (totalSeconds: number) => {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-};
-
 export default function StartSessionPage() {
   return (
     <Suspense fallback={null}>
@@ -30,7 +23,6 @@ function StartSessionContent() {
   const searchParams = useSearchParams();
   const { selectedDoctor } = useSelectedDoctor();
   const liveSession = useMedexaLiveSession();
-  const [countdown, setCountdown] = useState(REDIRECT_SECONDS);
   const [hasStartedRedirect, setHasStartedRedirect] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const autoStartHandledRef = useRef(false);
@@ -41,7 +33,6 @@ function StartSessionContent() {
   const shouldAutoStartRecording = searchParams.get("autoStartRecording") !== "0";
   const selectedSession = useMemo(() => getSessionById(routeSessionId), [routeSessionId]);
   const isVoiceFlow = source === "voice";
-  const isActive = true;
   const hasMicWarning =
     liveSession.permissionStatus === "denied" ||
     liveSession.triggerPermissionStatus === "required" ||
@@ -74,7 +65,6 @@ function StartSessionContent() {
     medexaApi.startSessionTimer(routeSessionId);
     setHasStartedRedirect(true);
     redirectStartedAtRef.current = Date.now();
-    setCountdown(REDIRECT_SECONDS);
     setIsStarting(false);
   }, [
     hasStartedRedirect,
@@ -104,7 +94,6 @@ function StartSessionContent() {
       const startedAt = redirectStartedAtRef.current ?? Date.now();
       const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
       const nextCountdown = Math.max(REDIRECT_SECONDS - elapsedSeconds, 0);
-      setCountdown(nextCountdown);
 
       if (nextCountdown <= 0) {
         window.clearInterval(intervalId);
@@ -127,33 +116,23 @@ function StartSessionContent() {
       <section className="start-session-card" aria-live="polite">
         <p className="command-text">{commandText}</p>
 
-        <div className={`radar-wrap ${isActive ? "is-active" : "is-idle"}`}>
+        <div className="radar-wrap is-active">
           <span className="radar-ring ring-one" aria-hidden="true" />
           <span className="radar-ring ring-two" aria-hidden="true" />
-          <span className="radar-ring ring-three" aria-hidden="true" />
           <span className="radar-center" aria-hidden="true">
             <span />
           </span>
         </div>
 
         <div className="status-section">
-          <p className="listening-status">Medexa is listening</p>
           <h1>Starting the Session...</h1>
           <p>Syncing Patient Context...</p>
-        </div>
-
-        <div className="timer" dir="ltr">
-          {formatDuration(liveSession.totalSeconds)}
         </div>
 
         {hasMicWarning && (
           <div className="permission-card">
             Microphone permission is required to continue recording.
           </div>
-        )}
-
-        {hasStartedRedirect && (
-          <p className="redirect-text">Redirecting to live session in {countdown}s</p>
         )}
       </section>
 
@@ -167,7 +146,7 @@ function StartSessionContent() {
           justify-content: center;
           overflow: hidden;
           background:
-            radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.96) 0 11%, transparent 30%),
+            radial-gradient(circle at 50% 45%, rgba(98, 89, 255, 0.08), transparent 29%),
             linear-gradient(135deg, #f7f8fb 0%, #eef2f8 46%, #f7f7fb 100%);
           color: #172033;
           padding: 28px 16px;
@@ -221,7 +200,7 @@ function StartSessionContent() {
           background:
             radial-gradient(circle at 50% 0%, rgba(236, 242, 255, 0.92), rgba(255, 255, 255, 0.98) 46%),
             #ffffff;
-          padding: 30px 28px 26px;
+          padding: 34px 34px 32px;
           text-align: center;
           box-shadow:
             0 24px 70px rgba(36, 46, 83, 0.15),
@@ -230,7 +209,6 @@ function StartSessionContent() {
 
         .command-text {
           max-width: 320px;
-          min-height: 42px;
           margin: 0;
           color: #24304a;
           font-size: 14px;
@@ -240,57 +218,52 @@ function StartSessionContent() {
 
         .radar-wrap {
           position: relative;
-          width: 156px;
-          height: 156px;
+          width: 92px;
+          height: 92px;
           display: flex;
           align-items: center;
           justify-content: center;
-          margin: 22px 0 19px;
+          margin: 28px 0 30px;
           border-radius: 50%;
         }
 
         .radar-ring {
           position: absolute;
           border-radius: 50%;
-          border: 1px solid rgba(29, 78, 216, 0.2);
+          border: 2px solid rgba(80, 70, 255, 0.28);
         }
 
         .ring-one {
-          inset: 43px;
-          background: rgba(17, 90, 255, 0.06);
+          width: 56px;
+          height: 56px;
+          background: rgba(80, 70, 255, 0.04);
         }
 
         .ring-two {
-          inset: 22px;
-          border-color: rgba(99, 102, 241, 0.22);
-        }
-
-        .ring-three {
-          inset: 0;
-          border-color: rgba(104, 117, 245, 0.15);
+          width: 36px;
+          height: 36px;
+          border-color: rgba(80, 70, 255, 0.34);
         }
 
         .radar-center {
           position: relative;
           z-index: 2;
-          width: 64px;
-          height: 64px;
+          width: 24px;
+          height: 24px;
           display: flex;
           align-items: center;
           justify-content: center;
           border-radius: 50%;
-          background: linear-gradient(145deg, #f7fbff, #edf3ff);
-          box-shadow:
-            0 18px 32px rgba(0, 30, 255, 0.16),
-            0 0 0 10px rgba(0, 30, 255, 0.04);
+          background: rgba(53, 37, 219, 0.1);
+          box-shadow: 0 0 22px rgba(53, 37, 219, 0.22);
         }
 
         .radar-center span {
-          width: 20px;
-          height: 20px;
+          width: 16px;
+          height: 16px;
           border-radius: 50%;
-          background: #0800d8;
-          box-shadow: 0 0 0 7px rgba(8, 0, 216, 0.12);
+          background: #3525db;
+          box-shadow: 0 0 18px rgba(53, 37, 219, 0.35);
         }
 
         .radar-wrap.is-active .radar-ring {
@@ -298,11 +271,7 @@ function StartSessionContent() {
         }
 
         .radar-wrap.is-active .ring-two {
-          animation-delay: 0.25s;
-        }
-
-        .radar-wrap.is-active .ring-three {
-          animation-delay: 0.5s;
+          animation-delay: 0.35s;
         }
 
         .radar-wrap.is-active .radar-center {
@@ -318,52 +287,12 @@ function StartSessionContent() {
           letter-spacing: 0;
         }
 
-        .listening-status {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          min-height: 28px;
-          margin: 0 0 12px;
-          border-radius: 999px;
-          background: #eaf8f1;
-          color: #087c4a;
-          padding: 0 12px;
-          font-size: 12px;
-          font-weight: 900;
-          line-height: 1;
-        }
-
-        .listening-status::before {
-          content: "";
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #10c978;
-          box-shadow: 0 0 0 5px rgba(16, 201, 120, 0.15);
-        }
-
         .status-section p {
           margin: 8px 0 0;
           color: #667085;
           font-size: 13px;
           font-weight: 600;
           line-height: 1.45;
-        }
-
-        .timer {
-          min-width: 92px;
-          margin-top: 18px;
-          border: 1px solid #e6ebf7;
-          border-radius: 14px;
-          background: #f8faff;
-          color: #0800d8;
-          padding: 8px 12px;
-          font-size: 24px;
-          font-weight: 900;
-          line-height: 1;
-          font-variant-numeric: tabular-nums;
-          box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
         }
 
         .permission-card {
@@ -377,14 +306,6 @@ function StartSessionContent() {
           padding: 11px 13px;
           font-size: 12px;
           font-weight: 800;
-          line-height: 1.45;
-        }
-
-        .redirect-text {
-          margin: 17px 0 0;
-          color: #001eff;
-          font-size: 13px;
-          font-weight: 900;
           line-height: 1.45;
         }
 
@@ -418,21 +339,18 @@ function StartSessionContent() {
 
           .start-session-card {
             border-radius: 20px;
-            padding: 26px 20px 20px;
+            padding: 30px 22px 28px;
           }
 
           .radar-wrap {
-            width: 138px;
-            height: 138px;
+            width: 88px;
+            height: 88px;
           }
 
           .status-section h1 {
             font-size: 18px;
           }
 
-          .timer {
-            font-size: 23px;
-          }
         }
       `}</style>
     </main>
