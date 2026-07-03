@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { type SoapData, useSessionDocumentation } from "@/context/SessionDocumentationContext";
-import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import {
   apiSessionToUpcomingSession,
   medexaApi,
@@ -23,6 +22,7 @@ import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinical
 import { detectCptFromText } from "@/lib/cptDetector";
 import { getSessionById } from "@/lib/sessions";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
+import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
@@ -526,8 +526,11 @@ function AmbientSessionContent() {
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
   const [appliedSuggestions, setAppliedSuggestions] = useState<Record<string, boolean>>({});
   const [ignoredSuggestions, setIgnoredSuggestions] = useState<Record<string, boolean>>({});
-  const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>("idle");
-  const [recordingSeconds, setRecordingSeconds] = useState(INITIAL_RECORDING_SECONDS);
+  const liveSession = useMedexaLiveSession();
+  const recordingStatus = liveSession.recordingStatus;
+  const setRecordingStatus = liveSession.setRecordingStatus;
+  const recordingSeconds = liveSession.totalSeconds;
+  const setRecordingSeconds = liveSession.setTotalSeconds;
   const [cptTimer, setCptTimer] = useState<LocalCptTimer>(() => createLocalCptTimer());
   const [cptRecords, setCptRecords] = useState<Record<string, ApiCptRecord>>({});
   const [activeCptCode, setActiveCptCode] = useState<string | null>(null);
@@ -560,7 +563,10 @@ function AmbientSessionContent() {
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const routeSessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? searchParams.get("session") ?? "";
-  const shouldAutoStartRecording = searchParams.get("autoStartRecording") === "1" && searchParams.get("source") === "voice";
+  const shouldContinueRecording = searchParams.get("continueRecording") === "1";
+  const routeSource = searchParams.get("source") ?? "manual";
+  const shouldAutoStartRecording =
+    searchParams.get("autoStartRecording") === "1" || shouldContinueRecording;
   const localRouteSession = getSessionById(routeSessionId);
   const sessionId = routeSessionId || localRouteSession.id;
   const [selectedSession, setSelectedSession] = useState(localRouteSession);
@@ -869,11 +875,15 @@ function AmbientSessionContent() {
     [queueOrShowCptPopup],
   );
 
-  const speechSession = useWebSpeechSession({ onTranscriptUpdate: handleLiveTranscript });
+  const speechSession = liveSession;
   const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
   const fullTranscript = visibleFullTranscript || speechSession.liveTranscript;
   const lastHeardText = visibleLatestHeardText || speechSession.lastHeardText;
   const currentThirtySecondChunk = speechSession.currentChunkTranscript;
+
+  useEffect(() => {
+    return liveSession.subscribeTranscriptUpdate(handleLiveTranscript);
+  }, [handleLiveTranscript, liveSession]);
 
   useEffect(() => {
     speechSession.autoStartTriggerMode();
@@ -900,7 +910,7 @@ function AmbientSessionContent() {
         setSelectedSession(apiSessionToUpcomingSession(apiSession));
       }
 
-      if (apiState) {
+      if (apiState && !(shouldContinueRecording && liveSession.recordingStatus === "recording")) {
         const loadedStatus = apiState.status === "recording" || apiState.status === "paused" ? "idle" : apiState.status;
         setRecordingStatus(loadedStatus);
         setRecordingSeconds(loadedStatus === "idle" ? INITIAL_RECORDING_SECONDS : apiState.elapsedSeconds);
@@ -911,8 +921,10 @@ function AmbientSessionContent() {
           apiTimerState.recording_status === "recording" || apiTimerState.recording_status === "paused"
             ? "idle"
             : apiTimerState.recording_status;
-        setRecordingStatus(loadedStatus);
-        setRecordingSeconds(loadedStatus === "idle" ? INITIAL_RECORDING_SECONDS : apiTimerState.total_seconds);
+        if (!(shouldContinueRecording && liveSession.recordingStatus === "recording")) {
+          setRecordingStatus(loadedStatus);
+          setRecordingSeconds(loadedStatus === "idle" ? INITIAL_RECORDING_SECONDS : apiTimerState.total_seconds);
+        }
         setCptTimer(
           loadedStatus === "idle"
             ? createLocalCptTimer()
@@ -968,7 +980,7 @@ function AmbientSessionContent() {
     return () => {
       isMounted = false;
     };
-  }, [sessionId]);
+  }, [liveSession.recordingStatus, sessionId, shouldContinueRecording, setRecordingSeconds, setRecordingStatus]);
 
   const query = searchQuery.trim().toLowerCase();
   const filteredInsights = useMemo(() => {
@@ -992,7 +1004,6 @@ function AmbientSessionContent() {
     }
 
     const timerId = window.setInterval(() => {
-      setRecordingSeconds((seconds) => seconds + 1);
       setCptTimer((timer) =>
         timer.status === "running"
           ? createLocalCptTimer("running", timer.seconds + 1, timer.code, timer.source, timer.reason)
@@ -2161,9 +2172,13 @@ function AmbientSessionContent() {
         </div>
 
         <div className="cpt-debug-strip" aria-live="polite">
+          <span>sessionId: {sessionId}</span>
+          <span>source: {routeSource}</span>
           <span>Recording status: {recordingStatus}</span>
           <span>Speech listening: {speechSession.isListening ? "true" : "false"}</span>
           <span>Mic permission: {speechSession.permissionStatus}</span>
+          <span>Total seconds: {recordingSeconds}</span>
+          <span>Redirect countdown: complete</span>
           <span>Speech supported: {speechSession.isSupported ? "true" : "false"}</span>
           <span>Speech error: {speechSession.error || "none"}</span>
           <span>Last heard: {latestHeardTextRef.current || lastHeardText || "none"}</span>

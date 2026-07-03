@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { DoctorProvider } from "@/components/DoctorContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { SessionDocumentationProvider } from "@/context/SessionDocumentationContext";
+import { MedexaLiveSessionProvider } from "@/providers/MedexaLiveSessionProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,7 +36,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <LanguageProvider>
           <DoctorProvider>
-            <SessionDocumentationProvider>{children}</SessionDocumentationProvider>
+            <SessionDocumentationProvider>
+              <MedexaLiveSessionProvider>{children}</MedexaLiveSessionProvider>
+            </SessionDocumentationProvider>
           </DoctorProvider>
         </LanguageProvider>
       </body>

@@ -6,11 +6,11 @@ import { useRouter } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useSelectedDoctor } from "@/components/DoctorContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { useWebSpeechSession } from "@/hooks/useWebSpeechSession";
 import { apiSessionToUpcomingSession, medexaApi, type ApiTranscript } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { sessions, type UpcomingSession } from "@/lib/sessions";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
+import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
 /* eslint-disable @next/next/no-img-element -- Prototype uses remote avatar URLs without touching next.config.ts. */
 
@@ -122,7 +122,7 @@ export default function AmbientListeningPage() {
   const [now, setNow] = useState<Date | null>(null);
   const { selectedDoctor } = useSelectedDoctor();
   const { t } = useLanguage();
-  const speechSession = useWebSpeechSession();
+  const speechSession = useMedexaLiveSession();
   const lastVoiceCommandRef = useRef("");
   const lastVoiceCommandAtRef = useRef(0);
 
@@ -234,7 +234,7 @@ export default function AmbientListeningPage() {
       therapist_id: selectedDoctor.name,
       session_type: session.careType,
     });
-    router.push(`/ambient-listening/session?sessionId=${session.id}&autoStartRecording=1&source=voice`);
+    router.push(`/ambient-listening/start-session?sessionId=${session.id}&autoStartRecording=1&source=voice`);
   };
 
   useEffect(() => {
@@ -314,7 +314,7 @@ export default function AmbientListeningPage() {
       therapist_id: selectedDoctor.name,
       session_type: "Therapeutic Therapy Session",
     });
-    router.push("/ambient-listening/session?sessionId=new-session");
+    router.push("/ambient-listening/start-session?sessionId=new-session&autoStartRecording=0&source=manual");
   };
 
   const showSessionStatus = (session: UpcomingSession) => {
