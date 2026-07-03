@@ -630,18 +630,18 @@ function SoapNotesContent() {
                 {billingRecords.length > 0 ? (
                   billingRecords.map((record) => (
                     <div className="billing-summary-row" key={record.code}>
-                      <strong dir="ltr">{record.code}</strong>
-                      <span>{record.displayName}</span>
-                      <span dir="ltr">{Math.floor(record.seconds / 60)}:{String(record.seconds % 60).padStart(2, "0")}</span>
-                      <span>{formatUnits(record.units, language)}</span>
+                      <strong className="billing-cpt-code" dir="ltr">{record.code}</strong>
+                      <span className="billing-cpt-title">{record.displayName}</span>
+                      <span className="billing-cpt-duration" dir="ltr">{Math.floor(record.seconds / 60)}:{String(record.seconds % 60).padStart(2, "0")}</span>
+                      <span className="billing-cpt-units">{formatUnits(record.units, language)}</span>
                     </div>
                   ))
                 ) : (
                   <div className="billing-summary-row">
-                    <strong dir="ltr">{billingSummary.cpt_code ?? t("billing.noCpt")}</strong>
-                    <span>{t("soap.requiresReview")}</span>
-                    <span dir="ltr">{Math.floor((billingSummary.cpt_seconds ?? 0) / 60)}:{String((billingSummary.cpt_seconds ?? 0) % 60).padStart(2, "0")}</span>
-                    <span>{formatUnits(billingSummary.units ?? 0, language)}</span>
+                    <strong className="billing-cpt-code" dir="ltr">{billingSummary.cpt_code ?? t("billing.noCpt")}</strong>
+                    <span className="billing-cpt-title">{t("soap.requiresReview")}</span>
+                    <span className="billing-cpt-duration" dir="ltr">{Math.floor((billingSummary.cpt_seconds ?? 0) / 60)}:{String((billingSummary.cpt_seconds ?? 0) % 60).padStart(2, "0")}</span>
+                    <span className="billing-cpt-units">{formatUnits(billingSummary.units ?? 0, language)}</span>
                   </div>
                 )}
               </div>
@@ -930,6 +930,7 @@ function SoapNotesContent() {
         }
 
         .note-card {
+          min-width: 0;
           border: 1px solid #dde5f0;
           border-radius: 14px;
           background: #fff;
@@ -1076,6 +1077,7 @@ function SoapNotesContent() {
         }
 
         .billing-summary-list {
+          min-width: 0;
           display: flex;
           flex-direction: column;
           gap: 10px;
@@ -1086,6 +1088,8 @@ function SoapNotesContent() {
           grid-template-columns: 90px minmax(180px, 1fr) 90px 90px;
           gap: 12px;
           align-items: center;
+          min-width: 0;
+          box-sizing: border-box;
           border: 1px solid #e7edf5;
           border-radius: 8px;
           padding: 12px 14px;
@@ -1095,6 +1099,22 @@ function SoapNotesContent() {
 
         .billing-summary-row strong {
           color: #001eff;
+        }
+
+        .billing-summary-row > * {
+          min-width: 0;
+        }
+
+        .billing-cpt-title,
+        .billing-cpt-units {
+          overflow-wrap: anywhere;
+          line-height: 1.35;
+        }
+
+        .billing-cpt-duration,
+        .billing-cpt-units {
+          justify-self: end;
+          white-space: nowrap;
         }
 
         @media (max-width: 760px) {
@@ -1138,6 +1158,39 @@ function SoapNotesContent() {
           .field-grid.two,
           .field-grid.three {
             grid-template-columns: 1fr;
+          }
+
+          .billing-summary-card {
+            padding: 16px;
+            overflow: hidden;
+          }
+
+          .billing-summary-row {
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px 12px;
+            padding: 12px;
+          }
+
+          .billing-cpt-code {
+            align-self: center;
+          }
+
+          .billing-cpt-title {
+            grid-column: 1 / -1;
+            grid-row: 2;
+          }
+
+          .billing-cpt-duration {
+            grid-column: 1;
+            grid-row: 3;
+            justify-self: start;
+          }
+
+          .billing-cpt-units {
+            grid-column: 2;
+            grid-row: 3;
+            justify-self: end;
+            text-align: right;
           }
         }
       `}</style>

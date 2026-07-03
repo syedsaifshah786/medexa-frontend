@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSelectedDoctor } from "@/components/DoctorContext";
 import { useLanguage } from "@/context/LanguageContext";
 import type { Language } from "@/lib/translations";
@@ -45,6 +45,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
   const { language, setLanguage, t } = useLanguage();
   const { doctors, selectedDoctor, setSelectedDoctor } = useSelectedDoctor();
   const selectedLanguage = languages.find((item) => item.value === language) ?? languages[0];
+  const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
   const closeFloatingMenus = () => {
     setIsNotificationsOpen(false);
@@ -78,10 +79,46 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
     setIsMenuOpen(false);
   };
 
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuWrapRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMenuOpen]);
+
   return (
     <>
+      {isMenuOpen && (
+        <button
+          type="button"
+          className="medexa-menu-backdrop"
+          aria-label={t("header.close")}
+          onClick={() => setIsMenuOpen(false)}
+        />
+      )}
       <header className="medexa-header">
-        <div className="medexa-menu-wrap">
+        <div className="medexa-menu-wrap" ref={menuWrapRef}>
           <button
             className="medexa-menu-button"
             aria-label={t("header.openMenu")}
@@ -271,7 +308,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         .medexa-header {
           position: sticky;
           top: 0;
-          z-index: 20;
+          z-index: 80;
           width: 100%;
           box-sizing: border-box;
           height: 68px;
@@ -330,6 +367,15 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           height: 2px;
           border-radius: 99px;
           background: #4f46e5;
+        }
+
+        .medexa-menu-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 70;
+          border: 0;
+          background: transparent;
+          cursor: default;
         }
 
         .medexa-brand {
@@ -527,7 +573,7 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
         .medexa-dropdown {
           position: absolute;
           top: calc(100% + 10px);
-          z-index: 30;
+          z-index: 90;
           box-sizing: border-box;
           border: 1px solid rgba(229, 231, 235, 0.95);
           border-radius: 14px;
@@ -540,9 +586,12 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           top: 78px;
           left: 16px;
           right: auto;
-          width: min(230px, calc(100vw - 32px));
+          width: min(260px, calc(100vw - 32px));
           max-width: calc(100vw - 32px);
+          max-height: calc(100dvh - 96px);
           overflow-x: hidden;
+          overflow-y: auto;
+          overscroll-behavior: contain;
           padding: 10px;
           transform-origin: top left;
         }
@@ -717,14 +766,19 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           }
 
           .medexa-menu {
-            left: 16px;
+            left: 12px;
             right: auto;
-            top: 74px;
+            top: 76px;
+            width: min(320px, calc(100vw - 24px));
+            max-width: calc(100vw - 24px);
+            max-height: calc(100dvh - 88px);
+            padding: 12px;
+            border-radius: 16px;
           }
 
           :global(html[dir="rtl"]) .medexa-menu {
             left: auto;
-            right: 16px;
+            right: 12px;
           }
         }
       `}</style>
