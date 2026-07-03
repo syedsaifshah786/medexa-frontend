@@ -570,14 +570,15 @@ export default function BillingIntelligencePage() {
           box-sizing: border-box;
           width: 100%;
           min-height: calc(100vh - 64px);
-          margin: 0 auto;
-          padding: 20px 32px 36px;
+          max-width: none;
+          margin: 0;
+          padding: 24px 32px 40px;
           background: #fbfbfc;
         }
 
         .session-summary {
           border-bottom: 1px solid #edf1f6;
-          padding-bottom: 18px;
+          padding-bottom: 20px;
         }
 
         .title-row {
@@ -611,8 +612,10 @@ export default function BillingIntelligencePage() {
         .meta-row {
           display: grid;
           grid-template-columns: repeat(4, minmax(140px, 1fr));
-          gap: 44px;
-          max-width: 780px;
+          align-items: center;
+          column-gap: 32px;
+          row-gap: 14px;
+          max-width: none;
           margin: 20px 0 0 46px;
         }
 
@@ -632,7 +635,7 @@ export default function BillingIntelligencePage() {
           min-height: 58px;
           display: flex;
           align-items: center;
-          gap: 42px;
+          gap: 34px;
           border-bottom: 1px solid #edf1f6;
         }
 
@@ -658,11 +661,12 @@ export default function BillingIntelligencePage() {
         }
 
         .billing-stack {
-          width: min(100%, 760px);
+          width: 100%;
+          max-width: none;
           display: flex;
           flex-direction: column;
-          gap: 24px;
-          padding-top: 20px;
+          gap: 28px;
+          padding-top: 24px;
         }
 
         .section-title,
@@ -676,16 +680,16 @@ export default function BillingIntelligencePage() {
 
         .metric-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
-          margin-top: 14px;
+          grid-template-columns: repeat(2, minmax(280px, 1fr));
+          gap: 20px;
+          margin-top: 16px;
         }
 
         .metric-card {
           border: 1px solid #bcd0ff;
-          border-radius: 14px;
+          border-radius: 8px;
           background: #fff;
-          padding: 18px 20px;
+          padding: 20px 22px;
         }
 
         .metric-card p {
@@ -731,7 +735,8 @@ export default function BillingIntelligencePage() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 14px;
+          gap: 18px;
+          margin-bottom: 16px;
         }
 
         .section-heading button {
@@ -744,10 +749,10 @@ export default function BillingIntelligencePage() {
 
         .cpt-form {
           border: 1px solid #dbe7ff;
-          border-radius: 14px;
+          border-radius: 8px;
           background: #fff;
-          padding: 16px;
-          margin-bottom: 14px;
+          padding: 18px;
+          margin-bottom: 16px;
           box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
         }
 
@@ -775,8 +780,8 @@ export default function BillingIntelligencePage() {
 
         .cpt-form-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
+          grid-template-columns: repeat(4, minmax(160px, 1fr));
+          gap: 14px;
         }
 
         .cpt-form-grid label {
@@ -826,14 +831,18 @@ export default function BillingIntelligencePage() {
         .cpt-list {
           display: flex;
           flex-direction: column;
-          gap: 14px;
+          gap: 16px;
+          width: 100%;
+          overflow: visible;
         }
 
         .cpt-card {
+          width: 100%;
+          box-sizing: border-box;
           border: 1px solid #dbe7ff;
-          border-radius: 14px;
+          border-radius: 8px;
           background: #fff;
-          padding: 18px 20px;
+          padding: 20px 22px;
           box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
         }
 
@@ -852,7 +861,12 @@ export default function BillingIntelligencePage() {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 18px;
+          gap: 24px;
+        }
+
+        .cpt-topline > div:first-child {
+          min-width: 0;
+          flex: 1 1 auto;
         }
 
         .cpt-card h3 {
@@ -883,6 +897,7 @@ export default function BillingIntelligencePage() {
           gap: 8px;
           flex: 0 0 auto;
           flex-wrap: wrap;
+          margin-left: auto;
         }
 
         .modifier-badge {
@@ -936,7 +951,10 @@ export default function BillingIntelligencePage() {
         }
 
         .snf-section {
-          padding-bottom: 16px;
+          border: 1px solid #dbe7ff;
+          border-radius: 8px;
+          background: #fff;
+          padding: 22px;
         }
 
         .snf-section p {
@@ -954,6 +972,7 @@ export default function BillingIntelligencePage() {
 
         .range-wrap {
           margin-top: 22px;
+          width: 100%;
         }
 
         .range-track {
