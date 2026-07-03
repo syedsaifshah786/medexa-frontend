@@ -367,11 +367,13 @@ function SlideToApprove({
   onApprove,
   label,
   approvedLabel,
+  direction = "ltr",
 }: {
   approved: boolean;
   onApprove: () => void;
   label: string;
   approvedLabel: string;
+  direction?: "ltr" | "rtl";
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragStartXRef = useRef(0);
@@ -417,10 +419,11 @@ function SlideToApprove({
     const sideOffset = 5;
     const maxTravel = Math.max(rect.width - handleSize - sideOffset * 2, 1);
     setHandleTravel(maxTravel);
-    const nextProgress = Math.min(
-      Math.max((clientX - rect.left - sideOffset - handleSize / 2) / maxTravel, 0),
-      1,
-    );
+    const rawProgress =
+      direction === "rtl"
+        ? (rect.right - clientX - sideOffset - handleSize / 2) / maxTravel
+        : (clientX - rect.left - sideOffset - handleSize / 2) / maxTravel;
+    const nextProgress = Math.min(Math.max(rawProgress, 0), 1);
 
     setProgress(nextProgress);
     return nextProgress;
@@ -498,12 +501,12 @@ function SlideToApprove({
           return;
         }
 
-        if (event.key === "ArrowRight" || event.key === "End") {
+        if ((direction === "rtl" ? event.key === "ArrowLeft" : event.key === "ArrowRight") || event.key === "End") {
           event.preventDefault();
           completeApproval();
         }
 
-        if (event.key === "ArrowLeft" || event.key === "Home") {
+        if ((direction === "rtl" ? event.key === "ArrowRight" : event.key === "ArrowLeft") || event.key === "Home") {
           event.preventDefault();
           setProgress(0);
         }
@@ -511,7 +514,7 @@ function SlideToApprove({
     >
       <span
         className="approve-slider-handle"
-        style={{ transform: `translateX(${progress * handleTravel}px)` }}
+        style={{ transform: `translateX(${direction === "rtl" ? -progress * handleTravel : progress * handleTravel}px)` }}
       >
         {approved ? "✓" : "›"}
       </span>
@@ -606,7 +609,7 @@ function AmbientSessionContent() {
   const lastBackendCptChunkRef = useRef("");
   const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
-  const { language, t } = useLanguage();
+  const { direction, language, t } = useLanguage();
   const aiSegmentsStorageKey = useMemo(
     () => `medexa_session_ai_segments_${sessionId}`,
     [sessionId],
@@ -2186,7 +2189,7 @@ function AmbientSessionContent() {
     } catch (error) {
       console.warn("Audio transcription failed.", error);
       setAudioUploadStatus("error");
-      setAudioUploadError("Audio transcription failed. Please check backend and audio format.");
+      setAudioUploadError(t("session.audioTranscriptionFailed"));
     } finally {
       event.target.value = "";
     }
@@ -2250,14 +2253,14 @@ function AmbientSessionContent() {
         : t("common.stopped");
   const showBottomControl = true;
   const voiceTriggerLabel = !speechSession.isSupported
-    ? "Web Speech is not supported in this browser. Please use Chrome or Edge."
+    ? t("session.webSpeechUnsupported")
     : speechSession.triggerPermissionStatus === "required" || speechSession.permissionError
-      ? "Voice Trigger: Permission Required"
+      ? t("session.voiceTriggerPermissionRequired")
       : triggerStatus === "detected"
-        ? "Voice Trigger: Detected"
+        ? t("session.voiceTriggerDetected")
         : speechSession.isListening
-          ? "Voice Trigger: Listening"
-          : "Voice Trigger: Armed";
+          ? t("session.voiceTriggerListening")
+          : t("session.voiceTriggerArmed");
   const showVoicePermissionMessage =
     speechSession.isSupported && (speechSession.triggerPermissionStatus === "required" || Boolean(speechSession.permissionError));
 
@@ -2267,7 +2270,7 @@ function AmbientSessionContent() {
 
       <section className="session-content">
         <section className="patient-strip">
-          <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
+          <Link href="/ambient-listening" className="back-link" aria-label={t("session.backToAmbient")}>
             ‹
           </Link>
           <img className="patient-avatar" src={selectedSession.img} alt="" />
@@ -2332,7 +2335,7 @@ function AmbientSessionContent() {
                 <b dir="ltr">{cptElapsedUnitText}</b>
               ) : (
                 <>
-                  Session units: <b>{sessionUnits}</b>
+                  {t("session.sessionUnitsCount", { units: sessionUnits })}
                 </>
               )}
             </p>
@@ -2346,11 +2349,11 @@ function AmbientSessionContent() {
             onClick={() => startCptTimerFromSuggestion("manual")}
             disabled={recordingStatus !== "recording"}
           >
-            Start CPT Timer
+            {t("session.startCptTimer")}
           </button>
           {cptTimer.status === "running" && (
             <button type="button" className="secondary" onClick={stopCptTimer}>
-              Stop CPT Timer
+              {t("session.stopCptTimer")}
             </button>
           )}
         </div>
@@ -2553,6 +2556,7 @@ function AmbientSessionContent() {
                     approved={Boolean(itemState.approved)}
                     label={t("session.slideToApprove")}
                     approvedLabel={t("common.approved")}
+                    direction={direction}
                     onApprove={() =>
                       updateInsight(
                         item.id,
@@ -2655,7 +2659,7 @@ function AmbientSessionContent() {
                       disabled={audioUploadStatus === "uploading"}
                       onClick={() => audioInputRef.current?.click()}
                     >
-                      {audioUploadStatus === "uploading" ? "Transcribing audio..." : "Upload Audio for Test"}
+                      {audioUploadStatus === "uploading" ? t("session.transcribingAudio") : t("session.uploadAudioForTest")}
                     </button>
                     <input
                       ref={audioInputRef}
@@ -2668,10 +2672,10 @@ function AmbientSessionContent() {
                 </div>
 
                 {audioUploadStatus === "success" && (
-                  <div className="speech-alert is-success">Audio transcript generated</div>
+                  <div className="speech-alert is-success">{t("session.audioTranscriptGenerated")}</div>
                 )}
                 {audioUploadStatus === "error" && (
-                  <div className="speech-alert">{audioUploadError || "Audio transcription failed. Please check backend."}</div>
+                  <div className="speech-alert">{audioUploadError || t("session.audioTranscriptionFailed")}</div>
                 )}
               </>
             )}
@@ -2683,7 +2687,7 @@ function AmbientSessionContent() {
 
             {showDebug && uploadedAudioTranscript && (
               <div className="transcript-box">
-                <h3>Uploaded Audio Transcript</h3>
+                  <h3>{t("session.uploadedAudioTranscript")}</h3>
                 <p>{uploadedAudioTranscript}</p>
               </div>
             )}
@@ -2739,7 +2743,7 @@ function AmbientSessionContent() {
 
                   <div className="segment-columns">
                     <div className="segment-section">
-                      <h3>AI-Assisted Possible Clinical Impressions</h3>
+                      <h3>{t("session.aiClinicalImpressions")}</h3>
                       <ul>
                         {segment.analysis.possibleDiagnoses.map((diagnosis) => (
                           <li key={diagnosis}>{diagnosis}</li>
@@ -2757,7 +2761,7 @@ function AmbientSessionContent() {
                   </div>
 
                   <div className="segment-section">
-                    <h3>ICD-10 Suggestions</h3>
+                    <h3>{t("session.icd10Suggestions")}</h3>
                     {segment.analysis.icd10Suggestions.length > 0 ? (
                       <ul>
                         {segment.analysis.icd10Suggestions.map((suggestion) => (
@@ -2768,12 +2772,12 @@ function AmbientSessionContent() {
                         ))}
                       </ul>
                     ) : (
-                      <p>No ICD-10 suggestions detected.</p>
+                      <p>{t("session.noIcd10Suggestions")}</p>
                     )}
                   </div>
 
                   <div className="segment-section">
-                    <h3>CPT/Billing Suggestions</h3>
+                    <h3>{t("session.cptBillingSuggestions")}</h3>
                     {segment.analysis.cptSuggestions.length > 0 ? (
                       <ul>
                         {segment.analysis.cptSuggestions.map((suggestion) => {
@@ -2783,26 +2787,26 @@ function AmbientSessionContent() {
                             <li key={suggestion.code}>
                               <strong dir="ltr">{suggestion.code}</strong> - {suggestion.displayName}.{" "}
                               {suggestion.matchedPhrases.length > 0 && (
-                                <span>Matched: {suggestion.matchedPhrases.join(", ")}. </span>
+                                <span>{t("session.matched")}: {suggestion.matchedPhrases.join(", ")}. </span>
                               )}
                               <span>{suggestion.reason} </span>
                               {suggestion.documentationRequirements.length > 0 && (
-                                <span>Documentation: {suggestion.documentationRequirements.slice(0, 2).join(" | ")}. </span>
+                                <span>{t("session.documentation")}: {suggestion.documentationRequirements.slice(0, 2).join(" | ")}. </span>
                               )}
-                              {caveats.length > 0 && <span>Billing caveats: {caveats.join(" | ")}. </span>}
+                              {caveats.length > 0 && <span>{t("session.billingCaveats")}: {caveats.join(" | ")}. </span>}
                               <span>{t("session.confidence")}: {suggestion.confidence}</span>
                             </li>
                           );
                         })}
                       </ul>
                     ) : (
-                      <p>No CPT/Billing suggestions detected.</p>
+                      <p>{t("session.noCptBillingSuggestions")}</p>
                     )}
                   </div>
 
                   <div className="segment-columns">
                     <div className="segment-section">
-                      <h3>Body Region Detected</h3>
+                      <h3>{t("session.bodyRegionDetected")}</h3>
                       {segment.analysis.bodyRegions.length > 0 ? (
                         <ul>
                           {segment.analysis.bodyRegions.map((bodyRegion) => (
@@ -2812,7 +2816,7 @@ function AmbientSessionContent() {
                           ))}
                         </ul>
                       ) : (
-                        <p>No body region detected.</p>
+                        <p>{t("session.noBodyRegionDetected")}</p>
                       )}
                     </div>
 
@@ -2864,10 +2868,10 @@ function AmbientSessionContent() {
         </section>
       </section>
 
-      {showBottomControl && <div className="recording-controls" aria-label="Recording controls">
+      {showBottomControl && <div className="recording-controls" aria-label={t("session.speechStatus")}>
         <div className="control-timer">
           <strong dir="ltr">{formattedRecordingDuration}</strong>
-          <span>Total Duration</span>
+          <span>{t("session.totalDuration")}</span>
         </div>
         <button
           type="button"
@@ -2881,7 +2885,7 @@ function AmbientSessionContent() {
         <button
           type="button"
           className={`stop-icon ${recordingStatus === "stopped" ? "is-stopped" : ""}`}
-          aria-label="Stop"
+          aria-label={t("common.stop")}
           disabled={recordingStatus === "idle" || recordingStatus === "stopped"}
           onClick={requestStop}
         >
@@ -2951,8 +2955,8 @@ function AmbientSessionContent() {
                   ? t("modifier.sameRegion", { bodyRegion: currentModifierPopup.body_region })
                   : currentModifierPopup.description}
               </span>
-              <small>Codes: {currentModifierPopup.codes.join(", ")}</small>
-              <small>Region: {currentModifierPopup.body_region}</small>
+               <small>{t("session.codes")}: <bdi>{currentModifierPopup.codes.join(", ")}</bdi></small>
+               <small>{t("session.region")}: {currentModifierPopup.body_region}</small>
               <small>{t("modifier.aiReview")}</small>
             </div>
           </div>
@@ -3253,6 +3257,11 @@ function AmbientSessionContent() {
           vertical-align: 1px;
         }
 
+        :global(html[dir="rtl"]) .patient-meta .blue-dot::before {
+          margin-right: 0;
+          margin-left: 6px;
+        }
+
         .recording-card {
           min-height: 78px;
           display: flex;
@@ -3388,6 +3397,10 @@ function AmbientSessionContent() {
 
         .recording-right {
           text-align: right;
+        }
+
+        :global(html[dir="rtl"]) .recording-right {
+          text-align: left;
         }
 
         .recording-right strong {
@@ -3563,6 +3576,11 @@ function AmbientSessionContent() {
           padding-left: 38px;
         }
 
+        :global(html[dir="rtl"]) .insight-timeline {
+          padding-left: 0;
+          padding-right: 38px;
+        }
+
         .insight-timeline::before {
           content: "";
           position: absolute;
@@ -3571,6 +3589,13 @@ function AmbientSessionContent() {
           bottom: 0;
           border-left: 1px dashed #69a7ff;
           z-index: 0;
+        }
+
+        :global(html[dir="rtl"]) .insight-timeline::before {
+          left: auto;
+          right: 10px;
+          border-left: 0;
+          border-right: 1px dashed #69a7ff;
         }
 
         .timeline-item,
@@ -3596,6 +3621,12 @@ function AmbientSessionContent() {
           z-index: 2;
         }
 
+        :global(html[dir="rtl"]) .timeline-item::before,
+        :global(html[dir="rtl"]) .insight-item::before {
+          left: auto;
+          right: -32px;
+        }
+
         .timeline-item::after,
         .insight-item::after {
           content: "";
@@ -3605,6 +3636,12 @@ function AmbientSessionContent() {
           width: 24px;
           border-top: 1px dashed #69a7ff;
           z-index: 0;
+        }
+
+        :global(html[dir="rtl"]) .timeline-item::after,
+        :global(html[dir="rtl"]) .insight-item::after {
+          left: auto;
+          right: -25px;
         }
 
         .insight-item.is-ignored {
@@ -3759,6 +3796,10 @@ function AmbientSessionContent() {
           transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
         }
 
+        :global(html[dir="rtl"]) .approve-slider {
+          padding: 0 42px 0 14px;
+        }
+
         .approve-slider:focus-visible {
           border-color: #001eff;
           box-shadow: 0 0 0 3px rgba(0, 30, 255, 0.12);
@@ -3783,6 +3824,11 @@ function AmbientSessionContent() {
           font-size: 17px;
           transition: transform 0.18s ease, background 0.16s ease, color 0.16s ease;
           will-change: transform;
+        }
+
+        :global(html[dir="rtl"]) .approve-slider-handle {
+          left: auto;
+          right: 5px;
         }
 
         .approve-slider.is-dragging .approve-slider-handle {
@@ -3896,6 +3942,11 @@ function AmbientSessionContent() {
           font-weight: 800;
         }
 
+        :global(html[dir="rtl"]) .suggestion-card button {
+          margin-right: auto;
+          margin-left: 0;
+        }
+
         .suggestion-card button.is-applied {
           color: #087c4a;
         }
@@ -3903,6 +3954,11 @@ function AmbientSessionContent() {
         .suggestion-card .ignore-suggestion {
           margin-left: 12px;
           color: #667085;
+        }
+
+        :global(html[dir="rtl"]) .suggestion-card .ignore-suggestion {
+          margin-right: 12px;
+          margin-left: 0;
         }
 
         .empty-state {
@@ -4166,6 +4222,11 @@ function AmbientSessionContent() {
           padding-right: 8px;
         }
 
+        :global(html[dir="rtl"]) .control-timer {
+          padding-right: 0;
+          padding-left: 8px;
+        }
+
         .control-timer strong {
           color: #001eff;
           font-size: 20px;
@@ -4292,6 +4353,11 @@ function AmbientSessionContent() {
           transform: translateX(-50%);
         }
 
+        :global(html[dir="rtl"]) .procedure-popup {
+          border-left-width: 1px;
+          border-right: 5px solid #11c778;
+        }
+
         .cpt-detected-popup {
           position: fixed;
           left: 50%;
@@ -4310,6 +4376,11 @@ function AmbientSessionContent() {
           background: #ffffff;
           box-shadow: 0 22px 54px rgba(15, 23, 42, 0.2), 0 0 0 5px rgba(8, 0, 216, 0.08);
           transform: translateX(-50%);
+        }
+
+        :global(html[dir="rtl"]) .modifier-popup {
+          border-left-color: #d8deff;
+          border-right-color: #0800d8;
         }
 
         .modifier-popup .procedure-popup-dot {
@@ -4465,14 +4536,24 @@ function AmbientSessionContent() {
             text-align: left;
           }
 
+          :global(html[dir="rtl"]) .recording-right {
+            text-align: right;
+          }
+
           .procedure-popup {
             bottom: 104px;
             align-items: stretch;
             flex-direction: column;
+            max-height: calc(100dvh - 132px);
+            overflow-y: auto;
           }
 
           .procedure-popup-actions {
             justify-content: flex-end;
+          }
+
+          :global(html[dir="rtl"]) .procedure-popup-actions {
+            justify-content: flex-start;
           }
         }
       `}</style>

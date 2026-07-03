@@ -606,6 +606,16 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           margin-right: auto;
         }
 
+        :global(html[dir="rtl"]) .medexa-search {
+          flex-direction: row-reverse;
+        }
+
+        :global(html[dir="rtl"]) .medexa-search-dot::after {
+          right: auto;
+          left: -4px;
+          transform: rotate(-45deg);
+        }
+
         :global(html[dir="rtl"]) .medexa-menu {
           left: auto;
           right: 16px;
@@ -672,7 +682,12 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
 
         .medexa-dropdown {
           right: 0;
-          width: 250px;
+          width: min(250px, calc(100vw - 24px));
+          max-width: calc(100vw - 24px);
+          max-height: calc(100dvh - 88px);
+          overflow-x: hidden;
+          overflow-y: auto;
+          overscroll-behavior: contain;
           padding: 10px;
         }
 
@@ -762,7 +777,15 @@ export default function MedexaHeader({ searchValue, onSearchChange }: MedexaHead
           }
 
           .medexa-dropdown {
-            right: -8px;
+            position: fixed;
+            top: 76px;
+            right: 12px;
+            left: auto;
+          }
+
+          :global(html[dir="rtl"]) .medexa-dropdown {
+            right: auto;
+            left: 12px;
           }
 
           .medexa-menu {

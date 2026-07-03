@@ -166,6 +166,20 @@ html[dir="rtl"] .medexa-actions {
   margin-left: 0;
 }
 
+html[dir="rtl"] .meta-row {
+  margin-right: 36px;
+  margin-left: 0 !important;
+}
+
+html[dir="rtl"] .title-row,
+html[dir="rtl"] .section-heading,
+html[dir="rtl"] .note-heading,
+html[dir="rtl"] .summary-header,
+html[dir="rtl"] .claim-heading,
+html[dir="rtl"] .cpt-topline {
+  text-align: right;
+}
+
 html[dir="rtl"] .review-actions,
 html[dir="rtl"] .cpt-actions,
 html[dir="rtl"] .cpt-form-actions,
@@ -179,6 +193,10 @@ html[dir="rtl"] .procedure-popup {
   border-left-width: 1px;
 }
 
+html[dir="rtl"] .back-link {
+  transform: scaleX(-1);
+}
+
 @media (max-width: 760px) {
   .content,
   .soap-content,
@@ -188,5 +206,21 @@ html[dir="rtl"] .procedure-popup {
   .session-content {
     padding-left: 16px !important;
     padding-right: 16px !important;
+  }
+
+  html[dir="rtl"] .meta-row {
+    margin-right: 36px;
+    margin-left: 0 !important;
+  }
+
+  html[dir="rtl"] .tabs .claim-link {
+    margin-right: 0;
+  }
+
+  html[dir="rtl"] .tabs,
+  html[dir="rtl"] .section-heading,
+  html[dir="rtl"] .cpt-topline,
+  html[dir="rtl"] .review-actions {
+    align-items: flex-start;
   }
 }

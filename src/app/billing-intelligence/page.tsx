@@ -198,7 +198,7 @@ export default function BillingIntelligencePage() {
       <section className="billing-content">
         <section className="session-summary">
           <div className="title-row">
-            <Link href="/ambient-listening" className="back-link" aria-label="Back to Ambient Listening">
+            <Link href="/ambient-listening" className="back-link" aria-label={t("session.backToAmbient")}>
               ‹
             </Link>
             <h1>{t("session.therapeuticTherapySession")}</h1>
