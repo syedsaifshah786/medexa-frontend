@@ -314,7 +314,7 @@ export default function AmbientListeningPage() {
       therapist_id: selectedDoctor.name,
       session_type: "Therapeutic Therapy Session",
     });
-    router.push("/ambient-listening/start-session?sessionId=new-session&autoStartRecording=0&source=manual");
+    router.push("/ambient-listening/start-session?sessionId=new-session&autoStartRecording=1&source=manual");
   };
 
   const showSessionStatus = (session: UpcomingSession) => {

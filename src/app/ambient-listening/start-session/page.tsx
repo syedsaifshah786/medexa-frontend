@@ -38,11 +38,11 @@ function StartSessionContent() {
 
   const routeSessionId = searchParams.get("sessionId") ?? "new-session";
   const source = searchParams.get("source") ?? "manual";
-  const shouldAutoStartRecording = searchParams.get("autoStartRecording") === "1";
+  const autoStartRecording = searchParams.get("autoStartRecording") ?? "1";
   const selectedSession = useMemo(() => getSessionById(routeSessionId), [routeSessionId]);
   const isVoiceFlow = source === "voice";
   const isRecording = liveSession.recordingStatus === "recording";
-  const isActive = isStarting || isRecording || liveSession.isListening || hasStartedRedirect;
+  const isActive = true;
   const hasMicWarning =
     liveSession.permissionStatus === "denied" ||
     liveSession.triggerPermissionStatus === "required" ||
@@ -50,12 +50,9 @@ function StartSessionContent() {
   const commandText = isVoiceFlow
     ? `Hey Medexa, start a new session with ${selectedSession.name}`
     : `Start a new session with ${selectedSession.name}`;
-  const statusTitle = isActive ? "Starting the Session..." : "Medexa is ready";
-  const statusDescription = isActive
-    ? isRecording
-      ? "Recording will continue into the live session screen."
-      : "Syncing Patient Context..."
-    : "Start recording when you are ready";
+  const statusDescription = isRecording
+    ? "Recording will continue into the live session screen."
+    : "Syncing Patient Context...";
 
   const beginRecording = useCallback(async () => {
     if (isStarting || hasStartedRedirect) {
@@ -94,13 +91,13 @@ function StartSessionContent() {
   ]);
 
   useEffect(() => {
-    if (!shouldAutoStartRecording || autoStartHandledRef.current) {
+    if (autoStartHandledRef.current) {
       return;
     }
 
     autoStartHandledRef.current = true;
     void beginRecording();
-  }, [beginRecording, shouldAutoStartRecording]);
+  }, [beginRecording]);
 
   useEffect(() => {
     if (!hasStartedRedirect) {
@@ -144,7 +141,8 @@ function StartSessionContent() {
         </div>
 
         <div className="status-section">
-          <h1>{statusTitle}</h1>
+          <p className="listening-status">Medexa is listening</p>
+          <h1>Starting the Session...</h1>
           <p>{statusDescription}</p>
         </div>
 
@@ -160,19 +158,8 @@ function StartSessionContent() {
 
         {hasMicWarning && (
           <div className="permission-card">
-            Microphone permission is required to start recording.
+            Microphone permission is required to continue recording.
           </div>
-        )}
-
-        {!hasStartedRedirect && !isRecording && (
-          <button
-            type="button"
-            className="start-recording-button"
-            disabled={isStarting}
-            onClick={() => void beginRecording()}
-          >
-            {isStarting ? "Starting..." : "Start Recording"}
-          </button>
         )}
 
         {hasStartedRedirect && (
@@ -189,6 +176,10 @@ function StartSessionContent() {
             <div>
               <dt>source</dt>
               <dd>{source}</dd>
+            </div>
+            <div>
+              <dt>autoStartRecording</dt>
+              <dd>{autoStartRecording}</dd>
             </div>
             <div>
               <dt>recordingStatus</dt>
@@ -383,6 +374,31 @@ function StartSessionContent() {
           letter-spacing: 0;
         }
 
+        .listening-status {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          min-height: 28px;
+          margin: 0 0 12px;
+          border-radius: 999px;
+          background: #eaf8f1;
+          color: #087c4a;
+          padding: 0 12px;
+          font-size: 12px;
+          font-weight: 900;
+          line-height: 1;
+        }
+
+        .listening-status::before {
+          content: "";
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #10c978;
+          box-shadow: 0 0 0 5px rgba(16, 201, 120, 0.15);
+        }
+
         .status-section p {
           margin: 8px 0 0;
           color: #667085;
@@ -484,35 +500,9 @@ function StartSessionContent() {
           line-height: 1.45;
         }
 
-        .start-recording-button {
-          width: 100%;
-          height: 46px;
-          margin-top: 20px;
-          border: 0;
-          border-radius: 14px;
-          background: linear-gradient(135deg, #0800d8, #001eff);
-          color: #ffffff;
-          font-size: 13px;
-          font-weight: 900;
-          cursor: pointer;
-          box-shadow: 0 14px 28px rgba(8, 0, 216, 0.24);
-          transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
-        }
-
-        .start-recording-button:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 18px 34px rgba(0, 30, 255, 0.28);
-        }
-
-        .start-recording-button:focus-visible,
         .debug-details summary:focus-visible {
           outline: 3px solid rgba(0, 30, 255, 0.18);
           outline-offset: 3px;
-        }
-
-        .start-recording-button:disabled {
-          cursor: wait;
-          opacity: 0.72;
         }
 
         .redirect-text {
