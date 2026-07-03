@@ -43,6 +43,7 @@ class FinalizeCptRecordPayload(BaseModel):
 class FinalizeSessionRequest(BaseModel):
     transcript: str = ""
     total_seconds: int = 0
+    language: Literal["en", "ar", "he"] = "en"
     cpt_timer: FinalizeCptTimerPayload = Field(default_factory=FinalizeCptTimerPayload)
     cpt_records: list[FinalizeCptRecordPayload] = Field(default_factory=list)
     active_cpt_code: str | None = None
@@ -97,6 +98,7 @@ class TranscriptChunkAnalysisRequest(BaseModel):
     full_transcript: str = ""
     start_time: str
     end_time: str
+    language: Literal["en", "ar", "he"] = "en"
     existing_cpt_codes: list[str] = Field(default_factory=list)
     active_cpt_code: str | None = None
     cpt_records: list[dict] = Field(default_factory=list)

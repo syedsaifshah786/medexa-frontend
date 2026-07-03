@@ -7,6 +7,15 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from app.services.localization import (
+    apply_label,
+    clinician_review,
+    is_arabic,
+    modifier59_description,
+    modifier59_title,
+    translate_cpt_display_name,
+)
+
 DISCLAIMER = "AI-assisted suggestions require clinician review."
 
 RULE_FILE_NAMES = {
@@ -474,7 +483,7 @@ def _normalize_modifier_region(region: Any) -> str:
     return _display_body_region(normalized, normalized)
 
 
-def detect_modifier59_suggestions(cpt_records: list, new_cpt_suggestions: list) -> list[dict]:
+def detect_modifier59_suggestions(cpt_records: list, new_cpt_suggestions: list, language: str = "en") -> list[dict]:
     by_region: dict[str, list[dict]] = {}
     cpt_items: list[dict] = []
 
@@ -525,11 +534,13 @@ def detect_modifier59_suggestions(cpt_records: list, new_cpt_suggestions: list) 
                 "Review whether Modifier 59 is required for distinct procedural services."
             )
         )
+        if is_arabic(language):
+            description = modifier59_description(codes, body_region, language)
         suggestions.append(
             {
                 "id": f"modifier-59-{'-'.join(codes)}-{normalize_text(body_region).replace(' ', '-')}",
                 "type": "modifier",
-                "title": "Modifier 59 Required",
+                "title": modifier59_title(language),
                 "description": description,
                 "codes": codes,
                 "body_region": body_region,
@@ -543,7 +554,7 @@ def detect_modifier59_suggestions(cpt_records: list, new_cpt_suggestions: list) 
     return suggestions
 
 
-def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_transcript: str = "") -> dict:
+def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_transcript: str = "", language: str = "en") -> dict:
     clean_text = normalize_text(text or "")
     body_region = _matched_body_region(clean_text) or _matched_body_region(full_transcript or "")
     body_region_display = body_region["display"] if body_region else None
@@ -558,7 +569,7 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_
             {
                 "should_start": True,
                 "code": suggestion["code"],
-                "display_name": suggestion["display_name"],
+                "display_name": translate_cpt_display_name(suggestion["code"], suggestion["display_name"], language),
                 "matched_phrase": matched_phrase,
                 "matched_phrases": suggestion.get("matched_phrases", []),
                 "body_region": body_region_display or "unspecified",
@@ -573,7 +584,7 @@ def analyze_transcript_for_cpt(text: str, existing_cpt_records: list = [], full_
             }
         )
 
-    modifier59_suggestions = detect_modifier59_suggestions(existing_cpt_records or [], cpt_timer_suggestions)
+    modifier59_suggestions = detect_modifier59_suggestions(existing_cpt_records or [], cpt_timer_suggestions, language)
 
     return {
         "cpt_timer_suggestions": cpt_timer_suggestions,
@@ -739,13 +750,14 @@ def analyze_transcript_chunk(
     end_time: str,
     existing_cpt_records: list | None = None,
     full_transcript: str = "",
+    language: str = "en",
 ) -> dict:
     rules, rule_warnings = load_rules()
     clean_text = " ".join(chunk_text.split())
     icd10_suggestions = suggest_icd10_codes(clean_text)
     body_regions = detect_body_regions(clean_text)
     cpt_suggestions = suggest_cpt_codes(clean_text)
-    cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [], full_transcript)
+    cpt_detection = analyze_transcript_for_cpt(clean_text, existing_cpt_records or [], full_transcript, language)
     ncci_conflicts = detect_ncci_conflicts(cpt_suggestions, body_regions)
     symptoms = _symptoms_from_text(clean_text, icd10_suggestions)
     impressions = [
@@ -787,9 +799,13 @@ def analyze_transcript_chunk(
             {
                 "id": f"cpt-{suggestion['code']}",
                 "type": "billing",
-                "title": f"Suggested CPT {suggestion['code']}",
-                "description": f"{suggestion['display_name']} detected. {suggestion['reason']} Requires clinician review.",
-                "action_label": "Apply",
+                "title": f"{'CPT مقترح' if is_arabic(language) else 'Suggested CPT'} {suggestion['code']}",
+                "description": (
+                    f"تم اكتشاف {translate_cpt_display_name(suggestion['code'], suggestion['display_name'], language)}. {clinician_review(language)}."
+                    if is_arabic(language)
+                    else f"{suggestion['display_name']} detected. {suggestion['reason']} Requires clinician review."
+                ),
+                "action_label": apply_label(language),
                 "status": "pending",
             }
         )
@@ -799,9 +815,13 @@ def analyze_transcript_chunk(
             {
                 "id": f"icd-{suggestion['code']}-{normalize_text(suggestion['phrase']).replace(' ', '-')[:24]}",
                 "type": "detected",
-                "title": f"AI-assisted ICD suggestion {suggestion['code']}",
-                "description": f"Phrase '{suggestion['phrase']}' may support {suggestion['code']}. Requires clinician review.",
-                "action_label": "Apply",
+                "title": f"{'اقتراح ICD بمساعدة الذكاء الاصطناعي' if is_arabic(language) else 'AI-assisted ICD suggestion'} {suggestion['code']}",
+                "description": (
+                    f"قد تدعم العبارة '{suggestion['phrase']}' الرمز {suggestion['code']}. {clinician_review(language)}."
+                    if is_arabic(language)
+                    else f"Phrase '{suggestion['phrase']}' may support {suggestion['code']}. Requires clinician review."
+                ),
+                "action_label": apply_label(language),
                 "status": "pending",
             }
         )
@@ -811,9 +831,9 @@ def analyze_transcript_chunk(
             {
                 "id": f"ncci-{conflict['cpt_a']}-{conflict['cpt_b']}",
                 "type": "alert",
-                "title": "Modifier 59 Required",
+                "title": modifier59_title(language),
                 "description": conflict["explanation"],
-                "action_label": "Apply",
+                "action_label": apply_label(language),
                 "status": "pending",
             }
         )
@@ -825,7 +845,7 @@ def analyze_transcript_chunk(
                 "type": "modifier",
                 "title": suggestion["title"],
                 "description": suggestion["description"],
-                "action_label": "Apply",
+                "action_label": apply_label(language),
                 "status": "pending",
                 "codes": suggestion["codes"],
                 "body_region": suggestion["body_region"],
@@ -839,12 +859,32 @@ def analyze_transcript_chunk(
             {
                 "id": f"protocol-review-{normalize_text(symptoms[0]).replace(' ', '-')[:24]}",
                 "type": "protocol",
-                "title": "Protocol Ask",
-                "description": f"Clarify functional impact for {symptoms[0].lower()} before closing the note.",
-                "action_label": "Apply",
+                "title": "سؤال البروتوكول" if is_arabic(language) else "Protocol Ask",
+                "description": (
+                    f"وضّح الأثر الوظيفي لـ {symptoms[0]} قبل إغلاق الملاحظة."
+                    if is_arabic(language)
+                    else f"Clarify functional impact for {symptoms[0].lower()} before closing the note."
+                ),
+                "action_label": apply_label(language),
                 "status": "pending",
             }
         )
+
+    if is_arabic(language):
+        summary = (
+            f"تمت مراجعة المقطع {start_time}-{end_time}: {clean_text[:220]}{'...' if len(clean_text) > 220 else ''}"
+            if clean_text
+            else "لم يتم التقاط كلام سريري مفيد في هذا المقطع."
+        )
+        billing_hints = [
+            f"راجع متطلبات توثيق {suggestion['code']} {translate_cpt_display_name(suggestion['code'], suggestion.get('display_name'), language)}."
+            for suggestion in cpt_suggestions[:4]
+        ] or ["لم يتم اكتشاف صلة محددة بـ CPT أو الفوترة في هذا المقطع"]
+        symptoms = symptoms or ["لم يتم اكتشاف كلمات أعراض واضحة"]
+        impressions = impressions or ["لم يتم اكتشاف انطباع سريري محدد من هذا المقطع"]
+        for suggestion in cpt_suggestions:
+            suggestion["display_name"] = translate_cpt_display_name(suggestion.get("code"), suggestion.get("display_name"), language)
+            suggestion["reason"] = f"تم ربط التفريغ بالرمز {suggestion.get('code')}. {clinician_review(language)}."
 
     return {
         "summary": summary,
@@ -855,10 +895,19 @@ def analyze_transcript_chunk(
         "cpt_suggestions": cpt_suggestions,
         "ncci_conflicts": ncci_conflicts,
         "symptoms": symptoms or ["No clear symptom keywords detected"],
-        "soap_update": _soap_update(symptoms, impressions, cpt_suggestions, body_regions),
+        "soap_update": (
+            {
+                "subjective": "تمت مراجعة تفاصيل المريض المبلغ عنها في هذا المقطع.",
+                "objective": "تمت مراجعة مراجع الحركة أو العلاج المكتشفة من الكلام.",
+                "assessment": "انطباعات سريرية محتملة لمراجعة الطبيب.",
+                "plan": "ينبغي للطبيب مراجعة اقتراحات ICD/CPT وتحذيرات NCCI قبل الاستخدام.",
+            }
+            if is_arabic(language)
+            else _soap_update(symptoms, impressions, cpt_suggestions, body_regions)
+        ),
         "billing_hints": billing_hints or ["No specific CPT or billing relevance detected in this segment"],
         "confidence": confidence,
-        "disclaimer": DISCLAIMER,
+        "disclaimer": "الاقتراحات المدعومة بالذكاء الاصطناعي تتطلب مراجعة الطبيب." if is_arabic(language) else DISCLAIMER,
         "cpt_timer_suggestion": cpt_timer_suggestion,
         "cpt_timer_suggestions": cpt_timer_suggestions,
         "modifier59_suggestions": cpt_detection.get("modifier59_suggestions", []),

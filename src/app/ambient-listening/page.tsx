@@ -121,7 +121,7 @@ export default function AmbientListeningPage() {
   const [sessionItems, setSessionItems] = useState<UpcomingSession[]>(sessions);
   const [now, setNow] = useState<Date | null>(null);
   const { selectedDoctor } = useSelectedDoctor();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const speechSession = useMedexaLiveSession();
   const lastVoiceCommandRef = useRef("");
   const lastVoiceCommandAtRef = useRef(0);
@@ -133,20 +133,20 @@ export default function AmbientListeningPage() {
       return "";
     }
 
-    const date = new Intl.DateTimeFormat("en-US", {
+    const date = new Intl.DateTimeFormat(language, {
       weekday: "long",
       month: "short",
       day: "2-digit",
       year: "numeric",
     }).format(now);
-    const time = new Intl.DateTimeFormat("en-US", {
+    const time = new Intl.DateTimeFormat(language, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
     }).format(now);
 
     return `${date} • ${time}`;
-  }, [now]);
+  }, [language, now]);
   const greeting = useMemo(() => {
     if (!now) {
       return "";
@@ -154,16 +154,16 @@ export default function AmbientListeningPage() {
 
     const hour = now.getHours();
     if (hour >= 5 && hour < 12) {
-      return "Good Morning";
+      return t("common.goodMorning");
     }
     if (hour >= 12 && hour < 17) {
-      return "Good Afternoon";
+      return t("common.goodAfternoon");
     }
     if (hour >= 17 && hour < 21) {
-      return "Good Evening";
+      return t("common.goodEvening");
     }
-    return "Good Night";
-  }, [now]);
+    return t("common.goodNight");
+  }, [now, t]);
 
   useEffect(() => {
     const updateNow = () => setNow(new Date());
@@ -226,7 +226,7 @@ export default function AmbientListeningPage() {
 
   const startSessionFromVoice = (session: UpcomingSession) => {
     setSessionMessage(`${t("ambient.openingSession")} ${session.name}`);
-    setVoiceCommandMessage("Medexa voice command detected.");
+    setVoiceCommandMessage(t("session.detectedSelected"));
     setActiveSessionId(session.id);
     medexaApi.startSession({
       patient_id: session.id,
@@ -243,7 +243,7 @@ export default function AmbientListeningPage() {
 
   useEffect(() => {
     if (speechSession.permissionStatus === "unsupported" || speechSession.triggerPermissionStatus === "unsupported") {
-      setVoiceCommandMessage("Voice recognition is supported in Chrome/Edge. Please use a supported browser.");
+      setVoiceCommandMessage(t("session.webSpeechUnsupported"));
       return;
     }
 
@@ -253,12 +253,12 @@ export default function AmbientListeningPage() {
       speechSession.triggerPermissionStatus === "required" ||
       speechSession.permissionError
     ) {
-      setVoiceCommandMessage("Microphone permission is required for Medexa voice commands.");
+      setVoiceCommandMessage(t("session.voiceMicrophoneRequired"));
       return;
     }
 
     if (speechSession.permissionStatus === "granted") {
-      setVoiceCommandMessage("Medexa voice commands are listening.");
+      setVoiceCommandMessage(t("session.listening"));
     }
   }, [
     speechSession.permissionError,
@@ -442,7 +442,7 @@ export default function AmbientListeningPage() {
           ? {
               ...item,
               status: "SUMMARIZED",
-              summary: `${item.name}'s session summary was generated from the transcript and is ready for review.`,
+              summary: t("ambient.generatedSummary", { patientName: item.name }),
             }
           : item,
       ),
@@ -538,7 +538,7 @@ export default function AmbientListeningPage() {
                   <button
                     type="button"
                     className="session-action"
-                    aria-label={`Open ${session.name} session`}
+                    aria-label={t("ambient.sessionAria", { patientName: session.name })}
                     onClick={(event) => {
                       event.stopPropagation();
                       if (sessionDragRef.current.moved) {
@@ -728,7 +728,7 @@ export default function AmbientListeningPage() {
                   <p>{selectedTranscript.summary}</p>
                 </div>
                 <div>
-                  <h4>Transcript</h4>
+                  <h4>{t("ambient.transcript")}</h4>
                   <p>{selectedTranscript.transcript}</p>
                 </div>
               </div>

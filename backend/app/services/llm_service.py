@@ -5,6 +5,8 @@ import os
 import time
 import urllib.error
 import urllib.request
+
+from app.services.localization import clinician_review, fallback_soap_text, is_arabic, translate_cpt_display_name
 from typing import Any
 
 
@@ -130,6 +132,7 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
         else:
             print("[Medexa LLM] Falling back to deterministic SOAP generation.")
     transcript = " ".join(str(payload.get("transcript", "")).split())
+    language = payload.get("language", "en")
     cpt_records = payload.get("cpt_records") or []
     detected_cpts = payload.get("detected_cpt_suggestions") or []
     detected_icds = payload.get("detected_icd10_suggestions") or []
@@ -153,13 +156,18 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     duration = _detect_duration(transcript)
 
     cpt_lines = [
-        f"{record.get('code')} {record.get('displayName') or record.get('display_name') or ''} "
-        f"for {int(record.get('seconds') or 0)} seconds, {int(record.get('units') or 0)} unit(s)"
+        (
+            f"{record.get('code')} {translate_cpt_display_name(str(record.get('code') or ''), record.get('displayName') or record.get('display_name') or '', language)} "
+            f"لمدة {int(record.get('seconds') or 0)} ثانية، {int(record.get('units') or 0)} وحدة"
+            if is_arabic(language)
+            else f"{record.get('code')} {record.get('displayName') or record.get('display_name') or ''} "
+            f"for {int(record.get('seconds') or 0)} seconds, {int(record.get('units') or 0)} unit(s)"
+        )
         for record in cpt_records
         if record.get("code")
     ]
     suggested_cpts = [
-        f"{item.get('code')} {item.get('display_name', '')}".strip()
+        f"{item.get('code')} {translate_cpt_display_name(str(item.get('code') or ''), item.get('display_name', ''), language)}".strip()
         for item in detected_cpts
         if item.get("code")
     ]
@@ -174,7 +182,7 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
     ]
 
     transcript_excerpt = transcript[:600]
-    insufficient_transcript_message = "Insufficient transcript captured for this session"
+    insufficient_transcript_message = fallback_soap_text("insufficient", language)
     billing_summary = {
         "total_seconds": total_seconds,
         "cpt_records": cpt_records,
@@ -202,9 +210,11 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
         label = record.get("displayName") or record.get("display_name") or record.get("code")
         if label:
             activity_terms.append(str(label))
-    activity_summary = ", ".join(dict.fromkeys(activity_terms)) or "therapy activities require clinician review"
+    activity_summary = ", ".join(dict.fromkeys(activity_terms)) or (
+        "تتطلب الأنشطة العلاجية مراجعة الطبيب" if is_arabic(language) else "therapy activities require clinician review"
+    )
     chief_complaint = (
-        f"Patient reports {chief_phrase}"
+        (f"يفيد المريض بـ {chief_phrase}" if is_arabic(language) else f"Patient reports {chief_phrase}")
         if chief_phrase
         else transcript[:180] or insufficient_transcript_message
     )
@@ -218,28 +228,28 @@ def _fallback_soap(payload: dict, reason: str = "", log: bool = True) -> dict:
         "subjective": transcript_excerpt or insufficient_transcript_message,
         "objective": " ".join(
             [
-                "AI-assisted session draft based on live transcript and clinician actions.",
-                f"Objective therapy activities documented: {activity_summary}.",
-                f"Applied CPT records: {'; '.join(cpt_lines) or 'None applied'}.",
-                f"Approved insights: {_as_text(approved_insights) or 'None'}.",
-                f"Applied suggestions: {_as_text(applied_suggestions) or 'None'}.",
+                fallback_soap_text("draft", language),
+                (f"الأنشطة العلاجية الموضوعية الموثقة: {activity_summary}." if is_arabic(language) else f"Objective therapy activities documented: {activity_summary}."),
+                (f"سجلات CPT المطبقة: {'; '.join(cpt_lines) or fallback_soap_text('none', language)}." if is_arabic(language) else f"Applied CPT records: {'; '.join(cpt_lines) or 'None applied'}."),
+                (f"الرؤى المعتمدة: {_as_text(approved_insights) or fallback_soap_text('none', language)}." if is_arabic(language) else f"Approved insights: {_as_text(approved_insights) or 'None'}."),
+                (f"الاقتراحات المطبقة: {_as_text(applied_suggestions) or fallback_soap_text('none', language)}." if is_arabic(language) else f"Applied suggestions: {_as_text(applied_suggestions) or 'None'}."),
             ]
         ),
         "assessment": " ".join(
             [
-                "Clinical impression / working assessment only; clinician review required.",
-                f"Suggested ICD-10: {', '.join(suggested_icds[:5]) or 'None detected'}.",
-                f"Suggested CPT: {', '.join(suggested_cpts[:5]) or 'None detected'}.",
-                f"NCCI / billing caveats: {' '.join(ncci_notes[:3]) or 'None detected'}.",
+                fallback_soap_text("assessment", language),
+                (f"ICD-10 المقترح: {', '.join(suggested_icds[:5]) or fallback_soap_text('none', language)}." if is_arabic(language) else f"Suggested ICD-10: {', '.join(suggested_icds[:5]) or 'None detected'}."),
+                (f"CPT المقترح: {', '.join(suggested_cpts[:5]) or fallback_soap_text('none', language)}." if is_arabic(language) else f"Suggested CPT: {', '.join(suggested_cpts[:5]) or 'None detected'}."),
+                (f"ملاحظات NCCI / الفوترة: {' '.join(ncci_notes[:3]) or fallback_soap_text('none', language)}." if is_arabic(language) else f"NCCI / billing caveats: {' '.join(ncci_notes[:3]) or 'None detected'}."),
             ]
         ),
-        "plan": "Clinician should review transcript-derived SOAP content, CPT/ICD suggestions, documentation support, and billing caveats before signing or billing.",
-        "diagnosis_summary": "Working clinical impression only; suggested diagnoses require clinician review.",
-        "observation_notes": f"Therapy activities observed or documented from transcript: {activity_summary}.",
-        "range_of_motion": "Range of motion referenced in transcript." if "range of motion" in normalized_transcript else "Requires clinician review",
-        "affect": "Requires clinician review",
-        "vital_signs": "Requires clinician review",
-        "summary": "AI-assisted SOAP draft generated from the live session. AI-assisted suggestions require clinician review.",
+        "plan": fallback_soap_text("plan", language),
+        "diagnosis_summary": fallback_soap_text("diagnosis", language),
+        "observation_notes": (f"الأنشطة العلاجية المرصودة أو الموثقة من التفريغ: {activity_summary}." if is_arabic(language) else f"Therapy activities observed or documented from transcript: {activity_summary}."),
+        "range_of_motion": ("تمت الإشارة إلى مدى الحركة في التفريغ." if is_arabic(language) else "Range of motion referenced in transcript.") if "range of motion" in normalized_transcript else clinician_review(language),
+        "affect": clinician_review(language),
+        "vital_signs": clinician_review(language),
+        "summary": fallback_soap_text("summary", language),
         "billing_summary": billing_summary,
     }
 
@@ -249,7 +259,14 @@ def generate_fallback_soap(payload: dict, reason: str = "deterministic_fallback"
 
 
 def _soap_to_prompt(payload: dict) -> str:
+    language = payload.get("language", "en")
+    language_instruction = (
+        "Generate the SOAP note in Arabic clinical documentation. Keep CPT, ICD, MRN, patient IDs, and URLs unchanged. "
+        if is_arabic(language)
+        else "Generate the SOAP note in English. "
+    )
     return (
+        language_instruction +
         "Generate a concise SOAP note from the supplied JSON only. Do not invent facts or confirm diagnosis. "
         "Return compact strict JSON with keys subjective, objective, assessment, plan, summary, billing_summary, "
         "chief_complaint, pain_scale, duration, diagnosis_summary, observation_notes, range_of_motion, affect, vital_signs. "

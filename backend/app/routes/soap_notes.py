@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app import data
 from app.data import get_soap_note, save_soap_note
@@ -8,9 +8,9 @@ router = APIRouter(prefix="/soap-notes", tags=["soap-notes"])
 
 
 @router.get("/{session_id}")
-def get_soap_notes(session_id: str) -> dict:
+def get_soap_notes(session_id: str, language: str = Query("en")) -> dict:
     print("[SOAP GET FILE STORE] requested:", session_id)
-    note = get_soap_note(session_id)
+    note = get_soap_note(session_id, language)
     print("[SOAP GET FILE STORE] found:", bool(note))
     if note:
         return note
@@ -18,9 +18,9 @@ def get_soap_notes(session_id: str) -> dict:
 
 
 @router.put("/{session_id}")
-def update_soap_notes(session_id: str, payload: SoapNotesPayload) -> dict:
+def update_soap_notes(session_id: str, payload: SoapNotesPayload, language: str = Query("en")) -> dict:
     data.ensure_session(session_id)
-    saved = save_soap_note(session_id, payload.model_dump())
+    saved = save_soap_note(session_id, payload.model_dump(), language)
     data.generated_soap_session_ids.add(session_id)
     return saved
 

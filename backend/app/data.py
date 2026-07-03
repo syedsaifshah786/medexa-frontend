@@ -108,9 +108,20 @@ def save_soap_notes_store(store: dict) -> None:
     store_file.write_text(json.dumps(store, indent=2, default=str), encoding="utf-8")
 
 
-def save_soap_note(session_id: str, payload: dict) -> dict:
+def save_soap_note(session_id: str, payload: dict, language: str = "en") -> dict:
     store = load_soap_notes_store()
-    store[session_id] = payload
+    existing = store.get(session_id)
+    if isinstance(existing, dict) and "by_language" in existing:
+        next_entry = existing
+    elif isinstance(existing, dict):
+        next_entry = {"by_language": {"en": existing}}
+    else:
+        next_entry = {"by_language": {}}
+
+    next_entry["by_language"][language] = payload
+    next_entry.update(payload)
+    next_entry["language"] = language
+    store[session_id] = next_entry
     SOAP_NOTES_STORE.clear()
     SOAP_NOTES_STORE.update(store)
     save_soap_notes_store(store)
@@ -122,11 +133,14 @@ def save_soap_note(session_id: str, payload: dict) -> dict:
     return payload
 
 
-def get_soap_note(session_id: str) -> dict | None:
+def get_soap_note(session_id: str, language: str = "en") -> dict | None:
     store = load_soap_notes_store()
     SOAP_NOTES_STORE.clear()
     SOAP_NOTES_STORE.update(store)
-    return store.get(session_id)
+    entry = store.get(session_id)
+    if isinstance(entry, dict) and isinstance(entry.get("by_language"), dict):
+        return entry["by_language"].get(language) or entry["by_language"].get("en") or next(iter(entry["by_language"].values()), None)
+    return entry
 
 
 def get_soap_store_debug() -> dict:

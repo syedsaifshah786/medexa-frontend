@@ -140,6 +140,43 @@ select:focus-visible,
   box-shadow: 0 8px 18px rgba(34, 197, 94, 0.11);
 }
 
+html[dir="rtl"] body {
+  text-align: right;
+}
+
+html[dir="rtl"] input,
+html[dir="rtl"] textarea,
+html[dir="rtl"] select {
+  text-align: right;
+}
+
+html[dir="rtl"] [dir="ltr"],
+html[dir="rtl"] code,
+html[dir="rtl"] .metric-card strong,
+html[dir="rtl"] .patient-meta strong {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir="rtl"] .tabs .claim-link,
+html[dir="rtl"] .medexa-actions {
+  margin-right: auto;
+  margin-left: 0;
+}
+
+html[dir="rtl"] .review-actions,
+html[dir="rtl"] .cpt-actions,
+html[dir="rtl"] .cpt-form-actions,
+html[dir="rtl"] .stop-confirm-actions,
+html[dir="rtl"] .procedure-popup-actions {
+  justify-content: flex-start;
+}
+
+html[dir="rtl"] .procedure-popup {
+  border-right-width: 5px;
+  border-left-width: 1px;
+}
+
 @media (max-width: 760px) {
   .content,
   .soap-content,

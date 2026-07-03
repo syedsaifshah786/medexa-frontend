@@ -21,6 +21,7 @@ import { setActiveSessionId } from "@/lib/activeSession";
 import { analyzeClinicalTranscript, type ClinicalAnalysis } from "@/lib/clinicalAnalyzer";
 import { detectCptFromText } from "@/lib/cptDetector";
 import { getSessionById } from "@/lib/sessions";
+import { formatUnits, translateCptDisplayName } from "@/lib/translations";
 import { detectMedexaCommand } from "@/lib/voiceCommands";
 import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
 
@@ -602,12 +603,50 @@ function AmbientSessionContent() {
   const fullTranscriptRef = useRef("");
   const autoStartHandledRef = useRef(false);
   const { updateSoapData } = useSessionDocumentation();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const aiSegmentsStorageKey = useMemo(
     () => `medexa_session_ai_segments_${sessionId}`,
     [sessionId],
   );
   const currentModifierPopup = currentModifier59Popup;
+  const localizeInsight = (item: InsightItem) => {
+    if (item.id === "protocol-check") {
+      return {
+        ...item,
+        tag: t("session.protocolAsk"),
+        text: t("session.protocolWeeklyActivity"),
+        label: t("common.detected"),
+        note: t("session.protocolWeeklyActivity"),
+      };
+    }
+    if (item.id === "manual-techniques") {
+      return {
+        ...item,
+        tag: t("session.protocolAsk"),
+        text: t("session.manualTechniques"),
+        label: t("common.billing"),
+        note: t("session.manualTherapyDetected"),
+      };
+    }
+    return {
+      ...item,
+      tag: item.tag === "Billing" ? t("common.billing") : item.tag === "Protocol Ask" ? t("session.protocolAsk") : item.tag,
+      label: item.label === "Billing" ? t("common.billing") : item.label,
+      note: item.note.replace("Requires clinician review.", t("soap.requiresReview")),
+    };
+  };
+  const localizeSuggestion = (item: SuggestionItem) => {
+    if (item.id === "unit-recorded") {
+      return { ...item, title: t("session.unitRecorded"), text: t("session.unitRecordedText") };
+    }
+    if (item.id === "modifier-59") {
+      return { ...item, title: t("modifier.required"), text: t("billing.potentialBundleConflict", { code: "97110" }) };
+    }
+    if (item.id === "snf-validation") {
+      return { ...item, title: t("session.snfValidationAlert"), text: t("session.snfValidationText") };
+    }
+    return item;
+  };
 
   useEffect(() => {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -1101,16 +1140,22 @@ function AmbientSessionContent() {
       enqueueCptPopups(instantCptSuggestions);
       const localSuggestionItems = instantCptSuggestions.map((suggestion) => ({
         id: `instant-cpt-${suggestion.code}`,
-        title: `Suggested CPT ${suggestion.code}`,
-        text: `${suggestion.display_name ?? suggestion.code} detected from live speech. ${suggestion.reason} Requires clinician review.`,
+        title: t("cpt.suggestedTitle", { code: suggestion.code }),
+        text: t("cpt.detectedFromSpeech", {
+          name: translateCptDisplayName(suggestion.code, suggestion.display_name ?? suggestion.code, language),
+          reason: suggestion.reason,
+        }),
       }));
       const localInsightItems = instantCptSuggestions.map((suggestion) => ({
         id: `instant-cpt-${suggestion.code}`,
-        tag: "Billing",
-        text: `Suggested CPT ${suggestion.code} - ${suggestion.display_name ?? suggestion.code}. Apply to start CPT timer.`,
-        label: "Billing",
+        tag: t("common.billing"),
+        text: t("cpt.applyToStart", {
+          code: suggestion.code,
+          name: translateCptDisplayName(suggestion.code, suggestion.display_name ?? suggestion.code, language),
+        }),
+        label: t("common.billing"),
         tone: "billing",
-        note: `${suggestion.reason} Requires clinician review.`,
+        note: `${suggestion.reason} ${t("soap.requiresReview")}.`,
       }));
 
       setSuggestionItems((items) =>
@@ -1131,6 +1176,7 @@ function AmbientSessionContent() {
     enqueueCptPopups,
     fullTranscript,
     lastHeardText,
+    language,
     recordingStatus,
     speechSession.currentChunkTranscript,
     speechSession.finalTranscript,
@@ -1138,6 +1184,7 @@ function AmbientSessionContent() {
     speechSession.lastHeardText,
     speechSession.liveTranscript,
     manualLiveTranscriptText,
+    t,
   ]);
 
   const createAiSummarySegment = useCallback(
@@ -1171,7 +1218,7 @@ function AmbientSessionContent() {
           applied_suggestions: suggestionItems
             .filter((item) => appliedSuggestions[item.id])
             .map((item) => item.text),
-        });
+        }, language);
         debugLog("[Medexa] backend analysis", backendAnalysis);
         setBackendCptDebugSuggestions(backendAnalysis?.cpt_timer_suggestions ?? []);
         if (backendAnalysis?.cpt_timer_suggestions?.length) {
@@ -1272,8 +1319,11 @@ function AmbientSessionContent() {
         } else if (!backendAnalysis && analysis.cptSuggestions.length > 0) {
           const nextSuggestions = analysis.cptSuggestions.slice(0, 3).map((suggestion) => ({
               id: `local-cpt-${suggestion.code}`,
-              title: `Suggested CPT ${suggestion.code}`,
-              text: `${suggestion.displayName}. ${suggestion.reason} Requires clinician review.`,
+              title: t("cpt.suggestedTitle", { code: suggestion.code }),
+              text: t("cpt.detectedFromSpeech", {
+                name: translateCptDisplayName(suggestion.code, suggestion.displayName, language),
+                reason: suggestion.reason,
+              }),
             }));
           setSuggestionItems((items) =>
             mergeItemsById(
@@ -1285,11 +1335,11 @@ function AmbientSessionContent() {
               .filter((suggestion) => suggestion.id.startsWith("local-cpt-"))
               .map((suggestion) => ({
                 id: suggestion.id,
-                tag: "Billing",
+                tag: t("common.billing"),
                 text: suggestion.text,
-                label: "Billing",
+                label: t("common.billing"),
                 tone: "billing",
-                note: "Procedure detected from live speech. Requires clinician review.",
+                note: t("cpt.suggestedReview"),
               }));
           setInsightItems((items) =>
             mergeItemsById(
@@ -1422,31 +1472,43 @@ function AmbientSessionContent() {
       subjective: {
         chiefComplaint:
           protocolSummary ||
-          `${selectedSession.name} reports persistent fatigue with lower back discomfort during the current ${selectedSession.careType.toLowerCase()} encounter.`,
+          t("session.localSoapSubjective", {
+            patientName: selectedSession.name,
+            careType: selectedSession.careType.toLowerCase(),
+          }),
         painScale: selectedSession.icd.startsWith("M") ? "6" : "4",
         duration: protocolSummary ? "3 weeks" : "Current session",
       },
       objective: {
         observationNotes:
-          `Live session documentation for ${selectedSession.name}: therapeutic activity and clinical prompts were reviewed over ${sessionDuration}. ` +
-          (protocolSummary || "Patient participation and symptom tolerance were monitored during the session."),
+          t("session.localSoapObjective", {
+            patientName: selectedSession.name,
+            duration: sessionDuration,
+          }) +
+          " " +
+          (protocolSummary || t("session.aiDisclaimer")),
         rangeOfMotion: selectedSession.icd.startsWith("M") ? "Lumbar mobility guarded" : "Functional mobility monitored",
         affect: "Alert, cooperative",
         vitalSigns: "Vital signs within normal limits",
       },
       assessment: {
         diagnosisSummary:
-          `${selectedSession.careType} encounter associated with ${selectedSession.icd}. ` +
-          (billingSummary || "Clinical findings support continued monitoring and skilled intervention."),
+          t("session.localSoapAssessment", {
+            careType: selectedSession.careType,
+            icd: selectedSession.icd,
+          }) +
+          " " +
+          (billingSummary || t("session.aiDisclaimer")),
         primaryDiagnosisCode: selectedSession.icd,
         severity: selectedSession.icd.startsWith("M") ? "Moderate" : "Stable",
       },
       plan: {
         followUpPlan:
-          "Continue skilled session documentation, address protocol prompts, and reassess functional tolerance at the next visit. " +
+          t("session.aiDisclaimer") +
+          " " +
           (appliedSuggestionNotes.length > 0
-            ? `Applied recommendations: ${appliedSuggestionNotes.join(" ")}`
-            : "Review billing and diagnosis suggestions before claim creation."),
+            ? t("session.appliedRecommendations", { notes: appliedSuggestionNotes.join(" ") })
+            : t("session.aiDisclaimer")),
       },
     };
 
@@ -1768,7 +1830,7 @@ function AmbientSessionContent() {
       soap_draft: localSoapData,
     };
     debugLog("[Medexa] finalizing SOAP", finalizePayload);
-    const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload);
+    const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload, language);
     debugLog("[Finalize Frontend] response", finalized);
     debugLog("[Medexa] SOAP saved", finalized);
 
@@ -2023,33 +2085,48 @@ function AmbientSessionContent() {
   const nextCptUnit = cptUnits + 1;
   const primaryBannerTitle =
     cptTimer.status === "running" || cptTimer.status === "paused"
-      ? `CPT ${cptCode} ${cptTimer.status === "paused" ? "paused" : "in progress.."}`
+      ? t("session.cptInProgress", {
+          code: cptCode,
+          status: cptTimer.status === "paused" ? t("session.cptPaused") : t("session.cptInProgressStatus"),
+        })
       : recordingStatus === "idle"
-        ? "Medexa is ready"
+        ? t("session.readyToRecord")
       : recordingStatus === "paused"
-        ? "Medexa is paused"
+        ? t("session.recordingPaused")
         : recordingStatus === "stopped"
-          ? "Medexa stopped listening"
-          : "Medexa is listening";
+          ? t("session.recordingStopped")
+          : t("session.listening");
   const primaryBannerSubtext =
     cptTimer.status === "running" || cptTimer.status === "paused"
-      ? "Say Stop Recording..."
+      ? t("session.sayStopRecording")
       : recordingStatus === "idle"
-        ? "Say Hey Medexa start recording."
-        : "Say Stop Recording...";
-  const cptElapsedUnitText = `${formatDuration(cptTimer.seconds)} / ${cptUnits} ${cptUnits === 1 ? "Unit" : "Units"}`;
+        ? t("session.pressPlay")
+        : t("session.sayStopRecording");
+  const cptElapsedUnitText = t("session.unitProgress", {
+    duration: formatDuration(cptTimer.seconds),
+    units: cptUnits,
+    unitLabel: cptUnits === 1 ? t("unit.one") : t("unit.other"),
+  });
   const cptNextUnitText =
     cptTimer.status === "running" || cptTimer.status === "paused" || cptTimer.status === "stopped"
       ? `Unit ${nextCptUnit} at ${formatDuration(cptTimer.nextUnitAtSeconds)} • +${formatDuration(cptTimer.secondsLeftToNextUnit)} left`
-      : "CPT units: 0";
+      : `CPT ${formatUnits(0, language)}`;
+  const localizedCptNextUnitText =
+    cptTimer.status === "running" || cptTimer.status === "paused" || cptTimer.status === "stopped"
+      ? t("session.nextUnit", {
+          unit: nextCptUnit,
+          duration: formatDuration(cptTimer.nextUnitAtSeconds),
+          left: formatDuration(cptTimer.secondsLeftToNextUnit),
+        })
+      : `CPT ${formatUnits(0, language)}`;
   const primaryControlLabel =
     recordingStatus === "recording"
       ? t("common.pause")
       : recordingStatus === "paused"
         ? t("common.resume")
         : recordingStatus === "stopped"
-          ? "Start Recording"
-          : "Start Recording";
+          ? t("common.start")
+          : t("common.start");
   const listeningStatus = !speechSession.isSupported
     ? t("session.unsupported")
     : recordingStatus === "recording" && speechSession.isListening
@@ -2145,7 +2222,7 @@ function AmbientSessionContent() {
                 </>
               )}
             </p>
-            <strong dir="ltr">{cptNextUnitText}</strong>
+            <strong dir="ltr">{localizedCptNextUnitText}</strong>
           </div>
         </section>
 
@@ -2168,7 +2245,7 @@ function AmbientSessionContent() {
           <>
             <div className="voice-debug-line" aria-live="polite">
               <span>{voiceTriggerLabel}</span>
-              {showVoicePermissionMessage && <span>Microphone permission is required for Medexa voice trigger.</span>}
+              {showVoicePermissionMessage && <span>{t("session.voiceMicrophoneRequired")}</span>}
               <span>CPT Detection: {cptDetectionStatus}</span>
             </div>
 
@@ -2301,8 +2378,9 @@ function AmbientSessionContent() {
           <div className="insights-scroll-area">
             <div className="insight-timeline">
             {filteredInsights.map((item) => {
+              const displayItem = localizeInsight(item);
               const itemState = insightStates[item.id] ?? {};
-              const isBilling = item.label === "Billing";
+              const isBilling = item.label === "Billing" || displayItem.label === t("common.billing");
 
               return (
                 <article
@@ -2314,8 +2392,8 @@ function AmbientSessionContent() {
                       itemState.approved ? "is-approved" : ""
                     }`}
                   >
-                    <span className="insight-tag">{item.tag}</span>
-                    <p>{item.text}</p>
+                    <span className="insight-tag">{displayItem.tag}</span>
+                    <p>{displayItem.text}</p>
                   </div>
                   <div className="insight-actions">
                     <button
@@ -2331,7 +2409,7 @@ function AmbientSessionContent() {
                         )
                       }
                     >
-                      {item.label}
+                      {displayItem.label}
                     </button>
                     <button
                       type="button"
@@ -2347,7 +2425,7 @@ function AmbientSessionContent() {
                       × {t("common.ignore")}
                     </button>
                   </div>
-                  <p className="insight-note">{item.note}</p>
+                  <p className="insight-note">{displayItem.note}</p>
                   <div className="insight-state-row">
                     {itemState.approved && <span className="state-badge approved">{t("common.approved")}</span>}
                     {itemState.ignored && <span className="state-badge ignored">{t("common.ignore")}</span>}
@@ -2387,6 +2465,7 @@ function AmbientSessionContent() {
 
             <div className="suggestions-list">
               {filteredSuggestions.map((item) => {
+                const displayItem = localizeSuggestion(item);
                 const isApplied = appliedSuggestions[item.id];
 
                 return (
@@ -2396,9 +2475,9 @@ function AmbientSessionContent() {
                   >
                     <div>
                       <span className="suggestion-dot" />
-                      <h3>{item.title}</h3>
+                      <h3>{displayItem.title}</h3>
                     </div>
-                    <p>{item.text}</p>
+                    <p>{displayItem.text}</p>
                     <button
                       type="button"
                       className={isApplied ? "is-applied" : ""}
@@ -2411,7 +2490,7 @@ function AmbientSessionContent() {
                       className="ignore-suggestion"
                       onClick={() => handleSuggestionIgnore(item.id)}
                     >
-                      Ignore
+                      {t("common.ignore")}
                     </button>
                   </article>
                 );
@@ -2420,7 +2499,7 @@ function AmbientSessionContent() {
               {filteredSuggestions.length === 0 && (
                 <div className="empty-state compact">
                   {recordingStatus === "recording"
-                    ? "Listening for clinical and billing suggestions..."
+                    ? t("session.listeningForSuggestions")
                     : t("session.noSuggestions")}
                 </div>
               )}
@@ -2444,7 +2523,7 @@ function AmbientSessionContent() {
               <div className="speech-alert">{t("session.webSpeechUnsupported")}</div>
             )}
             {speechSession.permissionError && (
-              <div className="speech-alert">Microphone permission is required to continue recording.</div>
+              <div className="speech-alert">{t("startSession.microphoneRequired")}</div>
             )}
 
             {showDebug && (
@@ -2624,7 +2703,7 @@ function AmbientSessionContent() {
                     </div>
 
                     <div className="segment-section">
-                      <h3>NCCI Conflict Warnings</h3>
+                      <h3>{t("session.ncciWarnings")}</h3>
                       {segment.analysis.ncciConflicts.length > 0 ? (
                         <ul>
                           {segment.analysis.ncciConflicts.map((conflict) => (
@@ -2632,13 +2711,13 @@ function AmbientSessionContent() {
                               <strong dir="ltr">
                                 {conflict.cptA} / {conflict.cptB}
                               </strong>{" "}
-                              - {conflict.conflictType}. {conflict.explanation} Modifier 59 possible:{" "}
-                              {conflict.modifier59Possible ? "Yes" : "No"}. Severity: {conflict.severity}.
+                              - {conflict.conflictType}. {conflict.explanation} {t("modifier.required")}:{" "}
+                              {conflict.modifier59Possible ? t("common.approve") : t("common.reject")}. {t("soap.severity")}: {conflict.severity}.
                             </li>
                           ))}
                         </ul>
                       ) : (
-                        <p>No NCCI conflict warnings detected.</p>
+                        <p>{t("session.noNcciWarnings")}</p>
                       )}
                     </div>
                   </div>
@@ -2718,51 +2797,57 @@ function AmbientSessionContent() {
       )}
 
       {currentCptPopup && (
-        <section className="procedure-popup cpt-detected-popup" role="dialog" aria-live="polite" aria-label="Procedure Detected">
+        <section className="procedure-popup cpt-detected-popup" role="dialog" aria-live="polite" aria-label={t("cpt.procedureDetected")}>
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
             <div>
-              <p>Procedure Detected</p>
-              <h2>Starting a therapy procedure?</h2>
+              <p>{t("cpt.procedureDetected")}</p>
+              <h2>{t("cpt.startingProcedure")}</h2>
               <span>
-                Procedure for {currentCptPopup.code}
-                {currentCptPopup.display_name || currentCptPopup.displayName
-                  ? ` - ${currentCptPopup.display_name || currentCptPopup.displayName}`
-                  : ""} detected. Start CPT record for the session?
+                {t("cpt.procedureDescription", {
+                  code: currentCptPopup.code,
+                  name: currentCptPopup.display_name || currentCptPopup.displayName
+                    ? ` - ${translateCptDisplayName(currentCptPopup.code, currentCptPopup.display_name || currentCptPopup.displayName, language)}`
+                    : "",
+                })}
               </span>
-              <small>Suggested CPT. Requires clinician review.</small>
+              <small>{t("cpt.suggestedReview")}</small>
             </div>
           </div>
           <div className="procedure-popup-actions">
             <button type="button" onClick={rejectCptSuggestion}>
-              Reject
+              {t("common.reject")}
             </button>
             <button type="button" onClick={() => startCptTimerFromSuggestion("ai_suggested", currentCptPopup)}>
-              Apply
+              {t("common.apply")}
             </button>
           </div>
         </section>
       )}
 
       {currentModifierPopup && (
-        <section className="procedure-popup modifier-popup" role="dialog" aria-live="polite" aria-label="Modifier 59 Required">
+        <section className="procedure-popup modifier-popup" role="dialog" aria-live="polite" aria-label={t("modifier.required")}>
           <div className="procedure-popup-left">
             <span className="procedure-popup-dot" aria-hidden="true" />
             <div>
-              <p>Modifier Review</p>
-              <h2>{currentModifierPopup.title}</h2>
-              <span>{currentModifierPopup.description}</span>
+              <p>{t("modifier.review")}</p>
+              <h2>{language === "ar" ? t("modifier.required") : currentModifierPopup.title}</h2>
+              <span>
+                {language === "ar"
+                  ? t("modifier.sameRegion", { bodyRegion: currentModifierPopup.body_region })
+                  : currentModifierPopup.description}
+              </span>
               <small>Codes: {currentModifierPopup.codes.join(", ")}</small>
               <small>Region: {currentModifierPopup.body_region}</small>
-              <small>AI-assisted modifier suggestion. Requires clinician review.</small>
+              <small>{t("modifier.aiReview")}</small>
             </div>
           </div>
           <div className="procedure-popup-actions">
             <button type="button" onClick={() => handleModifier59Ignore(currentModifierPopup)}>
-              Ignore
+              {t("common.ignore")}
             </button>
             <button type="button" onClick={() => handleModifier59Apply(currentModifierPopup)}>
-              Apply
+              {t("common.apply")}
             </button>
           </div>
         </section>

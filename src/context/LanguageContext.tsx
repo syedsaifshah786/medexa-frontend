@@ -1,14 +1,20 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { type Language, type TranslationKey, translations } from "@/lib/translations";
+import {
+  getDirection,
+  type Language,
+  type TranslationKey,
+  type TranslationParams,
+  translate,
+} from "@/lib/translations";
 
 type Direction = "ltr" | "rtl";
 
 type LanguageContextValue = {
   language: Language;
   setLanguage: (language: Language) => void;
-  t: (key: TranslationKey) => string;
+  t: (key: TranslationKey, params?: TranslationParams) => string;
   direction: Direction;
 };
 
@@ -21,7 +27,7 @@ const isLanguage = (value: string | null): value is Language =>
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
 
-  const direction: Direction = language === "en" ? "ltr" : "rtl";
+  const direction: Direction = getDirection(language);
 
   useEffect(() => {
     const storedLanguage = window.localStorage.getItem(STORAGE_KEY);
@@ -46,7 +52,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       language,
       setLanguage,
       direction,
-      t: (key) => translations[language][key] ?? translations.en[key] ?? key,
+      t: (key, params) => translate(language, key, params),
     }),
     [direction, language],
   );

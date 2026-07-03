@@ -7,6 +7,7 @@ import { medexaApi } from "@/lib/api";
 import { setActiveSessionId } from "@/lib/activeSession";
 import { getSessionById } from "@/lib/sessions";
 import { useMedexaLiveSession } from "@/providers/MedexaLiveSessionProvider";
+import { useLanguage } from "@/context/LanguageContext";
 
 const REDIRECT_SECONDS = 6;
 
@@ -23,6 +24,7 @@ function StartSessionContent() {
   const searchParams = useSearchParams();
   const { selectedDoctor } = useSelectedDoctor();
   const liveSession = useMedexaLiveSession();
+  const { t } = useLanguage();
   const [hasStartedRedirect, setHasStartedRedirect] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const autoStartHandledRef = useRef(false);
@@ -38,8 +40,8 @@ function StartSessionContent() {
     liveSession.triggerPermissionStatus === "required" ||
     Boolean(liveSession.permissionError);
   const commandText = isVoiceFlow
-    ? `Hey Medexa, start a new session with ${selectedSession.name}`
-    : `Start a new session with ${selectedSession.name}`;
+    ? t("startSession.voiceCommand", { patientName: selectedSession.name })
+    : t("startSession.manualCommand", { patientName: selectedSession.name });
 
   const beginRecording = useCallback(async () => {
     if (isStarting || hasStartedRedirect) {
@@ -125,13 +127,13 @@ function StartSessionContent() {
         </div>
 
         <div className="status-section">
-          <h1>Starting the Session...</h1>
-          <p>Syncing Patient Context...</p>
+          <h1>{t("startSession.starting")}</h1>
+          <p>{t("startSession.syncing")}</p>
         </div>
 
         {hasMicWarning && (
           <div className="permission-card">
-            Microphone permission is required to continue recording.
+            {t("startSession.microphoneRequired")}
           </div>
         )}
       </section>

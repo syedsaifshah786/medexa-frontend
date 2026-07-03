@@ -6,6 +6,7 @@ import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
+import { formatDateTime, translateCptDisplayName } from "@/lib/translations";
 
 type CptStatus = "pending" | "approved" | "rejected";
 
@@ -74,7 +75,7 @@ export default function BillingIntelligencePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formValues, setFormValues] = useState<CptForm>(emptyCptForm);
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -206,7 +207,7 @@ export default function BillingIntelligencePage() {
 
           <div className="meta-row">
             <p>
-              <strong>July 05, 12:00 PM</strong>
+              <strong>{formatDateTime("2026-07-05T12:00:00", language)}</strong>
             </p>
             <p>
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
@@ -238,7 +239,7 @@ export default function BillingIntelligencePage() {
               <article className="metric-card">
                 <p>{t("billing.sessionTime")}</p>
                 <strong dir="ltr">{sessionDuration}</strong>
-                <span>+ 1 Threshold&nbsp;&nbsp; $11,091/$2,330</span>
+                <span>{t("billing.threshold")}</span>
               </article>
               <article className="metric-card">
                 <div className="metric-heading">
@@ -246,7 +247,7 @@ export default function BillingIntelligencePage() {
                   <span>ⓘ</span>
                 </div>
                 <strong dir="ltr">{sessionUnits} {t("session.units")}</strong>
-                <em>8 Minute Rule</em>
+                <em>{t("billing.eightMinuteRule")}</em>
               </article>
             </div>
           </section>
@@ -316,10 +317,10 @@ export default function BillingIntelligencePage() {
                   <div className="cpt-topline">
                     <div>
                       <h3>
-                        {item.code} - {item.title}
+                        {item.code} - {translateCptDisplayName(item.code, item.title, language)}
                       </h3>
                       <p>
-                        Unit(s): {item.units}&nbsp;&nbsp;&nbsp; {t("common.duration")}: {item.duration}
+                        {t("billing.unitDuration", { units: item.units, duration: item.duration })}
                       </p>
                     </div>
 
@@ -329,11 +330,15 @@ export default function BillingIntelligencePage() {
                           {item.status === "approved" ? t("common.approved") : t("common.rejected")}
                         </span>
                       )}
-                      {item.warning && <span className="modifier-badge">{item.warning}</span>}
+                      {item.warning && (
+                        <span className="modifier-badge">
+                          {item.warning === "Modifier 59 Required" ? t("modifier.required") : item.warning}
+                        </span>
+                      )}
                       <button
                         className="edit-button"
                         type="button"
-                        aria-label={`Edit ${item.code}`}
+                        aria-label={`${t("common.edit")} ${item.code}`}
                         onClick={() => openEditForm(item)}
                       >
                         ✎
@@ -365,8 +370,8 @@ export default function BillingIntelligencePage() {
 
           <section className="snf-section">
             <h2>{t("billing.snfFunctionalLogic")}</h2>
-            <p>Section GG — Patient Assist Level (MDS 3.0)</p>
-            <strong>3 - Partial</strong>
+            <p>{t("billing.sectionGg")}</p>
+            <strong>{t("billing.partial")}</strong>
 
             <div className="range-wrap">
               <div className="range-track">

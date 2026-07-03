@@ -8,6 +8,7 @@ import type {
   NcciConflict,
 } from "@/lib/clinicalAnalyzer";
 import type { UpcomingSession } from "@/lib/sessions";
+import type { Language } from "@/lib/translations";
 
 export type ApiSession = {
   id: string;
@@ -183,6 +184,7 @@ export type ApiCptRecord = {
 export type ApiFinalizeSessionPayload = {
   transcript: string;
   total_seconds: number;
+  language?: Language;
   cpt_timer?: {
     active: boolean;
     code: string | null;
@@ -413,19 +415,21 @@ export const medexaApi = {
       cpt_records?: ApiCptRecord[];
       approved_insights?: string[];
       applied_suggestions?: string[];
+      language?: Language;
     },
+    language?: Language,
   ) =>
     request<ApiTranscriptAnalysis>(`/sessions/${encodeURIComponent(sessionId)}/analyze-transcript-chunk`, {
       method: "POST",
-      body,
+      body: { ...body, language: language ?? body.language ?? "en" },
     }),
-  finalizeSession: (sessionId: string, body: ApiFinalizeSessionPayload) =>
+  finalizeSession: (sessionId: string, body: ApiFinalizeSessionPayload, language?: Language) =>
     request<ApiFinalizeSessionResponse>(`/sessions/${encodeURIComponent(sessionId)}/finalize-session`, {
       method: "POST",
-      body,
+      body: { ...body, language: language ?? body.language ?? "en" },
     }),
-  getSoapNote: (sessionId: string) =>
-    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}`),
+  getSoapNote: (sessionId: string, language: Language = "en") =>
+    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}?language=${encodeURIComponent(language)}`),
   transcribeAudio: async (sessionId: string, file: File) => {
     if (!API_BASE_URL) {
       return null;
@@ -468,10 +472,10 @@ export const medexaApi = {
     request<ApiSuggestion>(`/sessions/${encodeURIComponent(sessionId)}/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
       method: "POST",
     }),
-  soapNotes: (sessionId: string) =>
-    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}`),
-  updateSoapNotes: (sessionId: string, body: SoapData) =>
-    request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}`, {
+  soapNotes: (sessionId: string, language: Language = "en") =>
+    request<ApiSoapNoteResponse>(`/soap-notes/${encodeURIComponent(sessionId)}?language=${encodeURIComponent(language)}`),
+  updateSoapNotes: (sessionId: string, body: SoapData, language: Language = "en") =>
+    request<SoapData>(`/soap-notes/${encodeURIComponent(sessionId)}?language=${encodeURIComponent(language)}`, {
       method: "PUT",
       body,
     }),

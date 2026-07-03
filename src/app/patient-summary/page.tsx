@@ -7,9 +7,12 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
+import { formatDateTime } from "@/lib/translations";
 
 const summaryText =
   "On June 18, 2026, Samuel completed session 4 of 12 with Dr. Sarah Miller, focusing on gait training and therapeutic exercises to support lower back pain, reduce fatigue, and improve strength and balance. He performed well and needed some movement assistance, which is normal at this stage of care. His knee flexibility improved by 15° compared with the baseline session. Next steps include a lipid panel follow-up with the primary care physician due in December 2026, continuing therapy sessions on Monday, Wednesday, and Friday, tracking pain daily in the pain diary, and completing home exercises including seated marches and heel raises.";
+const summaryTextAr =
+  "في 18 يونيو 2026، أكمل Samuel الجلسة 4 من 12 مع Dr. Sarah Miller، مع التركيز على تدريب المشي والتمارين العلاجية لدعم ألم أسفل الظهر وتقليل التعب وتحسين القوة والتوازن. أظهر أداء جيدا واحتاج إلى بعض المساعدة في الحركة، وهذا متوقع في هذه المرحلة من الرعاية. تحسنت مرونة الركبة بمقدار 15 درجة مقارنة بجلسة خط الأساس. تشمل الخطوات التالية متابعة تحليل الدهون مع طبيب الرعاية الأولية في ديسمبر 2026، والاستمرار في جلسات العلاج أيام الاثنين والأربعاء والجمعة، وتتبع الألم يوميا في دفتر الألم، وإكمال تمارين المنزل مثل رفع الركبتين أثناء الجلوس ورفع الكعبين.";
 
 export default function PatientSummaryPage() {
   const [headerSearch, setHeaderSearch] = useState("");
@@ -20,7 +23,17 @@ export default function PatientSummaryPage() {
   const [actionStatus, setActionStatus] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+
+  useEffect(() => {
+    if (hasGeneratedDocumentation || isEditing) {
+      return;
+    }
+
+    const localizedSummary = language === "ar" ? summaryTextAr : summaryText;
+    setSummaryNote(localizedSummary);
+    setDraftNote(localizedSummary);
+  }, [hasGeneratedDocumentation, isEditing, language]);
 
   useEffect(() => {
     const activeSessionId = getActiveSessionId();
@@ -125,7 +138,7 @@ export default function PatientSummaryPage() {
 
           <div className="meta-row">
             <p>
-              <strong>July 05, 12:00 PM</strong>
+              <strong>{formatDateTime("2026-07-05T12:00:00", language)}</strong>
             </p>
             <p>
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>

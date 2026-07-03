@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app import data
 from app.schemas import TranscriptChunkAnalysisRequest
+from app.services.localization import apply_label, modifier59_title
 from app.services.rule_engine import analyze_transcript_chunk, detect_ncci_conflicts
 
 router = APIRouter(prefix="/sessions", tags=["session-transcript-analysis"])
@@ -18,6 +19,7 @@ def analyze_session_transcript_chunk(session_id: str, payload: TranscriptChunkAn
         payload.end_time,
         payload.cpt_records,
         payload.full_transcript,
+        payload.language,
     )
     print("[Analyze] CPT suggestions:", analysis.get("cpt_timer_suggestions", []))
     print("[Analyze] Modifier 59 suggestions:", analysis.get("modifier59_suggestions", []))
@@ -38,9 +40,9 @@ def analyze_session_transcript_chunk(session_id: str, payload: TranscriptChunkAn
                 {
                     "id": suggestion_id,
                     "type": "alert",
-                    "title": "Modifier 59 Required",
+                    "title": modifier59_title(payload.language),
                     "description": conflict["explanation"],
-                    "action_label": "Apply",
+                    "action_label": apply_label(payload.language),
                     "status": "pending",
                 }
             )

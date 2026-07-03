@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
+import { formatUnits } from "@/lib/translations";
 
 type CptItem = {
   id: string;
@@ -120,7 +121,7 @@ export default function ClaimDocumentPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
 
   const query = headerSearch.trim().toLowerCase();
 
@@ -206,7 +207,7 @@ export default function ClaimDocumentPage() {
     };
 
     if (!nextItem.code || !nextItem.description || !nextItem.units || !nextItem.duration) {
-      setStatusMessage(`${t("billing.addCpt")}: ${t("billing.cptCode")}, ${t("billing.description")}, ${t("session.units")}, ${t("common.duration")}.`);
+      setStatusMessage(t("claim.cptValidation"));
       return;
     }
 
@@ -214,7 +215,7 @@ export default function ClaimDocumentPage() {
     setSessionItems((items) => [...items, savedItem ?? { ...nextItem, id: `cpt-${Date.now()}` }]);
     setCptForm(emptyCptForm);
     setShowCptForm(false);
-    setStatusMessage("CPT item added.");
+    setStatusMessage(t("billing.addCpt"));
   };
 
   const saveDiagnosis = async () => {
@@ -225,7 +226,7 @@ export default function ClaimDocumentPage() {
     };
 
     if (!nextDiagnosis.code || !nextDiagnosis.description) {
-      setStatusMessage("Add diagnosis code and description before saving.");
+      setStatusMessage(`${t("claim.addDiagnosis")}: ${t("billing.cptCode")}, ${t("billing.description")}.`);
       return;
     }
 
@@ -233,12 +234,12 @@ export default function ClaimDocumentPage() {
     setDiagnoses((items) => [...items, savedDiagnosis ?? { ...nextDiagnosis, id: `dx-${Date.now()}` }]);
     setDiagnosisForm(emptyDiagnosisForm);
     setShowDiagnosisForm(false);
-    setStatusMessage("Diagnosis added.");
+    setStatusMessage(t("claim.addDiagnosis"));
   };
 
   const exportClaim = (format: "PDF" | "CSV") => {
     setShowExportMenu(false);
-    setStatusMessage(`${t("claim.export")} ${format}.`);
+    setStatusMessage(t("claim.exported", { format }));
   };
 
   const submitClaim = async () => {
@@ -290,7 +291,7 @@ export default function ClaimDocumentPage() {
     }
 
     if (missing.length > 0) {
-      setStatusMessage(`Missing ${missing.join(", ")}.`);
+      setStatusMessage(t("common.missing", { items: missing.join(", ") }));
       return;
     }
 
@@ -435,7 +436,7 @@ export default function ClaimDocumentPage() {
                   />
                 </label>
                 <label>
-                  {t("claim.modifier")}
+                  {t("claim.type")}
                   <input
                     value={cptForm.modifier}
                     placeholder="--"
@@ -470,7 +471,7 @@ export default function ClaimDocumentPage() {
                   <strong>{item.code}</strong>
                 </span>
                 <span>{item.description}</span>
-                <span>{Number.parseInt(item.units, 10) === 1 ? "1 UNIT" : `${item.units} UNITS`}</span>
+                <span>{formatUnits(Number.parseInt(item.units, 10) || 0, language)}</span>
                 <span>{item.duration}</span>
                 <span>
                   {item.modifier ? <em>{item.modifier}</em> : <small>--</small>}
@@ -513,7 +514,7 @@ export default function ClaimDocumentPage() {
                   />
                 </label>
                 <label>
-                  Type
+                  {t("claim.modifier")}
                   <select
                     value={diagnosisForm.type}
                     onChange={(event) =>
@@ -523,8 +524,8 @@ export default function ClaimDocumentPage() {
                       }))
                     }
                   >
-                    <option>Primary</option>
-                    <option>Secondary</option>
+                    <option value="Primary">{t("common.primary")}</option>
+                    <option value="Secondary">{t("common.secondary")}</option>
                   </select>
                 </label>
               </div>
@@ -533,7 +534,7 @@ export default function ClaimDocumentPage() {
                   {t("common.cancel")}
                 </button>
                 <button type="button" onClick={saveDiagnosis}>
-                  Save Diagnosis
+                  {t("common.save")}
                 </button>
               </div>
             </div>

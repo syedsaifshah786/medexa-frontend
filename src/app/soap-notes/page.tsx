@@ -12,6 +12,7 @@ import {
 } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId } from "@/lib/activeSession";
 import { medexaApi, type ApiFinalizeSessionResponse, type ApiSoapNoteResponse } from "@/lib/api";
+import { formatDateTime, formatUnits } from "@/lib/translations";
 
 const debugLog = (...args: Parameters<typeof console.log>) => {
   if (process.env.NODE_ENV === "development") {
@@ -196,7 +197,7 @@ function SoapNotesContent() {
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const [billingSummary, setBillingSummary] = useState<ApiFinalizeSessionResponse["billing_summary"] | null>(null);
   const [missingSessionSoap, setMissingSessionSoap] = useState(false);
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
 
   useEffect(() => {
     const querySessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
@@ -230,7 +231,7 @@ function SoapNotesContent() {
         }
       }
 
-      const apiSoapData = await medexaApi.getSoapNote(activeSessionId);
+      const apiSoapData = await medexaApi.getSoapNote(activeSessionId, language);
       debugLog("[SOAP Page] backend data", apiSoapData);
 
       if (isMounted && apiSoapData) {
@@ -259,7 +260,7 @@ function SoapNotesContent() {
     return () => {
       isMounted = false;
     };
-  }, [searchParams]);
+  }, [language, searchParams, updateSoapData]);
 
   useEffect(() => {
     if (!editingSection) {
@@ -269,12 +270,12 @@ function SoapNotesContent() {
 
   const soapSearchText = useMemo(
     () => ({
-      subjective: `Subjective Chief Complaint ${soapData.subjective.chiefComplaint} Pain Scale ${soapData.subjective.painScale} Duration ${soapData.subjective.duration}`,
-      objective: `Objective Observation Notes ${soapData.objective.observationNotes} Range of Motion ${soapData.objective.rangeOfMotion} Affect ${soapData.objective.affect} Vital Signs ${soapData.objective.vitalSigns}`,
-      assessment: `Assessment Diagnosis Summary ${soapData.assessment.diagnosisSummary} Primary Diagnosis Code ${soapData.assessment.primaryDiagnosisCode} Severity ${soapData.assessment.severity}`,
-      plan: `Plan Follow Up Plan ${soapData.plan.followUpPlan}`,
+      subjective: `${t("soap.subjective")} ${t("soap.chiefComplaint")} ${soapData.subjective.chiefComplaint} ${t("soap.painScale")} ${soapData.subjective.painScale} ${t("common.duration")} ${soapData.subjective.duration}`,
+      objective: `${t("soap.objective")} ${t("soap.observationNotes")} ${soapData.objective.observationNotes} ${t("soap.rangeOfMotion")} ${soapData.objective.rangeOfMotion} ${t("soap.affect")} ${soapData.objective.affect} ${t("soap.vitalSigns")} ${soapData.objective.vitalSigns}`,
+      assessment: `${t("soap.assessment")} ${t("soap.diagnosisSummary")} ${soapData.assessment.diagnosisSummary} ${t("soap.primaryDiagnosisCode")} ${soapData.assessment.primaryDiagnosisCode} ${t("soap.severity")} ${soapData.assessment.severity}`,
+      plan: `${t("soap.plan")} ${t("soap.followUpPlan")} ${soapData.plan.followUpPlan}`,
     }),
-    [soapData],
+    [soapData, t],
   );
 
   const startEdit = (section: SectionKey) => {
@@ -285,7 +286,7 @@ function SoapNotesContent() {
 
   const saveSection = (section: SectionKey) => {
     updateSoapData(draftData);
-    medexaApi.updateSoapNotes(sessionId, draftData);
+    medexaApi.updateSoapNotes(sessionId, draftData, language);
     setEditingSection(null);
     setStatusMessage(`${t(`soap.${section}`)} ${t("summary.updated")}`);
   };
@@ -341,7 +342,7 @@ function SoapNotesContent() {
 
           <div className="meta-row">
             <p>
-              <strong>July 05, 12:00 PM</strong>
+              <strong>{formatDateTime("2026-07-05T12:00:00", language)}</strong>
             </p>
             <p>
               {t("session.patientId")}: <strong dir="ltr">#99283</strong>
@@ -370,7 +371,7 @@ function SoapNotesContent() {
           {statusMessage && <div className="status-message">{statusMessage}</div>}
 
           {missingSessionSoap && (
-            <div className="empty-state">No SOAP note generated for this session.</div>
+            <div className="empty-state">{t("soap.noNote")}</div>
           )}
 
           {!missingSessionSoap && !hasVisibleSections && (
@@ -623,7 +624,7 @@ function SoapNotesContent() {
           {!missingSessionSoap && billingSummary && (
             <section className="note-card billing-summary-card">
               <div className="note-heading">
-                <h2>Billing / CPT Summary</h2>
+                <h2>{t("soap.billingCptSummary")}</h2>
               </div>
               <div className="billing-summary-list">
                 {billingRecords.length > 0 ? (
@@ -632,15 +633,15 @@ function SoapNotesContent() {
                       <strong dir="ltr">{record.code}</strong>
                       <span>{record.displayName}</span>
                       <span dir="ltr">{Math.floor(record.seconds / 60)}:{String(record.seconds % 60).padStart(2, "0")}</span>
-                      <span>{record.units} {record.units === 1 ? "unit" : "units"}</span>
+                      <span>{formatUnits(record.units, language)}</span>
                     </div>
                   ))
                 ) : (
                   <div className="billing-summary-row">
-                    <strong dir="ltr">{billingSummary.cpt_code ?? "No CPT applied"}</strong>
-                    <span>Requires clinician review</span>
+                    <strong dir="ltr">{billingSummary.cpt_code ?? t("billing.noCpt")}</strong>
+                    <span>{t("soap.requiresReview")}</span>
                     <span dir="ltr">{Math.floor((billingSummary.cpt_seconds ?? 0) / 60)}:{String((billingSummary.cpt_seconds ?? 0) % 60).padStart(2, "0")}</span>
-                    <span>{billingSummary.units ?? 0} units</span>
+                    <span>{formatUnits(billingSummary.units ?? 0, language)}</span>
                   </div>
                 )}
               </div>
