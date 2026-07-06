@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
-import { getActiveSessionId } from "@/lib/activeSession";
+import { getActiveSessionId, setActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
 import { formatDateTime, formatNumber, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
@@ -79,8 +79,10 @@ export default function BillingIntelligencePage() {
   const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
   useEffect(() => {
-    const activeSessionId = getActiveSessionId();
+    const querySessionId = new URLSearchParams(window.location.search).get("sessionId") ?? "";
+    const activeSessionId = querySessionId || getActiveSessionId();
     setSessionId(activeSessionId);
+    setActiveSessionId(activeSessionId);
 
     let isMounted = true;
 
@@ -117,6 +119,7 @@ export default function BillingIntelligencePage() {
         .includes(query);
     });
   }, [cptItems, headerSearch]);
+  const sessionQuery = `?sessionId=${encodeURIComponent(sessionId)}`;
 
   const openAddForm = () => {
     setEditingId(null);
@@ -223,12 +226,12 @@ export default function BillingIntelligencePage() {
         </section>
 
         <nav className="tabs" aria-label="Session views">
-          <Link href="/soap-notes">{t("nav.soapNotes")}</Link>
-          <Link href="/billing-intelligence" className="tab-active">
+          <Link href={`/soap-notes${sessionQuery}`}>{t("nav.soapNotes")}</Link>
+          <Link href={`/billing-intelligence${sessionQuery}`} className="tab-active">
             {t("nav.billingIntelligence")}
           </Link>
-          <Link href="/patient-summary">{t("nav.patientSummary")}</Link>
-          <Link href="/claim-document" className="claim-link">
+          <Link href={`/patient-summary${sessionQuery}`}>{t("nav.patientSummary")}</Link>
+          <Link href={`/claim-document${sessionQuery}`} className="claim-link">
             ✓ {t("nav.createClaimDocument")}
           </Link>
         </nav>
