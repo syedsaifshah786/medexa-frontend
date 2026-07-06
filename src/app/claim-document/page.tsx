@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
-import { getActiveSessionId } from "@/lib/activeSession";
+import { getActiveSessionId, setActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
+import type {
+  ApiBilling,
+  ApiCptRecord,
+  ApiSoapNoteResponse,
+  ApiTimerState,
+  Claim837PDiagnosis,
+  Claim837PDraft,
+  Claim837PValidationResult,
+} from "@/lib/api";
+import { getSessionById } from "@/lib/sessions";
 import { formatNumber, formatUnits, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
 type CptItem = {
@@ -32,6 +43,23 @@ type SessionMeta = {
   session: string;
   payor: string;
 };
+
+type StoredClaimDraft = {
+  patientMeta?: SessionMeta;
+  cptItems?: CptItem[];
+  diagnosisCodes?: DiagnosisItem[];
+  claim837P?: Claim837PDraft;
+};
+
+type StoredSoapNote = ApiSoapNoteResponse & {
+  detected_icd10_suggestions?: Array<{
+    code: string;
+    phrase?: string;
+    reason?: string;
+  }>;
+};
+
+const diagnosisPointers = ["A", "B", "C", "D"] as const;
 
 const initialSessionItems: CptItem[] = [
   {
@@ -105,7 +133,96 @@ const emptyDiagnosisForm: DiagnosisItem = {
   type: "Secondary",
 };
 
+function safeLocalStorageRead<T>(key: string): T | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(key);
+    return rawValue ? (JSON.parse(rawValue) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function durationFromSeconds(seconds: number | undefined) {
+  const safeSeconds = Math.max(0, Math.floor(seconds ?? 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function cptRecordToItem(record: ApiCptRecord, index: number): CptItem {
+  return {
+    id: `cpt-${record.code}-${index}`,
+    code: record.code,
+    description: record.displayName || record.reason || `CPT ${record.code}`,
+    units: String(record.units || 1),
+    duration: durationFromSeconds(record.seconds),
+    modifier: "",
+  };
+}
+
+function billingItemToCptItem(item: ApiBilling["cptCodes"][number]): CptItem {
+  const modifier = item.warning?.toLowerCase().includes("modifier") ? "MODIFIER 59 REVIEW" : "";
+
+  return {
+    id: item.id,
+    code: item.code,
+    description: item.title,
+    units: item.units,
+    duration: item.duration,
+    modifier,
+  };
+}
+
+function uniqueCptItems(items: CptItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.code}-${item.duration}-${item.units}-${item.description}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueDiagnosis(items: DiagnosisItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.code.trim().toUpperCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function claimMetaFromSession(sessionId: string, fallback: SessionMeta): SessionMeta {
+  const session = getSessionById(sessionId);
+
+  return {
+    patient: `${session.name} (${session.ageSex})`,
+    mrn: session.mrn,
+    provider: fallback.provider,
+    session: `${session.time} • ${session.careType}`,
+    payor: session.payor,
+  };
+}
+
 export default function ClaimDocumentPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClaimDocumentContent />
+    </Suspense>
+  );
+}
+
+function ClaimDocumentContent() {
+  const searchParams = useSearchParams();
   const [headerSearch, setHeaderSearch] = useState("");
   const [sessionItems, setSessionItems] = useState<CptItem[]>(initialSessionItems);
   const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>(initialDiagnosis);
@@ -117,33 +234,95 @@ export default function ClaimDocumentPage() {
   const [showDiagnosisForm, setShowDiagnosisForm] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [storedSoap, setStoredSoap] = useState<StoredSoapNote | null>(null);
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
   const { language, t } = useLanguage();
   const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
+  const routeSessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
+  const sessionQuery = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
   const query = headerSearch.trim().toLowerCase();
 
   useEffect(() => {
-    const activeSessionId = getActiveSessionId();
+    const activeSessionId = routeSessionId || getActiveSessionId();
     setSessionId(activeSessionId);
+    setActiveSessionId(activeSessionId);
 
     let isMounted = true;
 
-    const loadClaim = async () => {
-      const claim = await medexaApi.claim(activeSessionId);
+    const localDraft = safeLocalStorageRead<StoredClaimDraft>(`medexa_claim_draft_${activeSessionId}`);
+    const localSoap = safeLocalStorageRead<StoredSoapNote>(`medexa_soap_note_${activeSessionId}`);
+    const localCptRecords =
+      safeLocalStorageRead<ApiCptRecord[]>(`medexa_cpt_records_${activeSessionId}`) ??
+      Object.values(safeLocalStorageRead<Record<string, ApiCptRecord>>(`medexa_cpt_records_${activeSessionId}`) ?? {});
+    const localTimerState = safeLocalStorageRead<ApiTimerState>(`medexa_session_state_${activeSessionId}`);
 
-      if (!isMounted || !claim) {
+    const sessionMeta = claimMetaFromSession(activeSessionId, initialMeta);
+    const localItems = uniqueCptItems([
+      ...(localDraft?.cptItems ?? []),
+      ...localCptRecords.map(cptRecordToItem),
+      ...(localTimerState?.cpt_records ?? []).map(cptRecordToItem),
+    ]);
+    const localDiagnoses = uniqueDiagnosis([
+      ...(localDraft?.diagnosisCodes ?? []),
+      ...(localSoap?.detected_icd10_suggestions ?? []).map((item, index) => ({
+        id: `dx-soap-${item.code}-${index}`,
+        code: item.code,
+        description: item.reason ?? item.phrase ?? item.code,
+        type: index === 0 ? "Primary" : "Secondary",
+      }) satisfies DiagnosisItem),
+    ]);
+
+    if (localDraft?.patientMeta || activeSessionId !== "samuel-thompson") {
+      const nextMeta = localDraft?.patientMeta ?? sessionMeta;
+      setMeta(nextMeta);
+      setMetaDraft(nextMeta);
+    }
+
+    if (localItems.length > 0) {
+      setSessionItems(localItems);
+    }
+
+    if (localDiagnoses.length > 0) {
+      setDiagnoses(localDiagnoses);
+    }
+
+    setStoredSoap(localSoap);
+
+    const loadClaim = async () => {
+      const [claim, billing, timerState, apiSoap] = await Promise.all([
+        medexaApi.claim(activeSessionId),
+        medexaApi.billing(activeSessionId),
+        medexaApi.getTimerState(activeSessionId),
+        medexaApi.getSoapNote(activeSessionId, language),
+      ]);
+
+      if (!isMounted) {
         return;
       }
 
-      setSessionItems(claim.cptItems);
-      setDiagnoses(claim.diagnosisCodes);
-      setMeta(claim.patientMeta);
-      setMetaDraft(claim.patientMeta);
-      setIsSubmitted(claim.claimStatus === "submitted");
+      if (claim) {
+        setSessionItems(claim.cptItems);
+        setDiagnoses(claim.diagnosisCodes);
+        setMeta(claim.patientMeta);
+        setMetaDraft(claim.patientMeta);
+        return;
+      }
+
+      const backendItems = uniqueCptItems([
+        ...(billing?.cptCodes.map(billingItemToCptItem) ?? []),
+        ...(timerState?.cpt_records ?? []).map(cptRecordToItem),
+      ]);
+
+      if (backendItems.length > 0) {
+        setSessionItems(backendItems);
+      }
+
+      if (apiSoap) {
+        setStoredSoap(apiSoap);
+      }
     };
 
     loadClaim();
@@ -151,7 +330,7 @@ export default function ClaimDocumentPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [language, routeSessionId]);
 
   const billableUnits = useMemo(() => {
     return sessionItems.reduce((total, item) => total + (Number.parseInt(item.units, 10) || 0), 0);
@@ -238,18 +417,140 @@ export default function ClaimDocumentPage() {
     setStatusMessage(t("claim.addDiagnosis"));
   };
 
-  const exportClaim = (format: "PDF" | "CSV") => {
-    setShowExportMenu(false);
-    setStatusMessage(t("claim.exported", { format }));
+  const validateClaimDocument = (): Claim837PValidationResult[] => {
+    const checks = [
+      { field: "patient", label: "patient info", status: Boolean(meta.patient.trim()) },
+      { field: "payer", label: "payer", status: Boolean(meta.payor.trim()) },
+      { field: "provider", label: "ordering provider", status: Boolean(meta.provider.trim()) },
+      { field: "serviceLines", label: "at least one CPT item", status: sessionItems.length > 0 },
+      { field: "diagnoses", label: "at least one diagnosis", status: diagnoses.length > 0 },
+      {
+        field: "units",
+        label: "units",
+        status: sessionItems.every((item) => Number.parseInt(item.units, 10) > 0),
+      },
+      {
+        field: "modifierReview",
+        label: "modifier review",
+        status: sessionItems.every((item) => !/review|required/i.test(item.modifier)),
+      },
+      {
+        field: "soapNote",
+        label: "SOAP note",
+        status: Boolean(storedSoap || hasGeneratedDocumentation),
+      },
+    ];
+
+    return checks.map((check) => ({
+      field: check.field,
+      status: (check.status ? "pass" : check.field === "modifierReview" ? "needs_review" : "missing") as
+        | "pass"
+        | "needs_review"
+        | "missing",
+      message: check.status ? `${check.label} present` : check.label,
+    }));
   };
 
-  const submitClaim = async () => {
-    await medexaApi.submitClaim(sessionId);
-    setIsSubmitted(true);
-    setStatusMessage(t("claim.submitted"));
+  const build837PDraft = (): Claim837PDraft => {
+    const mappedDiagnoses: Claim837PDiagnosis[] = diagnoses.slice(0, 4).map((diagnosis, index) => ({
+      pointer: diagnosisPointers[index],
+      code: diagnosis.code,
+      description: diagnosis.description,
+      priority: diagnosis.type === "Primary" ? "primary" : "secondary",
+      source: diagnosis.id.includes("generated") || diagnosis.id.includes("soap") ? "AI" : "clinician",
+    }));
+
+    const activePointers = mappedDiagnoses.map((diagnosis) => diagnosis.pointer);
+    const fallbackPointer = activePointers[0] ?? "A";
+
+    return {
+      claimType: "837P_DRAFT",
+      sessionId,
+      patient: {
+        name: meta.patient,
+        mrn: meta.mrn,
+      },
+      subscriber: {
+        name: meta.patient,
+        relationship: "self",
+      },
+      payer: {
+        name: meta.payor,
+      },
+      provider: {
+        orderingProvider: meta.provider,
+      },
+      diagnoses: mappedDiagnoses,
+      serviceLines: sessionItems.map((item, index) => ({
+        lineNumber: index + 1,
+        dateOfService: meta.session,
+        cptCode: item.code,
+        description: item.description,
+        units: Number.parseInt(item.units, 10) || 0,
+        duration: item.duration,
+        modifier: item.modifier || null,
+        diagnosisPointer: activePointers.length > 0 ? activePointers.join("") : fallbackPointer,
+        charge: null,
+        validationStatus: Number.parseInt(item.units, 10) > 0 ? "ready" : "missing_units",
+      })),
+      validationResults: validateClaimDocument(),
+      generatedAt: new Date().toISOString(),
+    };
+  };
+
+  const downloadJson = (fileName: string, data: unknown) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportClaim = (format: "DRAFT_JSON" | "837P_JSON") => {
+    const claim837P = build837PDraft();
+    const payload =
+      format === "837P_JSON"
+        ? claim837P
+        : {
+            sessionId,
+            patientMeta: meta,
+            cptItems: sessionItems,
+            diagnosisCodes: diagnoses,
+            claim837P,
+          };
+
+    setShowExportMenu(false);
+    downloadJson(
+      format === "837P_JSON"
+        ? `medexa-837p-draft-${sessionId}.json`
+        : `medexa-claim-draft-${sessionId}.json`,
+      payload,
+    );
+    setStatusMessage(t("claim.exported", { format: format === "837P_JSON" ? "837P Draft JSON" : "Claim Draft JSON" }));
+  };
+
+  const submitClaim = () => {
+    setStatusMessage(t("claim.submissionNotConnected"));
   };
 
   const saveDraft = async () => {
+    const draft: StoredClaimDraft = {
+      patientMeta: meta,
+      cptItems: sessionItems,
+      diagnosisCodes: diagnoses,
+      claim837P: build837PDraft(),
+    };
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`medexa_claim_draft_${sessionId}`, JSON.stringify(draft));
+    }
+
     await medexaApi.saveClaimDraft(sessionId);
     setStatusMessage(t("claim.draftSaved"));
   };
@@ -273,23 +574,9 @@ export default function ClaimDocumentPage() {
   };
 
   const verifyClaim = async () => {
-    const missing: string[] = [];
-
-    if (sessionItems.length === 0) {
-      missing.push("at least one CPT item");
-    }
-
-    if (diagnoses.length === 0) {
-      missing.push("at least one diagnosis");
-    }
-
-    if (!meta.patient.trim()) {
-      missing.push("patient info");
-    }
-
-    if (!meta.provider.trim()) {
-      missing.push("ordering provider");
-    }
+    const missing = validateClaimDocument()
+      .filter((result) => result.status !== "pass")
+      .map((result) => result.message);
 
     if (missing.length > 0) {
       setStatusMessage(t("common.missing", { items: missing.join(", ") }));
@@ -308,7 +595,7 @@ export default function ClaimDocumentPage() {
         <section className="claim-top">
           <div className="claim-title-row">
             <div className="title-group">
-              <Link href="/patient-summary" className="back-link" aria-label="Back to Patient Summary">
+              <Link href={`/patient-summary${sessionQuery}`} className="back-link" aria-label="Back to Patient Summary">
                 ‹
               </Link>
               <h1>{t("claim.title")}</h1>
@@ -321,11 +608,11 @@ export default function ClaimDocumentPage() {
                 </button>
                 {showExportMenu && (
                   <div className="export-menu">
-                    <button type="button" onClick={() => exportClaim("PDF")}>
-                      PDF
+                    <button type="button" onClick={() => exportClaim("DRAFT_JSON")}>
+                      {t("claim.downloadClaimDraftJson")}
                     </button>
-                    <button type="button" onClick={() => exportClaim("CSV")}>
-                      CSV
+                    <button type="button" onClick={() => exportClaim("837P_JSON")}>
+                      {t("claim.download837PDraftJson")}
                     </button>
                   </div>
                 )}
@@ -333,10 +620,9 @@ export default function ClaimDocumentPage() {
               <button
                 type="button"
                 className="submit-button"
-                disabled={isSubmitted}
                 onClick={submitClaim}
               >
-                ▷ {isSubmitted ? t("claim.claimSubmitted") : t("claim.submitClaim")}
+                ▷ {t("claim.submitClaim")}
               </button>
             </div>
           </div>

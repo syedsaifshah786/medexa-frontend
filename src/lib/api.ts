@@ -299,6 +299,56 @@ export type ApiClaim = {
   claimStatus: "draft" | "verified" | "submitted";
 };
 
+export type Claim837PDiagnosis = {
+  pointer: "A" | "B" | "C" | "D";
+  code: string;
+  description: string;
+  priority: "primary" | "secondary";
+  source: "AI" | "clinician" | "review";
+};
+
+export type Claim837PServiceLine = {
+  lineNumber: number;
+  dateOfService: string;
+  cptCode: string;
+  description: string;
+  units: number;
+  duration: string;
+  modifier: string | null;
+  diagnosisPointer: string;
+  charge: number | null;
+  validationStatus: "ready" | "missing_units" | "needs_review";
+};
+
+export type Claim837PValidationResult = {
+  field: string;
+  status: "pass" | "missing" | "needs_review";
+  message: string;
+};
+
+export type Claim837PDraft = {
+  claimType: "837P_DRAFT";
+  sessionId: string;
+  patient: {
+    name: string;
+    mrn: string;
+  };
+  subscriber: {
+    name: string;
+    relationship: string;
+  };
+  payer: {
+    name: string;
+  };
+  provider: {
+    orderingProvider: string;
+  };
+  diagnoses: Claim837PDiagnosis[];
+  serviceLines: Claim837PServiceLine[];
+  validationResults: Claim837PValidationResult[];
+  generatedAt: string;
+};
+
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
