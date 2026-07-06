@@ -10,7 +10,7 @@ import {
   type SectionKey,
   useSessionDocumentation,
 } from "@/context/SessionDocumentationContext";
-import { getActiveSessionId } from "@/lib/activeSession";
+import { getActiveSessionId, setActiveSessionId } from "@/lib/activeSession";
 import { medexaApi, type ApiFinalizeSessionResponse, type ApiSoapNoteResponse } from "@/lib/api";
 import { formatClockTime, formatDateTime, formatNumber, formatUnits, translateCptDisplayName, translateDynamicMessage } from "@/lib/translations";
 
@@ -204,6 +204,7 @@ function SoapNotesContent() {
     const activeSessionId = querySessionId || getActiveSessionId();
     debugLog("[SOAP Page] sessionId", activeSessionId);
     setSessionId(activeSessionId);
+    setActiveSessionId(activeSessionId);
     setMissingSessionSoap(false);
 
     let isMounted = true;
@@ -328,6 +329,7 @@ function SoapNotesContent() {
   const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
   const displayDuration = billingSummary ? formatClockTime(billingSummary.total_seconds, language) : translateDynamicMessage("52:22", language);
   const displayBillingUnits = formatNumber(billingUnits || 3, language);
+  const sessionQuery = `?sessionId=${encodeURIComponent(sessionId)}`;
 
   return (
     <main className="ambient-page">
@@ -360,12 +362,12 @@ function SoapNotesContent() {
         </section>
 
         <nav className="tabs" aria-label="Session views">
-          <Link href="/soap-notes" className="tab-active">
+          <Link href={`/soap-notes${sessionQuery}`} className="tab-active">
             {t("nav.soapNotes")}
           </Link>
-          <Link href="/billing-intelligence">{t("nav.billingIntelligence")}</Link>
-          <Link href="/patient-summary">{t("nav.patientSummary")}</Link>
-          <Link href="/claim-document" className="claim-link">
+          <Link href={`/billing-intelligence${sessionQuery}`}>{t("nav.billingIntelligence")}</Link>
+          <Link href={`/patient-summary${sessionQuery}`}>{t("nav.patientSummary")}</Link>
+          <Link href={`/claim-document${sessionQuery}`} className="claim-link">
             ✓ {t("nav.createClaimDocument")}
           </Link>
         </nav>
