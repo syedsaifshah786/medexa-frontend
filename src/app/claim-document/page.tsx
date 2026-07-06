@@ -9,7 +9,7 @@ import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId, setActiveSessionId } from "@/lib/activeSession";
 import { medexaApi } from "@/lib/api";
 import type {
-  ApiBilling,
+  ApiClaimDocument,
   ApiCptRecord,
   ApiSoapNoteResponse,
   ApiTimerState,
@@ -60,6 +60,7 @@ type StoredSoapNote = ApiSoapNoteResponse & {
 };
 
 const diagnosisPointers = ["A", "B", "C", "D"] as const;
+const reviewText = "Requires Review";
 
 const initialSessionItems: CptItem[] = [
   {
@@ -110,11 +111,11 @@ const initialDiagnosis: DiagnosisItem[] = [
 ];
 
 const initialMeta: SessionMeta = {
-  patient: "Samuel T. (58/M)",
-  mrn: "220486",
-  provider: "Dr. Sarah Miller",
-  session: "June 18, • 52 min",
-  payor: "Medicare",
+  patient: reviewText,
+  mrn: reviewText,
+  provider: reviewText,
+  session: reviewText,
+  payor: reviewText,
 };
 
 const emptyCptForm: CptItem = {
@@ -164,19 +165,6 @@ function cptRecordToItem(record: ApiCptRecord, index: number): CptItem {
   };
 }
 
-function billingItemToCptItem(item: ApiBilling["cptCodes"][number]): CptItem {
-  const modifier = item.warning?.toLowerCase().includes("modifier") ? "MODIFIER 59 REVIEW" : "";
-
-  return {
-    id: item.id,
-    code: item.code,
-    description: item.title,
-    units: item.units,
-    duration: item.duration,
-    modifier,
-  };
-}
-
 function uniqueCptItems(items: CptItem[]) {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -213,6 +201,40 @@ function claimMetaFromSession(sessionId: string, fallback: SessionMeta): Session
   };
 }
 
+function claimDocumentToMeta(claimDocument: ApiClaimDocument): SessionMeta {
+  return {
+    patient: claimDocument.patient.display_name || claimDocument.patient.name || reviewText,
+    mrn: claimDocument.patient.mrn || reviewText,
+    provider: claimDocument.provider.ordering_provider || reviewText,
+    session: claimDocument.session.display_meta || reviewText,
+    payor: claimDocument.patient.payer || reviewText,
+  };
+}
+
+function claimDocumentToCptItems(claimDocument: ApiClaimDocument): CptItem[] {
+  return claimDocument.cpt_lines.map((line) => ({
+    id: `cpt-${line.line_number}-${line.cpt_code}`,
+    code: line.cpt_code,
+    description: line.display_name || line.description || line.cpt_code,
+    units: String(line.units ?? 0),
+    duration: line.duration_display || durationFromSeconds(line.duration_seconds),
+    modifier:
+      line.modifier ||
+      (line.validation_status === "needs_review" && claimDocument.validation.modifier_review_required
+        ? "MODIFIER 59 REVIEW"
+        : ""),
+  }));
+}
+
+function claimDocumentToDiagnoses(claimDocument: ApiClaimDocument): DiagnosisItem[] {
+  return claimDocument.diagnoses.map((diagnosis) => ({
+    id: `dx-${diagnosis.pointer}-${diagnosis.code}`,
+    code: diagnosis.code,
+    description: diagnosis.review_required ? `${diagnosis.description} (${reviewText})` : diagnosis.description,
+    type: diagnosis.priority === "primary" ? "Primary" : "Secondary",
+  }));
+}
+
 export default function ClaimDocumentPage() {
   return (
     <Suspense fallback={null}>
@@ -224,8 +246,8 @@ export default function ClaimDocumentPage() {
 function ClaimDocumentContent() {
   const searchParams = useSearchParams();
   const [headerSearch, setHeaderSearch] = useState("");
-  const [sessionItems, setSessionItems] = useState<CptItem[]>(initialSessionItems);
-  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>(initialDiagnosis);
+  const [sessionItems, setSessionItems] = useState<CptItem[]>([]);
+  const [diagnoses, setDiagnoses] = useState<DiagnosisItem[]>([]);
   const [meta, setMeta] = useState<SessionMeta>(initialMeta);
   const [metaDraft, setMetaDraft] = useState<SessionMeta>(initialMeta);
   const [cptForm, setCptForm] = useState<CptItem>(emptyCptForm);
@@ -234,6 +256,7 @@ function ClaimDocumentContent() {
   const [showDiagnosisForm, setShowDiagnosisForm] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
+  const [isLoadingClaim, setIsLoadingClaim] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [storedSoap, setStoredSoap] = useState<StoredSoapNote | null>(null);
   const [sessionId, setSessionId] = useState("samuel-thompson");
@@ -251,78 +274,57 @@ function ClaimDocumentContent() {
     setActiveSessionId(activeSessionId);
 
     let isMounted = true;
-
-    const localDraft = safeLocalStorageRead<StoredClaimDraft>(`medexa_claim_draft_${activeSessionId}`);
-    const localSoap = safeLocalStorageRead<StoredSoapNote>(`medexa_soap_note_${activeSessionId}`);
-    const localCptRecords =
-      safeLocalStorageRead<ApiCptRecord[]>(`medexa_cpt_records_${activeSessionId}`) ??
-      Object.values(safeLocalStorageRead<Record<string, ApiCptRecord>>(`medexa_cpt_records_${activeSessionId}`) ?? {});
-    const localTimerState = safeLocalStorageRead<ApiTimerState>(`medexa_session_state_${activeSessionId}`);
-
-    const sessionMeta = claimMetaFromSession(activeSessionId, initialMeta);
-    const localItems = uniqueCptItems([
-      ...(localDraft?.cptItems ?? []),
-      ...localCptRecords.map(cptRecordToItem),
-      ...(localTimerState?.cpt_records ?? []).map(cptRecordToItem),
-    ]);
-    const localDiagnoses = uniqueDiagnosis([
-      ...(localDraft?.diagnosisCodes ?? []),
-      ...(localSoap?.detected_icd10_suggestions ?? []).map((item, index) => ({
-        id: `dx-soap-${item.code}-${index}`,
-        code: item.code,
-        description: item.reason ?? item.phrase ?? item.code,
-        type: index === 0 ? "Primary" : "Secondary",
-      }) satisfies DiagnosisItem),
-    ]);
-
-    if (localDraft?.patientMeta || activeSessionId !== "samuel-thompson") {
-      const nextMeta = localDraft?.patientMeta ?? sessionMeta;
-      setMeta(nextMeta);
-      setMetaDraft(nextMeta);
-    }
-
-    if (localItems.length > 0) {
-      setSessionItems(localItems);
-    }
-
-    if (localDiagnoses.length > 0) {
-      setDiagnoses(localDiagnoses);
-    }
-
-    setStoredSoap(localSoap);
+    setIsLoadingClaim(true);
+    setStatusMessage(t("claim.loading"));
 
     const loadClaim = async () => {
-      const [claim, billing, timerState, apiSoap] = await Promise.all([
-        medexaApi.claim(activeSessionId),
-        medexaApi.billing(activeSessionId),
-        medexaApi.getTimerState(activeSessionId),
-        medexaApi.getSoapNote(activeSessionId, language),
-      ]);
+      const claimDocument = await medexaApi.getClaimDocument(activeSessionId, language);
 
       if (!isMounted) {
         return;
       }
 
-      if (claim) {
-        setSessionItems(claim.cptItems);
-        setDiagnoses(claim.diagnosisCodes);
-        setMeta(claim.patientMeta);
-        setMetaDraft(claim.patientMeta);
+      if (claimDocument) {
+        const nextMeta = claimDocumentToMeta(claimDocument);
+        setSessionItems(claimDocumentToCptItems(claimDocument));
+        setDiagnoses(claimDocumentToDiagnoses(claimDocument));
+        setMeta(nextMeta);
+        setMetaDraft(nextMeta);
+        setStatusMessage(claimDocument.claim_status === "needs_review" ? t("claim.requiresReview") : "");
+        setIsLoadingClaim(false);
         return;
       }
 
-      const backendItems = uniqueCptItems([
-        ...(billing?.cptCodes.map(billingItemToCptItem) ?? []),
-        ...(timerState?.cpt_records ?? []).map(cptRecordToItem),
+      const localDraft = safeLocalStorageRead<StoredClaimDraft>(`medexa_claim_draft_${activeSessionId}`);
+      const localSoap = safeLocalStorageRead<StoredSoapNote>(`medexa_soap_note_${activeSessionId}`);
+      const localCptRecords =
+        safeLocalStorageRead<ApiCptRecord[]>(`medexa_cpt_records_${activeSessionId}`) ??
+        Object.values(safeLocalStorageRead<Record<string, ApiCptRecord>>(`medexa_cpt_records_${activeSessionId}`) ?? {});
+      const localTimerState = safeLocalStorageRead<ApiTimerState>(`medexa_session_state_${activeSessionId}`);
+      const sessionMeta = claimMetaFromSession(activeSessionId, initialMeta);
+      const localItems = uniqueCptItems([
+        ...(localDraft?.cptItems ?? []),
+        ...localCptRecords.map(cptRecordToItem),
+        ...(localTimerState?.cpt_records ?? []).map(cptRecordToItem),
       ]);
+      const localDiagnoses = uniqueDiagnosis([
+        ...(localDraft?.diagnosisCodes ?? []),
+        ...(localSoap?.detected_icd10_suggestions ?? []).map((item, index) => ({
+          id: `dx-soap-${item.code}-${index}`,
+          code: item.code,
+          description: item.reason ?? item.phrase ?? item.code,
+          type: index === 0 ? "Primary" : "Secondary",
+        }) satisfies DiagnosisItem),
+      ]);
+      const nextMeta = localDraft?.patientMeta ?? (localItems.length || localDiagnoses.length ? sessionMeta : initialMeta);
 
-      if (backendItems.length > 0) {
-        setSessionItems(backendItems);
-      }
-
-      if (apiSoap) {
-        setStoredSoap(apiSoap);
-      }
+      setMeta(nextMeta);
+      setMetaDraft(nextMeta);
+      setSessionItems(localItems);
+      setDiagnoses(localDiagnoses);
+      setStoredSoap(localSoap);
+      setStatusMessage(localItems.length || localDiagnoses.length ? "" : t("claim.requiresReview"));
+      setIsLoadingClaim(false);
     };
 
     loadClaim();
@@ -512,8 +514,9 @@ function ClaimDocumentContent() {
     URL.revokeObjectURL(url);
   };
 
-  const exportClaim = (format: "DRAFT_JSON" | "837P_JSON") => {
-    const claim837P = build837PDraft();
+  const exportClaim = async (format: "DRAFT_JSON" | "837P_JSON") => {
+    const backend837P = await medexaApi.get837PDraft(sessionId, language);
+    const claim837P = backend837P ?? build837PDraft();
     const payload =
       format === "837P_JSON"
         ? claim837P
@@ -551,7 +554,14 @@ function ClaimDocumentContent() {
       window.localStorage.setItem(`medexa_claim_draft_${sessionId}`, JSON.stringify(draft));
     }
 
-    await medexaApi.saveClaimDraft(sessionId);
+    const savedDraft = await medexaApi.saveClaimDraft(sessionId, draft as unknown as Record<string, unknown>, language);
+    if (savedDraft && "claim_document" in savedDraft) {
+      const nextMeta = claimDocumentToMeta(savedDraft.claim_document);
+      setSessionItems(claimDocumentToCptItems(savedDraft.claim_document));
+      setDiagnoses(claimDocumentToDiagnoses(savedDraft.claim_document));
+      setMeta(nextMeta);
+      setMetaDraft(nextMeta);
+    }
     setStatusMessage(t("claim.draftSaved"));
   };
 
@@ -574,6 +584,25 @@ function ClaimDocumentContent() {
   };
 
   const verifyClaim = async () => {
+    const verifiedClaim = await medexaApi.verifyClaimDocument(sessionId, language);
+
+    if (verifiedClaim) {
+      const nextMeta = claimDocumentToMeta(verifiedClaim);
+      const missing = [...verifiedClaim.validation.missing, ...verifiedClaim.validation.warnings];
+      setSessionItems(claimDocumentToCptItems(verifiedClaim));
+      setDiagnoses(claimDocumentToDiagnoses(verifiedClaim));
+      setMeta(nextMeta);
+      setMetaDraft(nextMeta);
+
+      if (missing.length > 0) {
+        setStatusMessage(t("common.missing", { items: missing.join(", ") }));
+        return;
+      }
+
+      setStatusMessage(t("claim.verified"));
+      return;
+    }
+
     const missing = validateClaimDocument()
       .filter((result) => result.status !== "pass")
       .map((result) => result.message);
@@ -583,12 +612,11 @@ function ClaimDocumentContent() {
       return;
     }
 
-    await medexaApi.verifyClaim(sessionId);
     setStatusMessage(t("claim.verified"));
   };
 
   return (
-    <main className="ambient-page">
+    <main className="ambient-page" aria-busy={isLoadingClaim}>
       <MedexaHeader searchValue={headerSearch} onSearchChange={setHeaderSearch} />
 
       <section className="claim-content">

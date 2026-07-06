@@ -275,6 +275,8 @@
   "claim.downloadClaimDraftJson": "تنزيل JSON لمسودة المطالبة",
   "claim.download837PDraftJson": "تنزيل JSON لمسودة 837P",
   "claim.submissionNotConnected": "إرسال المطالبة غير متصل حاليا. يرجى التصدير أو حفظ المسودة.",
+  "claim.loading": "جار تحميل مستند المطالبة...",
+  "claim.requiresReview": "يتطلب مستند المطالبة المراجعة.",
   "claim.cptValidation": "إضافة CPT: رمز CPT، الوصف، الوحدات، المدة.",
   "unit.one": "وحدة",
   "unit.other": "وحدات",

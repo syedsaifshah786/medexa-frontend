@@ -440,6 +440,7 @@ generated_soap_session_ids: set[str] = set()
 billing_by_session = {session["id"]: {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()} for session in sessions}
 summaries_by_session = {session["id"]: default_summary.copy() for session in sessions}
 claims_by_session = {session["id"]: {"patientMeta": default_claim["patientMeta"].copy(), "cptItems": [item.copy() for item in default_claim["cptItems"]], "diagnosisCodes": [item.copy() for item in default_claim["diagnosisCodes"]], "claimStatus": default_claim["claimStatus"]} for session in sessions}
+claim_document_drafts_by_session = {}
 
 
 def get_session(session_id: str) -> dict:
@@ -463,3 +464,4 @@ def ensure_session(session_id: str) -> None:
     billing_by_session[session_id] = {"sessionTime": default_billing["sessionTime"], "units": default_billing["units"], "threshold": default_billing["threshold"], "cptCodes": [item.copy() for item in default_billing["cptCodes"]], "snfFunctionalLogic": default_billing["snfFunctionalLogic"].copy()}
     summaries_by_session[session_id] = default_summary.copy()
     claims_by_session[session_id] = {"patientMeta": default_claim["patientMeta"].copy(), "cptItems": [item.copy() for item in default_claim["cptItems"]], "diagnosisCodes": [item.copy() for item in default_claim["diagnosisCodes"]], "claimStatus": default_claim["claimStatus"]}
+    claim_document_drafts_by_session[session_id] = {}

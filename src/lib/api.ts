@@ -317,7 +317,7 @@ export type Claim837PServiceLine = {
   modifier: string | null;
   diagnosisPointer: string;
   charge: number | null;
-  validationStatus: "ready" | "missing_units" | "needs_review";
+  validationStatus: "ready" | "passed" | "missing_units" | "needs_review";
 };
 
 export type Claim837PValidationResult = {
@@ -345,8 +345,77 @@ export type Claim837PDraft = {
   };
   diagnoses: Claim837PDiagnosis[];
   serviceLines: Claim837PServiceLine[];
-  validationResults: Claim837PValidationResult[];
+  validationResults: Claim837PValidationResult[] | Record<string, unknown>;
   generatedAt: string;
+};
+
+export type ApiClaimDocument = {
+  session_id: string;
+  claim_status: "draft" | "needs_review" | "ready_for_review";
+  patient: {
+    name: string;
+    display_name: string;
+    mrn: string;
+    patient_id: string | null;
+    age: number | null;
+    gender: string | null;
+    payer: string;
+    member_id: string | null;
+  };
+  provider: {
+    ordering_provider: string;
+    rendering_provider: string;
+  };
+  session: {
+    date_of_service: string | null;
+    display_meta: string;
+    duration_seconds: number;
+    care_type: string;
+  };
+  summary: {
+    total_units: number;
+    billable_units: number;
+    total_cpt_lines: number;
+  };
+  cpt_lines: Array<{
+    line_number: number;
+    cpt_code: string;
+    description: string;
+    display_name: string;
+    units: number;
+    duration_seconds: number;
+    duration_display: string;
+    modifier: string | null;
+    diagnosis_pointer: string;
+    validation_status: "passed" | "needs_review" | "missing_units" | string;
+    body_region: string | null;
+  }>;
+  diagnoses: Array<{
+    pointer: "A" | "B" | "C" | "D";
+    code: string;
+    description: string;
+    priority: "primary" | "secondary";
+    source: string;
+    review_required: boolean;
+  }>;
+  validation: {
+    patient_present: boolean;
+    provider_present: boolean;
+    payer_present: boolean;
+    cpt_lines_present: boolean;
+    diagnoses_present: boolean;
+    units_present: boolean;
+    modifier_review_required: boolean;
+    soap_note_available?: boolean;
+    warnings: string[];
+    missing: string[];
+  };
+  draft_837p: Claim837PDraft;
+};
+
+export type ApiClaimDocumentDraftResponse = {
+  saved: boolean;
+  claim_document: ApiClaimDocument;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -563,6 +632,19 @@ export const medexaApi = {
     request<{ summary: string; sent: boolean }>(`/patient-summary/${encodeURIComponent(sessionId)}/send`, {
       method: "POST",
     }),
+  getClaimDocument: (sessionId: string, language: Language = "en") =>
+    request<ApiClaimDocument>(
+      `/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`,
+    ),
+  verifyClaimDocument: (sessionId: string, language: Language = "en") =>
+    request<ApiClaimDocument>(
+      `/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`,
+      { method: "POST" },
+    ),
+  get837PDraft: (sessionId: string, language: Language = "en") =>
+    request<Claim837PDraft>(
+      `/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`,
+    ),
   claim: (sessionId: string) => request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}`),
   addClaimCpt: (sessionId: string, body: Record<string, unknown>) =>
     request<ApiClaim["cptItems"][number]>(`/claims/${encodeURIComponent(sessionId)}/cpt`, {
@@ -579,8 +661,13 @@ export const medexaApi = {
       method: "PUT",
       body,
     }),
-  saveClaimDraft: (sessionId: string) =>
-    request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}/save-draft`, { method: "POST" }),
+  saveClaimDraft: (sessionId: string, payload?: Record<string, unknown>, language: Language = "en") =>
+    payload
+      ? request<ApiClaimDocumentDraftResponse>(
+          `/sessions/${encodeURIComponent(sessionId)}/claim-document/draft?language=${encodeURIComponent(language)}`,
+          { method: "POST", body: payload },
+        )
+      : request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}/save-draft`, { method: "POST" }),
   verifyClaim: (sessionId: string) =>
     request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}/verify`, { method: "POST" }),
   submitClaim: (sessionId: string) =>

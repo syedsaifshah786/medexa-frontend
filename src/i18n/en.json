@@ -275,6 +275,8 @@
   "claim.downloadClaimDraftJson": "Download Claim Draft JSON",
   "claim.download837PDraftJson": "Download 837P Draft JSON",
   "claim.submissionNotConnected": "Claim submission is not connected yet. Please export or save draft.",
+  "claim.loading": "Loading claim document...",
+  "claim.requiresReview": "Claim document requires review.",
   "claim.cptValidation": "Add CPT: CPT code, Description, Unit(s), Duration.",
   "unit.one": "unit",
   "unit.other": "units",
