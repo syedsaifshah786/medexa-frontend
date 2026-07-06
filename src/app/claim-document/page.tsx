@@ -28,7 +28,7 @@ import {
   translateDynamicMessage,
 } from "@/lib/translations";
 
-type ClaimStatus = "draft" | "requiresReview" | "ready";
+type ClaimStatus = "draft" | "requiresReview" | "ready" | "clearinghouse";
 type ValidationStatus = "passed" | "warning" | "requiresReview" | "missing";
 type ModifierStatus = "applied" | "ignored" | "requiresReview";
 
@@ -124,25 +124,55 @@ const claimCopy = {
     draft: "Draft",
     requiresReview: "Requires Review",
     ready: "Ready for Review",
+    clearinghouse: "Ready for Clearinghouse",
+    submitClaim: "Submit Claim",
+    submissionNotConnected: "Claim submission workflow is not connected yet. This claim can be exported or saved as draft.",
+    submissionConnected: "Claim submitted through the connected workflow.",
     patientEncounter: "Patient & Encounter Information",
     diagnosis: "Diagnosis / ICD-10",
     procedureLines: "Procedure Lines",
     modifierReview: "Modifier Review",
     billingValidation: "Billing Validation",
+    complianceValidation: "Compliance Validation",
     claimSummary: "Claim Summary",
+    readinessPanel: "Claim Readiness",
+    rejectionRisk: "Rejection Risk",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    missingItems: "Missing items",
+    complianceWarnings: "Compliance warnings",
+    aiDraftNotice: "AI-assisted claim draft. Clinician and billing team verification are required before submission.",
     checklist: "Documentation Checklist",
+    professionalClaim: "Professional Claim / 837P Readiness",
+    documentationSupport: "Documentation Support",
     saveDraft: "Save Draft",
+    saveAsDraft: "Save as Draft",
     export: "Export Claim Document",
+    exportShort: "Export",
+    printClaim: "Print Claim Document",
+    downloadDraftJson: "Download Claim Draft JSON",
+    export837Json: "Export 837P Draft JSON",
     markReady: "Mark Ready for Review",
+    editSessionData: "Edit Session Data",
+    verifyClaimDocument: "Verify Claim Document",
     backToBilling: "Back to Billing Intelligence",
     saved: "Saved locally",
     exportPrepared: "Claim draft JSON downloaded",
+    export837Prepared: "837P draft JSON downloaded",
+    printPrepared: "Print view is being prepared",
     readySaved: "Marked ready for review locally",
+    verified: "Frontend validation completed.",
     printPreparing: "Export is being prepared",
+    patient: "Patient",
     patientName: "Patient Name",
     patientId: "Patient ID / MRN",
+    mrnNumber: "MRN Number",
     dateOfService: "Date of Service",
     provider: "Provider / Clinician",
+    orderingProvider: "Ordering / Rendering Provider",
+    sessionMeta: "Session Meta",
+    payorSource: "Payor Source",
     careType: "Care Type",
     payer: "Payer",
     memberId: "Member ID",
@@ -160,6 +190,7 @@ const claimCopy = {
     modifier: "Modifier",
     units: "Units",
     duration: "Duration",
+    diagnosisPointer: "Diagnosis Pointer",
     bodyRegion: "Body region",
     charge: "Charge estimate",
     documentation: "Documentation status",
@@ -187,6 +218,12 @@ const claimCopy = {
     readiness: "Claim readiness",
     score: "score",
     soapReviewed: "SOAP note reviewed",
+    soapGenerated: "SOAP note generated",
+    soapSectionsPresent: "Subjective / Objective / Assessment / Plan present",
+    cptDocumentationSupport: "CPT documentation support",
+    icdDocumentationSupport: "ICD documentation support",
+    billingCaveatsReviewed: "Billing caveats reviewed",
+    documentationRequiresReview: "Documentation requires clinician review before billing.",
     cptReviewed: "CPT codes reviewed",
     icdReviewed: "ICD-10 diagnosis reviewed",
     unitsVerified: "Units verified",
@@ -202,6 +239,26 @@ const claimCopy = {
     billing: "Billing Intelligence",
     soap: "SOAP Notes",
     claim: "Claim draft",
+    patientDemographicsPresent: "Patient demographics present",
+    providerInformationPresent: "Provider information present",
+    dateOfServicePresent: "Date of service present",
+    payerSourcePresent: "Payer source present",
+    icdDiagnosisAttached: "ICD-10 diagnosis attached",
+    cptServiceLinesAttached: "CPT service lines attached",
+    unitsCalculated: "Units calculated",
+    modifierReviewCompleted: "Modifier review completed",
+    soapDocumentationAvailable: "SOAP documentation available",
+    clinicianReviewCompleted: "Clinician review completed",
+    claimDataReadyForExport: "Claim data ready for export",
+    cptCodingSupport: "CPT coding support",
+    icdCodingSupport: "ICD-10 coding support",
+    mueUnitLimitCheck: "MUE unit limit check",
+    ptpNcciConflictCheck: "PTP/NCCI conflict check",
+    addonParentValidation: "Add-on CPT parent validation",
+    documentationCompleteness: "Documentation completeness",
+    payerRulePlaceholder: "Payer-specific rule placeholder",
+    eightMinuteRuleValidation: "8-Minute Rule validation",
+    actionNeeded: "Action needed",
     readyDetail: "All required review areas have enough supporting data.",
     draftDetail: "Draft can be saved while documentation is still being assembled.",
     reviewDetail: "Clinician review is required before this claim is marked ready.",
@@ -214,25 +271,55 @@ const claimCopy = {
     draft: "مسودة",
     requiresReview: "يتطلب مراجعة",
     ready: "جاهز للمراجعة",
+    clearinghouse: "جاهز لغرفة المقاصة",
+    submitClaim: "إرسال المطالبة",
+    submissionNotConnected: "سير إرسال المطالبة غير متصل بعد. يمكن تصدير هذه المطالبة أو حفظها كمسودة.",
+    submissionConnected: "تم إرسال المطالبة عبر سير العمل المتصل.",
     patientEncounter: "معلومات المريض والزيارة",
     diagnosis: "التشخيص / ICD-10",
     procedureLines: "بنود الإجراءات",
     modifierReview: "مراجعة المعدل",
     billingValidation: "التحقق من الفوترة",
+    complianceValidation: "التحقق من الامتثال",
     claimSummary: "ملخص المطالبة",
+    readinessPanel: "جاهزية المطالبة",
+    rejectionRisk: "خطر الرفض",
+    low: "منخفض",
+    medium: "متوسط",
+    high: "مرتفع",
+    missingItems: "العناصر المفقودة",
+    complianceWarnings: "تحذيرات الامتثال",
+    aiDraftNotice: "مسودة مطالبة بمساعدة الذكاء الاصطناعي. يلزم تحقق الطبيب وفريق الفوترة قبل الإرسال.",
     checklist: "قائمة مراجعة التوثيق",
+    professionalClaim: "جاهزية المطالبة المهنية / 837P",
+    documentationSupport: "دعم التوثيق",
     saveDraft: "حفظ كمسودة",
+    saveAsDraft: "حفظ كمسودة",
     export: "تصدير مستند المطالبة",
+    exportShort: "تصدير",
+    printClaim: "طباعة مستند المطالبة",
+    downloadDraftJson: "تنزيل مسودة المطالبة JSON",
+    export837Json: "تصدير مسودة 837P JSON",
     markReady: "تحديد كجاهز للمراجعة",
+    editSessionData: "تعديل بيانات الجلسة",
+    verifyClaimDocument: "التحقق من مستند المطالبة",
     backToBilling: "الرجوع إلى ذكاء الفوترة",
     saved: "تم الحفظ محليا",
     exportPrepared: "تم تنزيل مسودة المطالبة بصيغة JSON",
+    export837Prepared: "تم تنزيل مسودة 837P بصيغة JSON",
+    printPrepared: "جار تحضير عرض الطباعة",
     readySaved: "تم تحديدها كجاهزة للمراجعة محليا",
+    verified: "اكتمل التحقق الأمامي.",
     printPreparing: "جار تحضير التصدير",
+    patient: "المريض",
     patientName: "اسم المريض",
     patientId: "معرف المريض / MRN",
+    mrnNumber: "رقم MRN",
     dateOfService: "تاريخ الخدمة",
     provider: "مقدم الرعاية / الطبيب",
+    orderingProvider: "مقدم الطلب / مقدم الخدمة",
+    sessionMeta: "بيانات الجلسة",
+    payorSource: "مصدر الدفع",
     careType: "نوع الرعاية",
     payer: "جهة الدفع",
     memberId: "رقم العضوية",
@@ -250,6 +337,7 @@ const claimCopy = {
     modifier: "المعدل",
     units: "الوحدات",
     duration: "المدة",
+    diagnosisPointer: "مؤشر التشخيص",
     bodyRegion: "منطقة الجسم",
     charge: "تقدير الرسوم",
     documentation: "حالة التوثيق",
@@ -277,6 +365,12 @@ const claimCopy = {
     readiness: "جاهزية المطالبة",
     score: "النتيجة",
     soapReviewed: "تمت مراجعة ملاحظة SOAP",
+    soapGenerated: "تم إنشاء ملاحظة SOAP",
+    soapSectionsPresent: "الأقسام الذاتية والموضوعية والتقييم والخطة موجودة",
+    cptDocumentationSupport: "دعم توثيق CPT",
+    icdDocumentationSupport: "دعم توثيق ICD",
+    billingCaveatsReviewed: "تمت مراجعة تنبيهات الفوترة",
+    documentationRequiresReview: "يتطلب التوثيق مراجعة الطبيب قبل الفوترة.",
     cptReviewed: "تمت مراجعة رموز CPT",
     icdReviewed: "تمت مراجعة تشخيص ICD-10",
     unitsVerified: "تم التحقق من الوحدات",
@@ -292,6 +386,26 @@ const claimCopy = {
     billing: "ذكاء الفوترة",
     soap: "ملاحظات SOAP",
     claim: "مسودة المطالبة",
+    patientDemographicsPresent: "بيانات المريض الديموغرافية موجودة",
+    providerInformationPresent: "معلومات مقدم الخدمة موجودة",
+    dateOfServicePresent: "تاريخ الخدمة موجود",
+    payerSourcePresent: "مصدر الدفع موجود",
+    icdDiagnosisAttached: "تشخيص ICD-10 مرفق",
+    cptServiceLinesAttached: "بنود خدمة CPT مرفقة",
+    unitsCalculated: "تم حساب الوحدات",
+    modifierReviewCompleted: "اكتملت مراجعة المعدلات",
+    soapDocumentationAvailable: "توثيق SOAP متاح",
+    clinicianReviewCompleted: "اكتملت مراجعة الطبيب",
+    claimDataReadyForExport: "بيانات المطالبة جاهزة للتصدير",
+    cptCodingSupport: "دعم ترميز CPT",
+    icdCodingSupport: "دعم ترميز ICD-10",
+    mueUnitLimitCheck: "تحقق حد وحدات MUE",
+    ptpNcciConflictCheck: "تحقق تعارض PTP/NCCI",
+    addonParentValidation: "تحقق الرمز الأب للإضافات",
+    documentationCompleteness: "اكتمال التوثيق",
+    payerRulePlaceholder: "قاعدة خاصة بجهة الدفع",
+    eightMinuteRuleValidation: "التحقق من قاعدة الثماني دقائق",
+    actionNeeded: "الإجراء المطلوب",
     readyDetail: "كل مناطق المراجعة المطلوبة لديها بيانات داعمة كافية.",
     draftDetail: "يمكن حفظ المسودة أثناء استكمال التوثيق.",
     reviewDetail: "مراجعة الطبيب مطلوبة قبل جعل المطالبة جاهزة.",
@@ -386,6 +500,7 @@ function statusLabel(status: ValidationStatus | ClaimStatus | ModifierStatus, co
   if (status === "missing") return copy.missing;
   if (status === "requiresReview") return copy.requiresReview;
   if (status === "ready") return copy.ready;
+  if (status === "clearinghouse") return copy.clearinghouse;
   if (status === "draft") return copy.draft;
   if (status === "applied") return copy.applied;
   if (status === "ignored") return copy.ignored;
@@ -680,6 +795,7 @@ function buildValidationChecks(draft: ClaimDraft, copy: ClaimCopy, language: "en
   const hasCpt = draft.procedures.length > 0;
   const hasDiagnosis = draft.diagnoses.length > 0;
   const pendingModifiers = draft.modifiers.some((item) => item.status === "requiresReview");
+  const hasZeroUnitLine = draft.procedures.some((item) => item.units <= 0);
   const missingFields = [
     draft.patient.name ? "" : copy.patientName,
     draft.patient.mrn ? "" : "MRN",
@@ -690,47 +806,71 @@ function buildValidationChecks(draft: ClaimDraft, copy: ClaimCopy, language: "en
   return [
     {
       id: "eight-minute",
-      label: copy.billing === claimCopy.en.billing ? "8 Minute Rule" : "قاعدة الثماني دقائق",
-      status: !hasCpt ? "missing" : totalTimedSeconds >= 8 * 60 ? "passed" : "warning",
+      label: copy.eightMinuteRuleValidation,
+      status: !hasCpt ? "missing" : hasZeroUnitLine || totalTimedSeconds < 8 * 60 ? "warning" : "passed",
       detail: hasCpt
         ? `${copy.totalTime}: ${formatClockTime(totalTimedSeconds, language)}`
         : copy.noProcedures,
     },
     {
-      id: "mue",
-      label: "MUE check",
+      id: "cpt-support",
+      label: copy.cptCodingSupport,
       status: hasCpt ? "passed" : "missing",
       detail: hasCpt ? copy.readyDetail : copy.noProcedures,
     },
     {
-      id: "ptp",
-      label: "PTP/NCCI conflict check",
+      id: "icd-support",
+      label: copy.icdCodingSupport,
+      status: hasDiagnosis ? "requiresReview" : "missing",
+      detail: hasDiagnosis ? copy.clinicianReview : copy.noDiagnosis,
+    },
+    {
+      id: "modifier-59",
+      label: copy.modifierReview,
       status: pendingModifiers ? "requiresReview" : "passed",
       detail: pendingModifiers ? copy.reviewDetail : copy.readyDetail,
     },
     {
+      id: "mue",
+      label: copy.mueUnitLimitCheck,
+      status: hasZeroUnitLine ? "warning" : hasCpt ? "passed" : "missing",
+      detail: hasZeroUnitLine ? copy.reviewDetail : hasCpt ? copy.readyDetail : copy.noProcedures,
+    },
+    {
+      id: "ptp",
+      label: copy.ptpNcciConflictCheck,
+      status: pendingModifiers ? "warning" : "passed",
+      detail: pendingModifiers ? copy.reviewDetail : copy.readyDetail,
+    },
+    {
       id: "addon",
-      label: "Add-on CPT parent validation",
+      label: copy.addonParentValidation,
       status: hasCpt ? "passed" : "missing",
       detail: hasCpt ? copy.readyDetail : copy.noProcedures,
     },
     {
       id: "compatibility",
-      label: "CPT/ICD compatibility",
+      label: "CPT/ICD",
       status: hasCpt && hasDiagnosis ? "passed" : "requiresReview",
       detail: hasDiagnosis ? copy.readyDetail : copy.noDiagnosis,
     },
     {
       id: "missing",
-      label: "Missing required fields",
+      label: copy.missingItems,
       status: missingFields.length > 0 ? "missing" : "passed",
       detail: missingFields.length > 0 ? missingFields.join(", ") : copy.readyDetail,
     },
     {
       id: "documentation",
-      label: "Documentation review required",
+      label: copy.documentationCompleteness,
       status: draft.patient.medexaSummarized ? "requiresReview" : "missing",
-      detail: draft.patient.medexaSummarized ? copy.clinicianReview : copy.notAvailable,
+      detail: draft.patient.medexaSummarized ? copy.documentationRequiresReview : copy.notAvailable,
+    },
+    {
+      id: "payer",
+      label: copy.payerRulePlaceholder,
+      status: draft.patient.payer ? "warning" : "missing",
+      detail: draft.patient.payer ? copy.reviewDetail : copy.payorSource,
     },
   ];
 }
@@ -749,6 +889,7 @@ function ClaimDocumentContent() {
   const [sessionId, setSessionId] = useState("samuel-thompson");
   const [draft, setDraft] = useState<ClaimDraft>(() => emptyDraft("samuel-thompson"));
   const [statusMessage, setStatusMessage] = useState("");
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const { soapData, hasGeneratedDocumentation } = useSessionDocumentation();
   const { language, t } = useLanguage();
   const copy: ClaimCopy = language === "ar" ? claimCopy.ar : claimCopy.en;
@@ -886,7 +1027,20 @@ function ClaimDocumentContent() {
     const passed = validationChecks.filter((item) => item.status === "passed").length;
     return Math.round((passed / validationChecks.length) * 100);
   }, [validationChecks]);
+  const missingCount = validationChecks.filter((item) => item.status === "missing").length;
+  const complianceWarningCount = validationChecks.filter(
+    (item) => item.status === "warning" || item.status === "requiresReview",
+  ).length;
+  const rejectionRisk =
+    missingCount > 0 || readinessScore < 65
+      ? copy.high
+      : complianceWarningCount > 0 || readinessScore < 90
+        ? copy.medium
+        : copy.low;
   const calculatedStatus: ClaimStatus = useMemo(() => {
+    if (draft.status === "clearinghouse") {
+      return "clearinghouse";
+    }
     if (draft.status === "ready") {
       return "ready";
     }
@@ -895,6 +1049,35 @@ function ClaimDocumentContent() {
     }
     return "draft";
   }, [draft.status, validationChecks]);
+  const readinessItems = [
+    { label: copy.patientDemographicsPresent, status: draft.patient.name && draft.patient.mrn ? "passed" : "missing" },
+    { label: copy.providerInformationPresent, status: draft.patient.provider ? "passed" : "missing" },
+    { label: copy.dateOfServicePresent, status: draft.patient.dateOfService ? "passed" : "missing" },
+    { label: copy.payerSourcePresent, status: draft.patient.payer ? "passed" : "missing" },
+    { label: copy.icdDiagnosisAttached, status: draft.diagnoses.length > 0 ? "requiresReview" : "missing" },
+    { label: copy.cptServiceLinesAttached, status: draft.procedures.length > 0 ? "passed" : "missing" },
+    {
+      label: copy.unitsCalculated,
+      status: draft.procedures.length > 0 && draft.procedures.every((item) => item.units > 0) ? "passed" : "warning",
+    },
+    {
+      label: copy.modifierReviewCompleted,
+      status: draft.modifiers.some((item) => item.status === "requiresReview") ? "requiresReview" : "passed",
+    },
+    { label: copy.soapDocumentationAvailable, status: draft.patient.medexaSummarized ? "passed" : "missing" },
+    { label: copy.clinicianReviewCompleted, status: calculatedStatus === "clearinghouse" ? "passed" : "requiresReview" },
+    {
+      label: copy.claimDataReadyForExport,
+      status: missingCount === 0 ? (complianceWarningCount > 0 ? "warning" : "passed") : "missing",
+    },
+  ] satisfies Array<{ label: string; status: ValidationStatus }>;
+  const documentationItems = [
+    { label: copy.soapGenerated, done: draft.patient.medexaSummarized },
+    { label: copy.soapSectionsPresent, done: draft.patient.medexaSummarized && Boolean(draft.patient.diagnosisSummary) },
+    { label: copy.cptDocumentationSupport, done: draft.procedures.length > 0 },
+    { label: copy.icdDocumentationSupport, done: draft.diagnoses.length > 0 },
+    { label: copy.billingCaveatsReviewed, done: validationChecks.every((item) => item.status !== "warning") },
+  ];
   const checklist = [
     { label: copy.soapReviewed, done: draft.patient.medexaSummarized },
     { label: copy.cptReviewed, done: draft.procedures.length > 0 },
@@ -930,6 +1113,63 @@ function ClaimDocumentContent() {
     setStatusMessage(copy.saved);
   };
 
+  const downloadJson = (payload: unknown, fileName: string, message: string) => {
+    setShowExportMenu(false);
+    const content = JSON.stringify(payload, null, 2);
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage(message);
+  };
+
+  const build837Draft = () => ({
+    claimType: "837P draft",
+    sessionId,
+    patient: {
+      name: draft.patient.name,
+      patientId: draft.patient.patientId,
+      mrn: draft.patient.mrn,
+      memberId: draft.patient.memberId,
+      dateOfService: draft.patient.dateOfService,
+    },
+    provider: {
+      renderingProvider: draft.patient.provider,
+      clinician: draft.patient.clinician,
+    },
+    payer: {
+      source: draft.patient.payer,
+    },
+    diagnoses: draft.diagnoses.map((diagnosis, index) => ({
+      pointer: String.fromCharCode(65 + index),
+      code: diagnosis.code,
+      description: diagnosis.description,
+      role: diagnosis.role,
+      reviewStatus: diagnosis.source.toLowerCase().includes("ai") ? copy.clinicianReview : copy.requiresReview,
+    })),
+    serviceLines: draft.procedures.map((procedure, index) => ({
+      line: index + 1,
+      cptCode: procedure.code,
+      description: procedure.displayName,
+      units: procedure.units,
+      durationSeconds: procedure.seconds,
+      modifier: procedure.modifier || null,
+      diagnosisPointer: draft.diagnoses.length > 0 ? String.fromCharCode(65 + Math.min(index, draft.diagnoses.length - 1)) : null,
+      validation: procedure.validationStatus,
+    })),
+    validationResults: validationChecks,
+    readiness: {
+      score: readinessScore,
+      status: statusLabel(calculatedStatus, copy),
+      rejectionRisk,
+      missingCount,
+      complianceWarningCount,
+    },
+  });
+
   const exportClaim = () => {
     const payload = JSON.stringify(
       {
@@ -940,22 +1180,46 @@ function ClaimDocumentContent() {
       null,
       2,
     );
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `medexa-claim-${sessionId}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setStatusMessage(copy.exportPrepared);
+    downloadJson(JSON.parse(payload), `medexa-claim-${sessionId}.json`, copy.exportPrepared);
+  };
+
+  const export837Draft = () => {
+    downloadJson(build837Draft(), `medexa-837p-draft-${sessionId}.json`, copy.export837Prepared);
+  };
+
+  const printClaim = () => {
+    setShowExportMenu(false);
+    setStatusMessage(copy.printPrepared);
+    window.print();
   };
 
   const markReady = () => {
-    const nextDraft = { ...draft, status: "ready" as const };
+    const nextStatus: ClaimStatus = missingCount === 0 && complianceWarningCount === 0 ? "clearinghouse" : "ready";
+    const nextDraft = { ...draft, status: nextStatus };
     setDraft(nextDraft);
     window.localStorage.setItem(`medexa_claim_draft_${sessionId}`, JSON.stringify(nextDraft));
     medexaApi.verifyClaim(sessionId);
     setStatusMessage(copy.readySaved);
+  };
+
+  const verifyClaimDocument = () => {
+    const nextStatus: ClaimStatus =
+      missingCount === 0 && complianceWarningCount === 0
+        ? "clearinghouse"
+        : missingCount === 0
+          ? "ready"
+          : "requiresReview";
+    const nextDraft = { ...draft, status: nextStatus };
+    setDraft(nextDraft);
+    window.localStorage.setItem(`medexa_claim_draft_${sessionId}`, JSON.stringify(nextDraft));
+    setStatusMessage(
+      `${copy.verified} ${copy.missingItems}: ${formatNumber(missingCount, language)}. ${copy.complianceWarnings}: ${formatNumber(complianceWarningCount, language)}.`,
+    );
+  };
+
+  const submitClaim = async () => {
+    const submitted = await medexaApi.submitClaim(sessionId);
+    setStatusMessage(submitted ? copy.submissionConnected : copy.submissionNotConnected);
   };
 
   return (
@@ -976,28 +1240,56 @@ function ClaimDocumentContent() {
                 <span className={`status-chip ${calculatedStatus}`}>{statusLabel(calculatedStatus, copy)}</span>
               </div>
             </div>
+            <div className="top-actions">
+              <div className="export-wrap">
+                <button type="button" onClick={() => setShowExportMenu((value) => !value)}>
+                  {copy.exportShort}
+                </button>
+                {showExportMenu && (
+                  <div className="export-menu">
+                    <button type="button" onClick={printClaim}>{copy.printClaim}</button>
+                    <button type="button" onClick={exportClaim}>{copy.downloadDraftJson}</button>
+                    <button type="button" onClick={export837Draft}>{copy.export837Json}</button>
+                  </div>
+                )}
+              </div>
+              <button type="button" className="submit-button" onClick={submitClaim}>
+                {copy.submitClaim}
+              </button>
+            </div>
           </div>
 
           <div className="hero-meta">
             <div>
-              <span>{copy.patientName}</span>
+              <span>{copy.patient}</span>
               <strong>{displayText(draft.patient.name)}</strong>
+            </div>
+            <div>
+              <span>{copy.mrnNumber}</span>
+              <strong dir="ltr">{draft.patient.mrn || copy.notAvailable}</strong>
+            </div>
+            <div>
+              <span>{copy.orderingProvider}</span>
+              <strong>{displayText(draft.patient.provider || draft.patient.clinician)}</strong>
+            </div>
+            <div>
+              <span>{copy.sessionMeta}</span>
+              <strong>
+                {secondsToDisplay(draft.patient.sessionDurationSeconds, draft.patient.sessionDurationText, language) ||
+                  copy.notAvailable}
+              </strong>
+            </div>
+            <div>
+              <span>{copy.payorSource}</span>
+              <strong>{displayText(draft.patient.payer)}</strong>
             </div>
             <div>
               <span>{copy.dateOfService}</span>
               <strong>{displayText(draft.patient.dateOfService)}</strong>
             </div>
             <div>
-              <span>{copy.patientId}</span>
-              <strong dir="ltr">{draft.patient.mrn || draft.patient.patientId || copy.notAvailable}</strong>
-            </div>
-            <div>
-              <span>{copy.provider}</span>
-              <strong>{displayText(draft.patient.provider || draft.patient.clinician)}</strong>
-            </div>
-            <div>
-              <span>{copy.claimStatus}</span>
-              <strong>{statusLabel(calculatedStatus, copy)}</strong>
+              <span>{copy.careType}</span>
+              <strong>{displayText(draft.patient.careType)}</strong>
             </div>
           </div>
 
@@ -1014,6 +1306,34 @@ function ClaimDocumentContent() {
         </section>
 
         <section className="claim-grid">
+          <article className="claim-card wide readiness-card">
+            <div className="card-heading">
+              <h2>{copy.readinessPanel}</h2>
+              <span className={`status-chip ${calculatedStatus}`}>{statusLabel(calculatedStatus, copy)}</span>
+            </div>
+            <div className="readiness-layout">
+              <div className="readiness-score">
+                <strong>{formatNumber(readinessScore, language)}%</strong>
+                <span>{copy.readiness}</span>
+                <p>{copy.aiDraftNotice}</p>
+              </div>
+              <div className="readiness-metrics">
+                <div>
+                  <span>{copy.rejectionRisk}</span>
+                  <strong>{rejectionRisk}</strong>
+                </div>
+                <div>
+                  <span>{copy.missingItems}</span>
+                  <strong>{formatNumber(missingCount, language)}</strong>
+                </div>
+                <div>
+                  <span>{copy.complianceWarnings}</span>
+                  <strong>{formatNumber(complianceWarningCount, language)}</strong>
+                </div>
+              </div>
+            </div>
+          </article>
+
           <article className="claim-card wide">
             <div className="card-heading">
               <h2>{copy.patientEncounter}</h2>
@@ -1114,26 +1434,20 @@ function ClaimDocumentContent() {
                 <div className="procedure-head">
                   <span>{copy.cptCode}</span>
                   <span>{copy.cptDisplay}</span>
-                  <span>{copy.modifier}</span>
                   <span>{copy.units}</span>
                   <span>{copy.duration}</span>
-                  <span>{copy.bodyRegion}</span>
-                  <span>{copy.charge}</span>
-                  <span>{copy.documentation}</span>
+                  <span>{copy.modifier}</span>
+                  <span>{copy.diagnosisPointer}</span>
                   <span>{copy.validation}</span>
                 </div>
-                {visibleProcedures.map((item) => (
+                {visibleProcedures.map((item, index) => (
                   <div className="procedure-row" key={item.id}>
                     <span className="code-chip" dir="ltr">{item.code}</span>
                     <span>{translateCptDisplayName(item.code, item.displayName, language)}</span>
-                    <span dir="ltr">{item.modifier || "--"}</span>
-                    <span>{formatNumber(item.units, language)}</span>
+                    <span>{formatUnits(item.units, language)}</span>
                     <span dir="ltr">{secondsToDisplay(item.seconds, item.durationText, language) || "--"}</span>
-                    <span>{displayText(item.bodyRegion)}</span>
-                    <span>{item.chargeEstimate ? formatCurrency(item.chargeEstimate, language) : "--"}</span>
-                    <span className={`mini-status ${item.documentationStatus}`}>
-                      {statusLabel(item.documentationStatus, copy)}
-                    </span>
+                    <span dir="ltr">{item.modifier ? `Modifier ${item.modifier}` : "--"}</span>
+                    <span dir="ltr">{draft.diagnoses.length > 0 ? String.fromCharCode(65 + Math.min(index, draft.diagnoses.length - 1)) : "--"}</span>
                     <span className={`mini-status ${item.validationStatus}`}>
                       {statusLabel(item.validationStatus, copy)}
                     </span>
@@ -1185,7 +1499,7 @@ function ClaimDocumentContent() {
 
           <article className="claim-card">
             <div className="card-heading">
-              <h2>{copy.billingValidation}</h2>
+              <h2>{copy.complianceValidation}</h2>
             </div>
             <div className="validation-stack">
               {validationChecks.map((item) => (
@@ -1193,11 +1507,44 @@ function ClaimDocumentContent() {
                   <div>
                     <strong>{displayText(item.label)}</strong>
                     <p>{displayText(item.detail)}</p>
+                    {item.status !== "passed" && <em>{copy.actionNeeded}: {statusLabel(item.status, copy)}</em>}
                   </div>
                   <span className={`mini-status ${item.status}`}>{statusLabel(item.status, copy)}</span>
                 </div>
               ))}
             </div>
+          </article>
+
+          <article className="claim-card wide">
+            <div className="card-heading">
+              <h2>{copy.professionalClaim}</h2>
+              <span>{copy.clearinghouse}</span>
+            </div>
+            <div className="claim-readiness-grid">
+              {readinessItems.map((item) => (
+                <div className="readiness-item" key={item.label}>
+                  <strong>{item.label}</strong>
+                  <span className={`mini-status ${item.status}`}>{statusLabel(item.status, copy)}</span>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="claim-card">
+            <div className="card-heading">
+              <h2>{copy.documentationSupport}</h2>
+            </div>
+            <div className="documentation-list">
+              {documentationItems.map((item) => (
+                <div className={item.done ? "doc-item done" : "doc-item"} key={item.label}>
+                  <strong>{item.label}</strong>
+                  <span>{item.done ? copy.passed : copy.requiresReview}</span>
+                </div>
+              ))}
+            </div>
+            {!documentationItems.every((item) => item.done) && (
+              <div className="review-note">{copy.documentationRequiresReview}</div>
+            )}
           </article>
 
           <article className="claim-card wide">
@@ -1218,10 +1565,9 @@ function ClaimDocumentContent() {
       </section>
 
       <div className="bottom-actions" aria-label={copy.title}>
-        <button type="button" onClick={saveDraft}>{copy.saveDraft}</button>
-        <button type="button" onClick={exportClaim}>{copy.export}</button>
-        <button type="button" className="primary-action" onClick={markReady}>{copy.markReady}</button>
-        <Link href={`/billing-intelligence${tabSuffix}`}>{copy.backToBilling}</Link>
+        <button type="button" onClick={saveDraft}>{copy.saveAsDraft}</button>
+        <Link href={`/billing-intelligence${tabSuffix}`}>{copy.editSessionData}</Link>
+        <button type="button" className="primary-action" onClick={verifyClaimDocument}>{copy.verifyClaimDocument}</button>
       </div>
 
       <style>{`
@@ -1256,6 +1602,7 @@ function ClaimDocumentContent() {
 
         .hero-main,
         .hero-badges,
+        .top-actions,
         .tabs,
         .card-heading,
         .modifier-actions,
@@ -1267,6 +1614,65 @@ function ClaimDocumentContent() {
         .hero-main {
           justify-content: space-between;
           gap: 18px;
+        }
+
+        .top-actions {
+          justify-content: flex-end;
+          gap: 12px;
+          flex: 0 0 auto;
+        }
+
+        .top-actions button {
+          border: 1px solid #d9e4f2;
+          border-radius: 999px;
+          background: #fff;
+          color: #001eff;
+          padding: 9px 14px;
+          font-size: 12px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .top-actions .submit-button {
+          border-color: #001eff;
+          background: #001eff;
+          color: #fff;
+        }
+
+        .export-wrap {
+          position: relative;
+        }
+
+        .export-menu {
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          z-index: 30;
+          width: 220px;
+          border: 1px solid #d9e4f2;
+          border-radius: 8px;
+          background: #fff;
+          padding: 6px;
+          box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+        }
+
+        :global(html[dir="rtl"]) .export-menu {
+          right: auto;
+          left: 0;
+        }
+
+        .export-menu button {
+          width: 100%;
+          border: 0;
+          border-radius: 6px;
+          background: transparent;
+          color: #172033;
+          padding: 9px 10px;
+          text-align: left;
+        }
+
+        :global(html[dir="rtl"]) .export-menu button {
+          text-align: right;
         }
 
         .back-link {
@@ -1349,6 +1755,7 @@ function ClaimDocumentContent() {
         }
 
         .status-chip.ready,
+        .status-chip.clearinghouse,
         .mini-status.passed,
         .mini-status.applied {
           background: #e7f8ee;
@@ -1432,6 +1839,62 @@ function ClaimDocumentContent() {
           grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
           gap: 18px;
           margin-top: 18px;
+        }
+
+        .readiness-card {
+          border-color: #cfdcff;
+          background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
+        }
+
+        .readiness-layout {
+          display: grid;
+          grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+          gap: 16px;
+          align-items: stretch;
+        }
+
+        .readiness-score,
+        .readiness-metrics div {
+          border: 1px solid #dfe7f5;
+          border-radius: 8px;
+          background: #fff;
+          padding: 16px;
+        }
+
+        .readiness-score strong {
+          display: block;
+          color: #001eff;
+          font-size: 34px;
+          line-height: 1;
+        }
+
+        .readiness-score span,
+        .readiness-metrics span {
+          display: block;
+          margin-top: 8px;
+          color: #667085;
+          font-size: 11px;
+          font-weight: 800;
+        }
+
+        .readiness-score p {
+          margin-top: 12px;
+          color: #536071;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .readiness-metrics {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .readiness-metrics strong {
+          display: block;
+          margin-top: 8px;
+          color: #172033;
+          font-size: 18px;
         }
 
         .claim-card {
@@ -1562,7 +2025,7 @@ function ClaimDocumentContent() {
         .procedure-head,
         .procedure-row {
           display: grid;
-          grid-template-columns: 0.7fr 1.4fr 0.7fr 0.55fr 0.8fr 1fr 0.8fr 0.9fr 0.9fr;
+          grid-template-columns: 0.8fr 1.8fr 0.8fr 0.8fr 0.9fr 0.8fr 1fr;
           gap: 10px;
           align-items: center;
           padding: 13px 14px;
@@ -1591,6 +2054,74 @@ function ClaimDocumentContent() {
           justify-content: flex-end;
           gap: 10px;
           margin-top: 12px;
+        }
+
+        .validation-row em {
+          display: inline-flex;
+          margin-top: 8px;
+          color: #9a6100;
+          font-size: 11px;
+          font-style: normal;
+          font-weight: 800;
+        }
+
+        .claim-readiness-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .readiness-item,
+        .doc-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border: 1px solid #e6edf6;
+          border-radius: 8px;
+          background: #fbfcff;
+          padding: 12px;
+        }
+
+        .readiness-item strong,
+        .doc-item strong {
+          min-width: 0;
+          color: #172033;
+          font-size: 12px;
+          line-height: 1.35;
+        }
+
+        .documentation-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .doc-item span {
+          flex: 0 0 auto;
+          border-radius: 999px;
+          background: #fff7e6;
+          color: #9a6100;
+          padding: 5px 8px;
+          font-size: 10px;
+          font-weight: 800;
+        }
+
+        .doc-item.done span {
+          background: #e7f8ee;
+          color: #087c4a;
+        }
+
+        .review-note {
+          margin-top: 12px;
+          border: 1px solid #ffe1a6;
+          border-radius: 8px;
+          background: #fffaf0;
+          color: #8a4b00;
+          padding: 11px 12px;
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1.4;
         }
 
         .modifier-actions button,
@@ -1692,6 +2223,7 @@ function ClaimDocumentContent() {
         @media (max-width: 1100px) {
           .hero-meta,
           .info-grid,
+          .claim-readiness-grid,
           .checklist-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -1707,6 +2239,11 @@ function ClaimDocumentContent() {
           .procedure-row {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
+          .readiness-layout,
+          .readiness-metrics {
+            grid-template-columns: 1fr;
+          }
         }
 
         @media (max-width: 760px) {
@@ -1720,11 +2257,27 @@ function ClaimDocumentContent() {
           }
 
           .hero-main,
+          .top-actions,
           .card-heading,
           .validation-row,
           .diagnosis-row > div {
             align-items: flex-start;
             flex-direction: column;
+          }
+
+          .top-actions,
+          .top-actions button {
+            width: 100%;
+          }
+
+          .export-wrap {
+            width: 100%;
+          }
+
+          .export-menu {
+            left: 0;
+            right: auto;
+            width: 100%;
           }
 
           h1 {
@@ -1747,6 +2300,7 @@ function ClaimDocumentContent() {
           .hero-meta,
           .info-grid,
           .summary-metrics,
+          .claim-readiness-grid,
           .checklist-grid,
           .procedure-row {
             grid-template-columns: 1fr;
