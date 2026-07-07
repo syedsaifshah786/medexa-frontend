@@ -422,7 +422,7 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 const isDevelopment = process.env.NODE_ENV === "development";
 
 function endpoint(path: string) {
@@ -460,6 +460,81 @@ async function request<T>(
     }
     return null;
   }
+}
+
+export async function getClaimDocument(sessionId: string, language: Language = "en") {
+  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`;
+
+  if (isDevelopment) {
+    console.log("[ClaimDocument] fetching", url);
+  }
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch claim document: ${res.status}`);
+  }
+
+  return (await res.json()) as ApiClaimDocument;
+}
+
+export async function verifyClaimDocument(sessionId: string, language: Language = "en") {
+  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to verify claim document: ${res.status}`);
+  }
+
+  return (await res.json()) as ApiClaimDocument;
+}
+
+export async function saveClaimDraft(sessionId: string, payload: Record<string, unknown>) {
+  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/draft`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to save claim draft: ${res.status}`);
+  }
+
+  return (await res.json()) as ApiClaimDocumentDraftResponse;
+}
+
+export async function get837PDraft(sessionId: string, language: Language = "en") {
+  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch 837P draft: ${res.status}`);
+  }
+
+  return (await res.json()) as Claim837PDraft;
 }
 
 export const medexaApi = {
@@ -632,19 +707,36 @@ export const medexaApi = {
     request<{ summary: string; sent: boolean }>(`/patient-summary/${encodeURIComponent(sessionId)}/send`, {
       method: "POST",
     }),
-  getClaimDocument: (sessionId: string, language: Language = "en") =>
-    request<ApiClaimDocument>(
-      `/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`,
-    ),
-  verifyClaimDocument: (sessionId: string, language: Language = "en") =>
-    request<ApiClaimDocument>(
-      `/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`,
-      { method: "POST" },
-    ),
-  get837PDraft: (sessionId: string, language: Language = "en") =>
-    request<Claim837PDraft>(
-      `/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`,
-    ),
+  getClaimDocument: async (sessionId: string, language: Language = "en") => {
+    try {
+      return await getClaimDocument(sessionId, language);
+    } catch (error) {
+      if (isDevelopment) {
+        console.warn("[Medexa API] Falling back to local claim data.", error);
+      }
+      return null;
+    }
+  },
+  verifyClaimDocument: async (sessionId: string, language: Language = "en") => {
+    try {
+      return await verifyClaimDocument(sessionId, language);
+    } catch (error) {
+      if (isDevelopment) {
+        console.warn("[Medexa API] Claim verification failed.", error);
+      }
+      return null;
+    }
+  },
+  get837PDraft: async (sessionId: string, language: Language = "en") => {
+    try {
+      return await get837PDraft(sessionId, language);
+    } catch (error) {
+      if (isDevelopment) {
+        console.warn("[Medexa API] 837P draft fetch failed.", error);
+      }
+      return null;
+    }
+  },
   claim: (sessionId: string) => request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}`),
   addClaimCpt: (sessionId: string, body: Record<string, unknown>) =>
     request<ApiClaim["cptItems"][number]>(`/claims/${encodeURIComponent(sessionId)}/cpt`, {
@@ -663,10 +755,12 @@ export const medexaApi = {
     }),
   saveClaimDraft: (sessionId: string, payload?: Record<string, unknown>, language: Language = "en") =>
     payload
-      ? request<ApiClaimDocumentDraftResponse>(
-          `/sessions/${encodeURIComponent(sessionId)}/claim-document/draft?language=${encodeURIComponent(language)}`,
-          { method: "POST", body: payload },
-        )
+      ? saveClaimDraft(sessionId, payload).catch((error) => {
+          if (isDevelopment) {
+            console.warn("[Medexa API] Claim draft save failed.", error, language);
+          }
+          return null;
+        })
       : request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}/save-draft`, { method: "POST" }),
   verifyClaim: (sessionId: string) =>
     request<ApiClaim>(`/claims/${encodeURIComponent(sessionId)}/verify`, { method: "POST" }),

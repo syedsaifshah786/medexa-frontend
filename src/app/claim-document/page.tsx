@@ -7,7 +7,7 @@ import MedexaHeader from "@/components/MedexaHeader";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSessionDocumentation } from "@/context/SessionDocumentationContext";
 import { getActiveSessionId, setActiveSessionId } from "@/lib/activeSession";
-import { medexaApi } from "@/lib/api";
+import { get837PDraft, getClaimDocument, medexaApi, saveClaimDraft, verifyClaimDocument } from "@/lib/api";
 import type {
   ApiClaimDocument,
   ApiCptRecord,
@@ -278,7 +278,14 @@ function ClaimDocumentContent() {
     setStatusMessage(t("claim.loading"));
 
     const loadClaim = async () => {
-      const claimDocument = await medexaApi.getClaimDocument(activeSessionId, language);
+      let claimDocument: ApiClaimDocument | null = null;
+      try {
+        claimDocument = await getClaimDocument(activeSessionId, language);
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[ClaimDocument] backend fetch failed, using local fallback.", error);
+        }
+      }
 
       if (!isMounted) {
         return;
@@ -515,7 +522,14 @@ function ClaimDocumentContent() {
   };
 
   const exportClaim = async (format: "DRAFT_JSON" | "837P_JSON") => {
-    const backend837P = await medexaApi.get837PDraft(sessionId, language);
+    let backend837P: Claim837PDraft | null = null;
+    try {
+      backend837P = await get837PDraft(sessionId, language);
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[ClaimDocument] 837P backend fetch failed, using local fallback.", error);
+      }
+    }
     const claim837P = backend837P ?? build837PDraft();
     const payload =
       format === "837P_JSON"
@@ -554,7 +568,12 @@ function ClaimDocumentContent() {
       window.localStorage.setItem(`medexa_claim_draft_${sessionId}`, JSON.stringify(draft));
     }
 
-    const savedDraft = await medexaApi.saveClaimDraft(sessionId, draft as unknown as Record<string, unknown>, language);
+    const savedDraft = await saveClaimDraft(sessionId, draft as unknown as Record<string, unknown>).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[ClaimDocument] draft backend save failed, keeping local draft.", error);
+      }
+      return null;
+    });
     if (savedDraft && "claim_document" in savedDraft) {
       const nextMeta = claimDocumentToMeta(savedDraft.claim_document);
       setSessionItems(claimDocumentToCptItems(savedDraft.claim_document));
@@ -584,7 +603,12 @@ function ClaimDocumentContent() {
   };
 
   const verifyClaim = async () => {
-    const verifiedClaim = await medexaApi.verifyClaimDocument(sessionId, language);
+    const verifiedClaim = await verifyClaimDocument(sessionId, language).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[ClaimDocument] backend verification failed, using local validation.", error);
+      }
+      return null;
+    });
 
     if (verifiedClaim) {
       const nextMeta = claimDocumentToMeta(verifiedClaim);
