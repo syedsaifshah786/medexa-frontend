@@ -264,12 +264,12 @@ function ClaimDocumentContent() {
   const { language, t } = useLanguage();
   const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
-  const routeSessionId = searchParams.get("sessionId") ?? searchParams.get("id") ?? "";
+  const routeSessionId = searchParams.get("sessionId") || searchParams.get("id") || "samuel-thompson";
   const sessionQuery = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
   const query = headerSearch.trim().toLowerCase();
 
   useEffect(() => {
-    const activeSessionId = routeSessionId || getActiveSessionId();
+    const activeSessionId = routeSessionId || getActiveSessionId() || "samuel-thompson";
     setSessionId(activeSessionId);
     setActiveSessionId(activeSessionId);
 

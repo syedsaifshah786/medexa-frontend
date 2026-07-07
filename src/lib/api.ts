@@ -424,11 +424,11 @@ type RequestOptions = Omit<RequestInit, "body"> & {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 const isDevelopment = process.env.NODE_ENV === "development";
+const apiBaseUrl = API_BASE_URL.replace(/\/+$/g, "");
 
 function endpoint(path: string) {
-  const base = API_BASE_URL.replace(/\/+$/g, "");
   const nextPath = path.replace(/^\/+/g, "");
-  return base ? `${base}/${nextPath}` : `/${nextPath}`;
+  return apiBaseUrl ? `${apiBaseUrl}/${nextPath}` : `/${nextPath}`;
 }
 
 async function request<T>(
@@ -463,7 +463,11 @@ async function request<T>(
 }
 
 export async function getClaimDocument(sessionId: string, language: Language = "en") {
-  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`;
+  if (!sessionId) {
+    throw new Error("sessionId is required to fetch claim document");
+  }
+
+  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`;
 
   if (isDevelopment) {
     console.log("[ClaimDocument] fetching", url);
@@ -485,7 +489,11 @@ export async function getClaimDocument(sessionId: string, language: Language = "
 }
 
 export async function verifyClaimDocument(sessionId: string, language: Language = "en") {
-  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`;
+  if (!sessionId) {
+    throw new Error("sessionId is required to verify claim document");
+  }
+
+  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -502,7 +510,11 @@ export async function verifyClaimDocument(sessionId: string, language: Language 
 }
 
 export async function saveClaimDraft(sessionId: string, payload: Record<string, unknown>) {
-  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/draft`;
+  if (!sessionId) {
+    throw new Error("sessionId is required to save claim draft");
+  }
+
+  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/draft`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -521,7 +533,11 @@ export async function saveClaimDraft(sessionId: string, payload: Record<string, 
 }
 
 export async function get837PDraft(sessionId: string, language: Language = "en") {
-  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`;
+  if (!sessionId) {
+    throw new Error("sessionId is required to fetch 837P draft");
+  }
+
+  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`;
   const res = await fetch(url, {
     method: "GET",
     headers: {
