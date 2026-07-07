@@ -264,7 +264,7 @@ function ClaimDocumentContent() {
   const { language, t } = useLanguage();
   const displayText = (value: string | null | undefined) => translateDynamicMessage(value ?? "", language);
 
-  const routeSessionId = searchParams.get("sessionId") || searchParams.get("id") || "samuel-thompson";
+  const routeSessionId = searchParams.get("sessionId") || "samuel-thompson";
   const sessionQuery = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
   const query = headerSearch.trim().toLowerCase();
 

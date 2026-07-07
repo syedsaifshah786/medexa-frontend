@@ -464,16 +464,17 @@ async function request<T>(
 
 export async function getClaimDocument(sessionId: string, language: Language = "en") {
   if (!sessionId) {
-    throw new Error("sessionId is required to fetch claim document");
+    throw new Error("sessionId is required");
   }
 
-  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`;
+  const url =
+    `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document?language=${encodeURIComponent(language)}`;
 
   if (isDevelopment) {
     console.log("[ClaimDocument] fetching", url);
   }
 
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -481,11 +482,11 @@ export async function getClaimDocument(sessionId: string, language: Language = "
     cache: "no-store",
   });
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch claim document: ${res.status}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch claim document: ${response.status}`);
   }
 
-  return (await res.json()) as ApiClaimDocument;
+  return (await response.json()) as ApiClaimDocument;
 }
 
 export async function verifyClaimDocument(sessionId: string, language: Language = "en") {
@@ -493,7 +494,8 @@ export async function verifyClaimDocument(sessionId: string, language: Language 
     throw new Error("sessionId is required to verify claim document");
   }
 
-  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`;
+  const url =
+    `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/verify?language=${encodeURIComponent(language)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -514,7 +516,7 @@ export async function saveClaimDraft(sessionId: string, payload: Record<string, 
     throw new Error("sessionId is required to save claim draft");
   }
 
-  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/draft`;
+  const url = `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/draft`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -537,7 +539,8 @@ export async function get837PDraft(sessionId: string, language: Language = "en")
     throw new Error("sessionId is required to fetch 837P draft");
   }
 
-  const url = `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`;
+  const url =
+    `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}/claim-document/837p-draft?language=${encodeURIComponent(language)}`;
   const res = await fetch(url, {
     method: "GET",
     headers: {
