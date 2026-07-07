@@ -46,6 +46,7 @@ backend/.venv/
 backend/**/__pycache__/
 *.pyc
 backend/tmp/
+backend/data/rules/cpt_icd10_rules.json
 
 # uploaded audio
 *.mp3
