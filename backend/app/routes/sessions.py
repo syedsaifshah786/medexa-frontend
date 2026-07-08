@@ -384,17 +384,74 @@ def _soap_response_from_generated(
     }
 
 
+def _finalize_response_from_existing(
+    session_id: str,
+    payload: FinalizeSessionRequest,
+    existing_soap: dict,
+    cpt_records: list[dict],
+) -> dict:
+    if existing_soap.get("soap_note"):
+        response = existing_soap.copy()
+        response["session_id"] = response.get("session_id") or session_id
+        response["billing_summary"] = response.get("billing_summary") or {
+            "total_seconds": payload.total_seconds,
+            "cpt_records": cpt_records,
+        }
+        response["billing_summary"]["total_seconds"] = payload.total_seconds
+        response["billing_summary"]["cpt_records"] = cpt_records
+        response["redirect_url"] = response.get("redirect_url") or f"/soap-notes?sessionId={session_id}"
+        response["saved_to_store"] = True
+        response["llm_used"] = bool(response.get("llm_used"))
+        response["llm_fallback_reason"] = response.get("llm_fallback_reason", "")
+        response["active_route_marker"] = response.get("active_route_marker") or "sessions.finalize_session.existing.v1"
+        return response
+
+    soap_note = existing_soap.copy()
+    summary = " ".join(
+        str(value)
+        for section in ("subjective", "objective", "assessment", "plan")
+        for value in (
+            soap_note.get(section, {}).values()
+            if isinstance(soap_note.get(section), dict)
+            else [soap_note.get(section, "")]
+        )
+        if value
+    )
+    return {
+        "session_id": session_id,
+        "soap_note": soap_note,
+        "summary": summary or "Saved SOAP note requires clinician review.",
+        "billing_summary": {
+            "total_seconds": payload.total_seconds,
+            "cpt_records": cpt_records,
+        },
+        "redirect_url": f"/soap-notes?sessionId={session_id}",
+        "llm_used": False,
+        "llm_fallback_reason": "existing_saved_note",
+        "saved_to_store": True,
+        "store_keys_after_save": [],
+        "active_route_marker": "sessions.finalize_session.existing.v1",
+    }
+
+
 @router.post("/{session_id}/finalize-session")
 def finalize_session(session_id: str, payload: FinalizeSessionRequest) -> dict:
     print("[Finalize FILE STORE] called:", session_id)
-    print("[Finalize FILE STORE] transcript length:", len(payload.transcript or ""))
+    transcript = payload.transcript or payload.full_transcript or ""
+    print("[Finalize FILE STORE] transcript length:", len(transcript))
     data.ensure_session(session_id)
+    cpt_records = [record.model_dump() for record in payload.cpt_records]
     existing_soap = get_soap_note(session_id, payload.language)
     if existing_soap and not payload.force_regenerate:
-        return existing_soap
+        existing_response = _finalize_response_from_existing(session_id, payload, existing_soap, cpt_records)
+        save_soap_note(session_id, existing_response, payload.language)
+        existing_response["store_keys_after_save"] = get_soap_store_debug()["keys"]
+        save_soap_note(session_id, existing_response, payload.language)
+        return existing_response
 
-    cpt_records = [record.model_dump() for record in payload.cpt_records]
     llm_payload = payload.model_dump()
+    llm_payload["transcript"] = transcript
+    llm_payload["full_transcript"] = transcript
     fallback_generated = generate_fallback_soap(llm_payload, "deterministic_fallback")
     fallback_response = _soap_response_from_generated(session_id, payload, fallback_generated, cpt_records)
     save_soap_note(session_id, fallback_response, payload.language)

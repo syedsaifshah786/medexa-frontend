@@ -10,6 +10,7 @@ import {
   apiSessionToUpcomingSession,
   medexaApi,
   type ApiCptRecord,
+  type ApiFinalizeSessionResponse,
   type ApiModifier59Suggestion,
   type ApiCptTimerSuggestion,
   type ApiInsight,
@@ -935,7 +936,12 @@ function AmbientSessionContent() {
   const speechSession = liveSession;
   const { consumeCurrentChunkTranscript, getCurrentChunkTranscript } = speechSession;
   const fullTranscript = visibleFullTranscript || speechSession.liveTranscript;
-  const lastHeardText = visibleLatestHeardText || speechSession.lastHeardText;
+  const latestHeardText =
+    visibleLatestHeardText ||
+    speechSession.lastHeardText ||
+    speechSession.interimTranscript ||
+    speechSession.currentChunkTranscript;
+  const lastHeardText = latestHeardText;
   const currentThirtySecondChunk = speechSession.currentChunkTranscript;
 
   useEffect(() => {
@@ -1868,12 +1874,12 @@ function AmbientSessionContent() {
     }
   };
 
-  const confirmStop = async () => {
+  const finalizeAndRedirectToSoap = async () => {
     if (finalizingRef.current) {
       return;
     }
     finalizingRef.current = true;
-    debugLog("[Finalize Frontend] called once", sessionId);
+    debugLog("[StopSession] finalizing", sessionId);
 
     const finalCptTimer =
       cptTimer.status === "running" || cptTimer.status === "paused"
@@ -1921,20 +1927,43 @@ function AmbientSessionContent() {
     setCptRecords(Object.fromEntries(finalizedCptRecords.map((record) => [record.code, record])));
     setActiveCptCode(null);
     setShowStopConfirm(false);
-    speechSession.stopListening();
-    await createAiSummarySegment(recordingSecondsRef.current);
-    medexaApi.stopSessionTimer(sessionId);
-    if (cptTimer.status === "running" || cptTimer.status === "paused") {
-      medexaApi.stopCptTimer(sessionId);
+
+    try {
+      speechSession.stopListening();
+    } catch (error) {
+      debugLog("[StopSession] stop listening failed", error);
     }
-    medexaApi.updateSessionState(sessionId, {
+
+    try {
+      await createAiSummarySegment(recordingSecondsRef.current);
+    } catch (error) {
+      debugLog("[StopSession] final summary failed", error);
+    }
+
+    void medexaApi.stopSessionTimer(sessionId);
+    if (cptTimer.status === "running" || cptTimer.status === "paused") {
+      void medexaApi.stopCptTimer(sessionId);
+    }
+    void medexaApi.updateSessionState(sessionId, {
       status: "stopped",
       elapsedSeconds: recordingSeconds,
     });
+
     const localSoapData = saveSoapDocumentation();
+    const transcript =
+      fullTranscriptRef.current ||
+      fullTranscript ||
+      latestHeardTextRef.current ||
+      latestHeardText ||
+      "";
     const finalizePayload = {
-      transcript: fullTranscriptRef.current || speechSession.finalTranscriptRef.current || fullTranscript,
+      transcript,
+      full_transcript: transcript,
       total_seconds: recordingSeconds,
+      session_timer: {
+        status: "stopped" as const,
+        total_seconds: recordingSeconds,
+      },
       cpt_timer: {
         active: false,
         code: finalCptTimer.code,
@@ -1951,33 +1980,48 @@ function AmbientSessionContent() {
       modifier59_suggestions: modifier59Suggestions,
       soap_draft: localSoapData,
     };
-    debugLog("[Medexa] finalizing SOAP", finalizePayload);
-    const finalized = await medexaApi.finalizeSession(sessionId, finalizePayload, language);
-    debugLog("[Finalize Frontend] response", finalized);
-    debugLog("[Medexa] SOAP saved", finalized);
+    const fallbackFinalizeResponse: ApiFinalizeSessionResponse = {
+      session_id: sessionId,
+      soap_note: localSoapData,
+      summary: [
+        localSoapData.subjective.chiefComplaint,
+        localSoapData.objective.observationNotes,
+        localSoapData.assessment.diagnosisSummary,
+        localSoapData.plan.followUpPlan,
+      ].filter(Boolean).join(" "),
+      billing_summary: {
+        total_seconds: recordingSeconds,
+        cpt_records: finalizedCptRecords,
+      },
+      redirect_url: `/soap-notes?sessionId=${encodeURIComponent(sessionId)}`,
+      saved_to_store: true,
+      llm_used: false,
+      llm_fallback_reason: "frontend_finalize_fallback",
+    };
 
-    if (finalized?.soap_note) {
-      updateSoapData(finalized.soap_note);
-      window.localStorage.setItem(
-        `medexa_soap_note_${sessionId}`,
-        JSON.stringify(finalized),
-      );
-      router.push(`/soap-notes?sessionId=${sessionId}`);
-      return;
+    let finalized = fallbackFinalizeResponse;
+
+    try {
+      const response = await medexaApi.finalizeSession(sessionId, finalizePayload, language);
+      debugLog("[StopSession] finalize response", response);
+      finalized = response?.soap_note ? response : fallbackFinalizeResponse;
+    } catch (error) {
+      debugLog("[StopSession] finalize response", fallbackFinalizeResponse);
+      if (process.env.NODE_ENV === "development") {
+        console.error("[StopSession] finalize failed", error);
+      }
     }
 
+    updateSoapData(finalized.soap_note);
     window.localStorage.setItem(
       `medexa_soap_note_${sessionId}`,
-      JSON.stringify({
-        ...localSoapData,
-        billing_summary: {
-          total_seconds: recordingSeconds,
-          cpt_records: finalizedCptRecords,
-        },
-      }),
+      JSON.stringify(finalized),
     );
-    router.push(`/soap-notes?sessionId=${sessionId}`);
+    debugLog("[StopSession] redirecting to SOAP", sessionId);
+    router.push(`/soap-notes?sessionId=${encodeURIComponent(sessionId)}`);
   };
+
+  const confirmStop = finalizeAndRedirectToSoap;
 
   const startCptTimerFromSuggestion = (
     source: "manual" | "ai_suggested" = "manual",
@@ -2122,7 +2166,7 @@ function AmbientSessionContent() {
     }
 
     if (detection.command === "stop_recording" && (recordingStatus === "recording" || recordingStatus === "paused")) {
-      void confirmStop();
+      void finalizeAndRedirectToSoap();
       return;
     }
 

@@ -205,7 +205,11 @@ function SoapNotesContent() {
     debugLog("[SOAP Page] sessionId", activeSessionId);
     setSessionId(activeSessionId);
     setActiveSessionId(activeSessionId);
-    setMissingSessionSoap(false);
+    setMissingSessionSoap(Boolean(querySessionId));
+    if (querySessionId) {
+      updateSoapData(emptySoapData);
+      setBillingSummary(null);
+    }
 
     let isMounted = true;
 
@@ -227,6 +231,7 @@ function SoapNotesContent() {
             updateSoapData(normalizeSoapResponse(parsed, querySessionId ? emptySoapData : defaultSoapData));
             setMissingSessionSoap(false);
           }
+          return;
         } catch {
           window.localStorage.removeItem(`medexa_soap_note_${activeSessionId}`);
         }

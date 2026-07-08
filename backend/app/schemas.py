@@ -42,7 +42,9 @@ class FinalizeCptRecordPayload(BaseModel):
 
 class FinalizeSessionRequest(BaseModel):
     transcript: str = ""
+    full_transcript: str = ""
     total_seconds: int = 0
+    session_timer: dict = Field(default_factory=dict)
     language: Literal["en", "ar", "he"] = "en"
     cpt_timer: FinalizeCptTimerPayload = Field(default_factory=FinalizeCptTimerPayload)
     cpt_records: list[FinalizeCptRecordPayload] = Field(default_factory=list)

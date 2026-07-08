@@ -183,7 +183,12 @@ export type ApiCptRecord = {
 
 export type ApiFinalizeSessionPayload = {
   transcript: string;
+  full_transcript?: string;
   total_seconds: number;
+  session_timer?: {
+    status: ApiRecordingState["status"];
+    total_seconds: number;
+  };
   language?: Language;
   cpt_timer?: {
     active: boolean;
