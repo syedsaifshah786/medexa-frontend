@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query
 
+from app.services.eight_minute_rule_service import sample_eight_minute_rule_cases
 from app.services.rule_engine import RULE_FILE_NAMES, RULES_DIR, analyze_transcript_chunk, load_rules
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -99,3 +100,8 @@ def debug_cpt_detect(text: str = Query(..., min_length=1), language: str = "en")
         "cpt_suggestions": analysis.get("cpt_suggestions", []),
         "live_suggestions": analysis.get("live_suggestions", []),
     }
+
+
+@router.get("/eight-minute-rule-test")
+def debug_eight_minute_rule_test() -> dict:
+    return sample_eight_minute_rule_cases()

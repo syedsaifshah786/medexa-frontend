@@ -4,76 +4,14 @@ from copy import deepcopy
 from typing import Any
 
 from app import data
+from app.services.eight_minute_rule_service import (
+    FIFTEEN_MINUTES_SECONDS,
+    allocate_timed_units,
+    next_unit_at_seconds,
+    units_from_seconds,
+)
 from app.services.localization import normalize_language, translate_cpt_display_name
 from app.services.rule_engine import enrich_billing_payload, load_rules
-
-FIFTEEN_MINUTES_SECONDS = 15 * 60
-
-
-def units_from_seconds(elapsed_seconds: int) -> int:
-    safe_seconds = max(int(elapsed_seconds or 0), 0)
-    if safe_seconds < 8 * 60:
-        return 0
-    if safe_seconds < 23 * 60:
-        return 1
-    if safe_seconds < 38 * 60:
-        return 2
-    if safe_seconds < 53 * 60:
-        return 3
-    if safe_seconds < 68 * 60:
-        return 4
-    return 5 + ((safe_seconds - 68 * 60) // FIFTEEN_MINUTES_SECONDS)
-
-
-def next_unit_at_seconds(elapsed_seconds: int) -> int:
-    safe_seconds = max(int(elapsed_seconds or 0), 0)
-    for threshold in [8 * 60, 23 * 60, 38 * 60, 53 * 60, 68 * 60]:
-        if safe_seconds < threshold:
-            return threshold
-    extra_units = ((safe_seconds - 68 * 60) // FIFTEEN_MINUTES_SECONDS) + 1
-    return 68 * 60 + extra_units * FIFTEEN_MINUTES_SECONDS
-
-
-def allocate_timed_units(seconds_by_cpt: dict[str, int]) -> dict[str, Any]:
-    clean_seconds = {
-        str(code): max(int(seconds or 0), 0)
-        for code, seconds in seconds_by_cpt.items()
-        if str(code).strip()
-    }
-    total_seconds = sum(clean_seconds.values())
-    total_units = units_from_seconds(total_seconds)
-    units_by_cpt = {code: 0 for code in clean_seconds}
-    remainders: dict[str, int] = {}
-    allocated_units = 0
-
-    for code, seconds in clean_seconds.items():
-        base_units = seconds // FIFTEEN_MINUTES_SECONDS
-        units_by_cpt[code] = base_units
-        allocated_units += base_units
-        remainders[code] = seconds % FIFTEEN_MINUTES_SECONDS
-
-    units_remaining = max(total_units - allocated_units, 0)
-    remainder_assigned_to: str | None = None
-    if units_remaining and remainders:
-        ordered = sorted(remainders.items(), key=lambda item: (-item[1], item[0]))
-        index = 0
-        while units_remaining > 0:
-            code, _remainder = ordered[index % len(ordered)]
-            units_by_cpt[code] += 1
-            remainder_assigned_to = remainder_assigned_to or code
-            units_remaining -= 1
-            index += 1
-
-    return {
-        "total_seconds": total_seconds,
-        "total_minutes": total_seconds // 60,
-        "total_units": total_units,
-        "units_by_cpt": units_by_cpt,
-        "seconds_by_cpt": clean_seconds,
-        "remainder_seconds": sum(remainders.values()),
-        "remainder_assigned_to": remainder_assigned_to,
-        "seconds_to_next_unit": max(next_unit_at_seconds(total_seconds) - total_seconds, 0),
-    }
 
 
 def duration_display(seconds: int) -> str:
